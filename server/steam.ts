@@ -1,4 +1,4 @@
-import { fetchFromIgdb, mapIgdbGame } from "./igdb";
+import { apicalypseString, fetchFromIgdb, mapIgdbGame } from "./igdb";
 
 const STEAM_API_BASE = "https://api.steampowered.com";
 const FETCH_TIMEOUT_MS = 15_000;
@@ -337,7 +337,9 @@ export async function matchSteamToIgdb(items: { appid: number; name: string }[])
   await mapWithLimit(missing, 5, async (item) => {
     const target = normalizeName(item.name);
     if (!target) return;
-    const query = `fields ${IGDB_GAME_FIELDS}; search "${item.name.replace(/[\\"\r\n;]/g, "")}"; limit 5;`;
+    // Reuse the shared escaper (strips string-breakout chars AND caps length)
+    // rather than a local partial copy — Steam titles are upstream-controlled.
+    const query = `fields ${IGDB_GAME_FIELDS}; search "${apicalypseString(item.name)}"; limit 5;`;
     const rows = await fetchFromIgdb("games", query);
     const list = Array.isArray(rows) ? rows : [];
     let best: any | undefined;

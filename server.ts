@@ -8,7 +8,7 @@ import rateLimit from "express-rate-limit";
 import compression from "compression";
 import { apiRouter, ensureDailyBackup } from "./server/routes";
 import db from "./server/db";
-import { DIST_DIR, POSTERS_DIR, ensureDataDir } from "./server/paths";
+import { DATA_DIR, DIST_DIR, POSTERS_DIR, ensureDataDir } from "./server/paths";
 
 const PORT = Number.parseInt(process.env.PORT || "3001", 10);
 const HOST = process.env.HOST || "127.0.0.1";
@@ -63,7 +63,11 @@ export async function createApp(production = false) {
   const IS_PRODUCTION = production;
   const app = express();
   app.disable("x-powered-by");
-  app.set("trust proxy", 1);
+  // Blindly trusting proxy headers makes every rate limit spoofable via a
+  // forged X-Forwarded-For when no proxy is actually in front. Default: trust
+  // nothing; operators behind a reverse proxy set TRUST_PROXY ("1", "loopback", ...).
+  const TRUST_PROXY = (process.env.TRUST_PROXY || "").trim();
+  app.set("trust proxy", TRUST_PROXY === "" ? false : Number.isNaN(Number(TRUST_PROXY)) ? TRUST_PROXY : Number(TRUST_PROXY));
 
   app.use(
     helmet({
@@ -146,30 +150,10 @@ export async function createApp(production = false) {
     });
   }
 
-  // Bigger per-route body limits: library imports and base64 poster uploads
-  // legitimately exceed the default 1mb. These MUST be mounted before the
-  // global parser — express parses the body on the first matching middleware,
-  // so a 1mb global parser mounted first would 413 every large import/upload.
-  app.use("/api/import", express.json({ limit: "25mb" }));
-  app.use("/api/upload-poster", express.json({ limit: "4mb" }));
-  app.use("/api/backups/restore-file", express.raw({ type: () => true, limit: "80mb" }));
-
-  app.use(express.json({ limit: "1mb" }));
-  app.use(express.urlencoded({ limit: "1mb", extended: true }));
-
-  // ── Request logging (access log) ─────────────────────────────────
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    const start = Date.now();
-    res.on("finish", () => {
-      const ms = Date.now() - start;
-      if (req.path.startsWith("/api")) {
-        console.log(`${new Date().toISOString()} ${req.method} ${req.originalUrl} ${res.statusCode} ${ms}ms`);
-      }
-    });
-    next();
-  });
-
   // ── Rate limiting (API only — static assets stay unlimited) ──────
+  // Mounted BEFORE the body parsers below: throttling must happen before
+  // express buffers up to 80mb of request body, otherwise the per-route
+  // limits on import/upload/restore are unreachable padding.
   const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 200,
@@ -235,6 +219,29 @@ export async function createApp(production = false) {
   });
   app.delete("/api/wipe", wipeLimiter);
 
+  // Bigger per-route body limits: library imports and base64 poster uploads
+  // legitimately exceed the default 1mb. These MUST be mounted before the
+  // global parser — express parses the body on the first matching middleware,
+  // so a 1mb global parser mounted first would 413 every large import/upload.
+  app.use("/api/import", express.json({ limit: "25mb" }));
+  app.use("/api/upload-poster", express.json({ limit: "4mb" }));
+  app.use("/api/backups/restore-file", express.raw({ type: () => true, limit: "80mb" }));
+
+  app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ limit: "1mb", extended: true }));
+
+  // ── Request logging (access log) ─────────────────────────────────
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const start = Date.now();
+    res.on("finish", () => {
+      const ms = Date.now() - start;
+      if (req.path.startsWith("/api")) {
+        console.log(`${new Date().toISOString()} ${req.method} ${req.originalUrl} ${res.statusCode} ${ms}ms`);
+      }
+    });
+    next();
+  });
+
   // No-cache headers for all API responses
   app.use("/api", (_req, res, next) => {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -277,8 +284,27 @@ export async function createApp(production = false) {
         // time — watching it would make Vite full-reload the page on every
         // write. Build outputs must be ignored for the same reason.
         watch: { ignored: ["**/data/**", "**/dist/**", "**/dist-server/**", "**/*.tsbuildinfo"] },
+        fs: {
+          // Vite's dev server otherwise serves ANY file under the project root
+          // — including the live SQLite database, its backups, and uploaded
+          // posters — to any client that can reach the port, unauthenticated,
+          // with no Origin gate on GET (DNS-rebinding reachable). Keep Vite's
+          // built-in denies (.env, TLS keys) and add the data directory.
+          deny: [".env", ".env.*", "*.{crt,pem}", DATA_DIR, `${DATA_DIR}/**`],
+        },
       },
       appType: "spa",
+    });
+    // Belt-and-suspenders for plain-URL paths (fs.deny above covers /@fs/...):
+    // never hand data-dir contents, env files, git metadata, or server sources
+    // to the dev middleware — respond 404 before Vite sees the request.
+    const DEV_SECRET_PREFIXES = ["/data", "/.env", "/.git", "/server", "/scripts", "/dist-server", "/coverage"];
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      const p = req.path.replace(/\\/g, "/").toLowerCase();
+      if (DEV_SECRET_PREFIXES.some((prefix) => p === prefix || p.startsWith(`${prefix}/`))) {
+        return res.status(404).send("Not Found");
+      }
+      next();
     });
     app.use(vite.middlewares);
   } else {
@@ -305,7 +331,14 @@ export async function createApp(production = false) {
         return res.status(404).send("Not Found");
       }
       res.setHeader("Cache-Control", "no-cache");
-      res.sendFile(path.join(DIST_DIR, "index.html"));
+      res.sendFile(path.join(DIST_DIR, "index.html"), (err) => {
+        // Without a callback an ENOENT (dist not built yet) would dump the
+        // absolute filesystem path into the response body.
+        if (err && !res.headersSent) {
+          console.error("SPA fallback failed to serve index.html:", err.message);
+          res.status(500).send("Internal Server Error");
+        }
+      });
     });
   }
 

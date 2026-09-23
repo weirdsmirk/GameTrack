@@ -419,7 +419,7 @@ const SEARCH_POOL_SIZE = 100;
 const FEED_POOL_TTL_MS = 10 * 60 * 1000;
 
 /** Escape an IGDB Apicalypse string literal (genre names, search text). */
-function apicalypseString(value: string): string {
+export function apicalypseString(value: string): string {
   // Strip characters that would break out of an Apicalypse string literal,
   // then cap the length so a hostile query can't build a huge upstream request.
   return value.replace(/[\\"\r\n;]/g, "").trim().slice(0, 200);

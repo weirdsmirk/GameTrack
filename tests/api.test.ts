@@ -19,6 +19,13 @@ let app: Express;
 let serverModule: typeof import("../server.ts");
 
 beforeAll(async () => {
+  // The SPA fallback serves dist/index.html in non-dev mode; create a minimal
+  // placeholder when no build exists so a clean checkout can run the suite.
+  const distIndex = path.join(__dirname, "..", "dist", "index.html");
+  if (!fs.existsSync(distIndex)) {
+    fs.mkdirSync(path.dirname(distIndex), { recursive: true });
+    fs.writeFileSync(distIndex, "<!doctype html><title>gametrack test build</title>\n");
+  }
   serverModule = await import("../server.ts");
   app = await serverModule.createApp(true);
 });

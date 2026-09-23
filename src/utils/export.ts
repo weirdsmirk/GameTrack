@@ -2,6 +2,10 @@ import type { Game } from "../types";
 import { formatPlaytimePrecise } from "./time";
 
 export function csvEscape(value: string): string {
+  // Neutralize spreadsheet formula execution (CSV injection): cells whose
+  // content starts with = + - @ or a tab are prefixed with an apostrophe so
+  // Excel/Sheets render them as text instead of evaluating them.
+  if (/^[=+\-@\t]/.test(value)) value = `'${value}`;
   if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
   return value;
 }

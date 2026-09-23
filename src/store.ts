@@ -1222,6 +1222,13 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       const res = await fetch("/api/wipe", { method: "DELETE" });
       if (!res.ok) throw new Error("Wipe failed");
 
+      // Drop cached analytics/discover snapshots so stale data from the wiped
+      // library can't resurface afterwards (or leak into a fresh library).
+      if (typeof window !== "undefined" && window.localStorage) {
+        localStorage.removeItem(ANALYTICS_CACHE_KEY);
+        localStorage.removeItem(DISCOVER_CACHE_KEY);
+      }
+
       set({ games: [], selectedGame: null, suggestions: [] });
       get().showToast("Library wiped", "success", "All local data cleared");
       get().fetchAnalytics();

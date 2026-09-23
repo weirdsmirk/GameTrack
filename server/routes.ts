@@ -124,7 +124,7 @@ const GameSchema = z.object({
   date_completed: z.number().nullable().optional(),
   created_at: z.number().optional(),
   updated_at: z.number().optional(),
-  hide_playtime: z.number().min(0).max(1).optional(),
+  hide_playtime: z.number().int().min(0).max(1).optional(),
   steam_appid: z.number().int().nullable().optional(),
   custom_order: z.number().int().min(0).nullable().optional(),
   metadata_custom: z.number().int().min(0).max(1).optional(),
@@ -278,6 +278,9 @@ apiRouter.get("/export/db", async (_req: Request, res: Response) => {
   const tmpPath = path.join(DATA_DIR, `.backup-${process.pid}-${Date.now()}-${crypto.randomUUID()}.db`);
   try {
     await db.backup(tmpPath);
+    // The snapshot is a full copy of the DB — strip the stored Steam API key
+    // before it leaves the process (see scrubSecretsFromSnapshot).
+    scrubSecretsFromSnapshot(tmpPath);
     // Read the snapshot into memory and delete the temp file up front — the
     // library DB is small (local single-user app), and sending a buffer avoids
     // any temp-file/stream lifecycle races with the response.
@@ -346,9 +349,16 @@ apiRouter.put("/games/order", (req: Request, res: Response) => {
     if (ids.length === 0 || ids.length > 5000) return res.status(400).json({ error: "Invalid game id list length" });
     if (new Set(ids).size !== ids.length) return res.status(400).json({ error: "Order payload contains duplicate game ids" });
 
-    const total = (stmts.getAllGames.all() as unknown[]).length;
-    if (ids.length !== total) {
-      return res.status(400).json({ error: `Order payload must contain all ${total} games` });
+    const libraryRows = stmts.getAllGames.all() as { id: number }[];
+    if (ids.length !== libraryRows.length) {
+      return res.status(400).json({ error: `Order payload must contain all ${libraryRows.length} games` });
+    }
+    // Bind the payload to the actual library set: without this check a caller
+    // could submit arbitrary ids, wiping the custom order of every real game
+    // while writing order positions for ids that don't exist.
+    const libraryIds = new Set(libraryRows.map((r) => r.id));
+    if (!ids.every((id) => libraryIds.has(id))) {
+      return res.status(400).json({ error: "Order payload contains unknown game ids" });
     }
 
     const setOrder = db.transaction((ordered: number[]) => {
@@ -1448,6 +1458,27 @@ function pruneBackups(keep: number): void {
 
 let backupBusy = false;
 
+/**
+ * Snapshots that leave the process (downloads) or outlive it on disk
+ * (backups) must never carry the stored Steam Web API key: the REST API
+ * deliberately never returns it (GET /settings/steam only exposes `keySet`),
+ * so a downloadable/restorable copy must not widen that trust. After a
+ * restore the key is simply re-entered, or supplied via STEAM_WEB_API_KEY.
+ */
+function scrubSecretsFromSnapshot(file: string): void {
+  let snap: Database.Database | null = null;
+  try {
+    snap = new Database(file);
+    snap.exec(
+      "UPDATE settings SET value = json_remove(value, '$.apiKey') WHERE key = 'steam_sync' AND json_valid(value)"
+    );
+  } catch (err) {
+    console.warn("Could not scrub secrets from snapshot:", err instanceof Error ? err.message : err);
+  } finally {
+    snap?.close();
+  }
+}
+
 async function withBackupLock<T>(fn: () => Promise<T>): Promise<T> {
   if (backupBusy) {
     const err = new Error("A backup or restore is already running.");
@@ -1468,7 +1499,14 @@ export async function createBackupNow(): Promise<{ name: string; created_at: num
     ensureBackupDir();
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const name = `gametrack-backup-${stamp}.db`;
-    await db.backup(path.join(BACKUP_DIR, name));
+    const file = path.join(BACKUP_DIR, name);
+    await db.backup(file);
+    // Backups are downloadable over the API and may be copied off-box — they
+    // must not carry the stored Steam API key, and should not be world-readable.
+    scrubSecretsFromSnapshot(file);
+    try {
+      fs.chmodSync(file, 0o600);
+    } catch { /* best-effort: read-only mounts/volumes may deny chmod */ }
     pruneBackups(getBackupSettings().keep);
     return listBackups();
   });
@@ -1560,7 +1598,12 @@ async function restoreBackupFile(file: string): Promise<void> {
     ensureBackupDir();
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const safety = `gametrack-backup-pre-restore-${stamp}.db`;
-    await db.backup(path.join(BACKUP_DIR, safety));
+    const safetyPath = path.join(BACKUP_DIR, safety);
+    await db.backup(safetyPath);
+    scrubSecretsFromSnapshot(safetyPath);
+    try {
+      fs.chmodSync(safetyPath, 0o600);
+    } catch { /* best-effort: read-only mounts/volumes may deny chmod */ }
     restoreFromValidatedFile(file);
     pruneBackups(getBackupSettings().keep);
   });
@@ -1673,7 +1716,8 @@ apiRouter.post("/backups/:name/restore", async (req: Request, res: Response) => 
 
 /** Restore from an uploaded SQLite file (raw body). Mounted with express.raw in server.ts. */
 apiRouter.post("/backups/restore-file", async (req: Request, res: Response) => {
-  const tmp = path.join(DATA_DIR, `.restore-${process.pid}-${Date.now()}.db`);
+  // Random suffix: pid+timestamp alone is guessable/predictable.
+  const tmp = path.join(DATA_DIR, `.restore-${process.pid}-${Date.now()}-${crypto.randomUUID()}.db`);
   try {
     const body = req.body as Buffer | undefined;
     if (!body || !Buffer.isBuffer(body) || body.length < 100) {
