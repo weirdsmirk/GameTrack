@@ -89,8 +89,17 @@ export default function App() {
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
       const store = useGameTrackStore.getState();
+      // Option + , toggles the system settings panel (macOS-style preferences
+      // shortcut). Matched by physical code so it works even though Option
+      // remaps e.key to a punctuation character on US layouts, and preventDefault
+      // stops that character from landing in any focused input.
+      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === "Comma") {
+        e.preventDefault();
+        store.setSettingsOpen(!store.isSettingsOpen);
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "/" && !typing(e.target)) {
         e.preventDefault();
         store.setActiveTab("library");
