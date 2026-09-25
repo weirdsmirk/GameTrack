@@ -2,12 +2,12 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import {
-  Search, SlidersHorizontal, Plus, RefreshCw, ChevronDown, X, Trophy, GripVertical, Heart, CheckSquare, Check, Trash2, Loader2,
-  Bookmark, Play, Repeat
+  Search, SlidersHorizontal, Plus, RefreshCw, ChevronDown, X, GripVertical, Heart, CheckSquare, Check, Trash2, Loader2
 } from "lucide-react";
 import { Game } from "../types";
 
 import { STATUSES, getStatusLabel, getStatusMarkerColor, platformIdMatches, mergeCustomPlatforms, libraryGridClass } from "../constants";
+import { formatPlaytimeLong } from "../utils/time";
 import { PosterImage } from "./PosterImage";
 
 export const LibraryView: React.FC = () => {
@@ -292,7 +292,7 @@ export const LibraryView: React.FC = () => {
       <div className="flex flex-col lg:flex-row justify-between lg:items-end gap-6">
         <div>
           {/* Huge Display Hero Title */}
-          <h1 className="text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none mb-3">
+          <h1 className="relative z-30 pointer-events-none text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none mb-3">
             GAME<br />LIBRARY
           </h1>
           <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
@@ -697,13 +697,24 @@ export const LibraryView: React.FC = () => {
   );
 };
 
-/** Per-status corner badge icons — mirrors the completion trophy style. */
-const STATUS_MARKER_ICONS: Record<Game["status"], typeof Trophy> = {
-  backlog: Bookmark,
-  playing: Play,
-  completed: Trophy,
-  endless: Repeat,
-};
+/**
+ * Status marker — a plain filled square in the status colour, no icon. Sits
+ * top-right on the poster at rest and is reused verbatim in the hover overlay
+ * so the two states never disagree about what a status looks like. The colour
+ * is the signal; the accessible name carries the label, so a colour-blind user
+ * still gets the status from the title/aria-label rather than from hue alone.
+ */
+const StatusMarker: React.FC<{ status: Game["status"]; className?: string }> = ({
+  status,
+  className = "",
+}) => (
+  <span
+    role="img"
+    aria-label={`Status: ${getStatusLabel(status)}`}
+    title={getStatusLabel(status)}
+    className={`block w-3.5 h-3.5 border shrink-0 ${getStatusMarkerColor(status)} ${className}`}
+  />
+);
 
 interface LibraryGameCardProps {
   game: Game;
@@ -733,6 +744,13 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
     onClick(game);
   };
 
+  // Accent the first word of the hover title, same rule as the dashboard
+  // suggestion cards: the opening word is always on line one, so the line clamp
+  // can never cut the accent away on a long title.
+  const titleWords = game.title.trim().split(/\s+/);
+  const accentWord = titleWords[0] ?? "";
+  const headWords = titleWords.slice(1).join(" ");
+
   return (
     <div
       onClick={handleCardClick}
@@ -751,7 +769,7 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
       onDragOver={reorderable ? (e) => { e.preventDefault(); onDragOverCard?.(game); } : undefined}
       onDragEnd={reorderable ? (e) => { e.preventDefault(); onDragEnd?.(); } : undefined}
       title={reorderable ? "Drag to reorder" : undefined}
-      className={`group bg-transparent rounded-none overflow-hidden cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2 transition-all duration-200 relative flex flex-col justify-between border border-brand-border ${
+      className={`group bg-transparent rounded-none overflow-hidden cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2 transition-all duration-200 relative flex flex-col justify-between border border-brand-border hover:border-brand-accent ${
         selectMode && selected
           ? "ring-2 ring-brand-accent/50 bg-brand-accent/[0.04] border-brand-accent"
           : ""
@@ -774,33 +792,56 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
           </div>
         )}
 
-        {/* Status badge — small square icon badge at the top-left corner;
-            every status matches the completion trophy badge style */}
-        {!selectMode && (() => {
-          const StatusIcon = STATUS_MARKER_ICONS[game.status] ?? Bookmark;
-          return (
-            <div
-              role="img"
-              aria-label={`Status: ${getStatusLabel(game.status)}`}
-              title={getStatusLabel(game.status)}
-              className={`absolute top-2.5 left-2.5 ${density === "compact" ? "p-1" : "p-1.5"} z-10 shadow-lg border ${getStatusMarkerColor(game.status)}`}
-            >
-              <StatusIcon className="w-3.5 h-3.5 stroke-[2.5]" />
-            </div>
-          );
-        })()}
+        {/* Status marker — plain coloured square, top-right. The resting copy
+            fades out on hover and the hover copy below fades in, both pinned to
+            the same top-2.5 right-2.5. Cross-fading in place rather than moving
+            between the two, because a marker that shifts a few pixels between
+            states reads as a glitch rather than as a state change. */}
+        {!selectMode && (
+          <StatusMarker
+            status={game.status}
+            className="absolute top-2.5 right-2.5 z-10 transition-opacity duration-200 group-hover:opacity-0"
+          />
+        )}
+        {!selectMode && (
+          <StatusMarker
+            status={game.status}
+            className="absolute top-2.5 right-2.5 z-10 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
+          />
+        )}
         <PosterImage
           src={game.poster_url}
           alt={game.title}
           className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200 transform-gpu will-change-transform"
         />
 
-        {/* Score Floating Badge */}
+        {/* Score Floating Badge — also steps aside on hover for the same reason */}
         {showRating && game.critic_score != null && (
-          <div className={`absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm ${density === "compact" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-[11px]"} font-mono font-black text-brand-accent border border-brand-border z-10 shadow-sm`}>
+          <div className={`absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm ${density === "compact" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-[11px]"} font-mono font-black text-brand-accent border border-brand-border z-10 shadow-sm transition-opacity duration-200 group-hover:opacity-0`}>
             {game.critic_score}
           </div>
         )}
+
+        {/* Hover state — scrim, playtime top-left, and the display title at the
+            bottom with its first word in accent. The status is NOT rendered
+            here: the cross-faded marker above holds the top-right corner in
+            both states, so it never moves. Fires on keyboard focus too, so it
+            is not mouse-only. */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-gradient-to-b from-black/65 via-black/15 to-black/85 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-300"
+        />
+        <div className="absolute inset-0 p-4 flex flex-col justify-between opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-300 ease-out">
+          <div className="flex items-start justify-between gap-3 font-sans text-[11px] font-semibold uppercase tracking-widest">
+            <span className="shrink-0 text-white/85">
+              {game.hide_playtime === 1 ? "—" : formatPlaytimeLong(game.playtime)}
+            </span>
+          </div>
+          <h4 className="text-lg sm:text-[22px] lg:text-[27px] font-black uppercase tracking-tight leading-[0.95] text-white line-clamp-3 break-words">
+            <span className="text-brand-accent">{accentWord}</span>
+            {headWords && <span> {headWords}</span>}
+          </h4>
+        </div>
       </div>
     </div>
   );

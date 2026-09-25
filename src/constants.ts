@@ -195,14 +195,28 @@ export const getStatusLabel = (status: string): string => {
   return match ? match.label : status;
 };
 
+/**
+ * Status palette, shared by every status surface in the app (poster markers,
+ * the logs rail, game details, active games) so a status reads as the same
+ * colour everywhere:
+ *
+ *   completed -> green      playing  -> blue
+ *   backlog   -> grey       endless  -> purple
+ *
+ * Blue is a theme token (`--blue-400/500`), defined per theme alongside the
+ * emerald/fuchsia values, so these track the active theme rather than being
+ * hardcoded Tailwind defaults. The accent colour is deliberately NOT a status
+ * colour any more — it used to stand for "completed", which collided with the
+ * accent's job as the brand's action/selection colour.
+ */
 export const getStatusBadgeColor = (status: string): string => {
   switch (status) {
     case "backlog":
       return "bg-zinc-900 text-zinc-400 border-zinc-800";
     case "playing":
-      return "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+      return "bg-blue-500/10 text-blue-400 border-blue-500/30";
     case "completed":
-      return "bg-brand-accent/10 text-brand-accent border-brand-accent/30";
+      return "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
     case "endless":
       return "bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/30";
     default:
@@ -215,9 +229,9 @@ export const getStatusBadgeColor = (status: string): string => {
 export const getStatusMarkerColor = (status: string): string => {
   switch (status) {
     case "playing":
-      return "bg-emerald-500 border-emerald-500 text-zinc-950";
+      return "bg-blue-500 border-blue-500 text-zinc-950";
     case "completed":
-      return "bg-brand-accent border-brand-accent text-zinc-950";
+      return "bg-emerald-500 border-emerald-500 text-zinc-950";
     case "endless":
       return "bg-fuchsia-500 border-fuchsia-500 text-zinc-950";
     case "backlog":

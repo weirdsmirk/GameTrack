@@ -270,7 +270,7 @@ export const DiscoverView: React.FC = () => {
       <div className="flex flex-col lg:flex-row justify-between items-start gap-8">
         <div>
           {/* Huge Display Hero Title */}
-          <h1 className="text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none mb-3">
+          <h1 className="relative z-30 pointer-events-none text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none mb-3">
             DISCOVER<br />TITLES
           </h1>
           <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">

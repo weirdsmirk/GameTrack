@@ -41,6 +41,8 @@
   --amber-400-val: #FBBF24;
   --amber-500-val: #F59E0B;
   /* accent glow (selected "completed" cards) */
+  --blue-400-val: #60A5FA;
+  --blue-500-val: #3B82F6;
   --brand-glow: rgba(250, 204, 21, 0.12);
   --brand-glow-strong: rgba(250, 204, 21, 0.25);
   /* status glows */
@@ -72,6 +74,8 @@
   --zinc-800-val: #2B1A1A;
   --zinc-900-val: #1E1111;
   --zinc-950-val: #120909;
+  --blue-400-val: #60A5FA;
+  --blue-500-val: #3B82F6;
   --brand-glow: rgba(248, 113, 113, 0.14);
   --brand-glow-strong: rgba(248, 113, 113, 0.28);
 }
@@ -103,6 +107,8 @@
   --red-600-val: #B91C1C;
   --amber-400-val: #B45309;
   --amber-500-val: #B45309;
+  --blue-400-val: #1D4ED8;
+  --blue-500-val: #1E40AF;
   --brand-glow: rgba(90, 70, 40, 0.08);
   --brand-glow-strong: rgba(90, 70, 40, 0.16);
   --status-glow-emerald: rgba(4, 120, 87, 0.10);
@@ -142,6 +148,8 @@
   --red-600-val: #B91C1C;
   --amber-400-val: #B45309;
   --amber-500-val: #B45309;
+  --blue-400-val: #1D4ED8;
+  --blue-500-val: #1E40AF;
   --brand-glow: rgba(29, 78, 216, 0.08);
   --brand-glow-strong: rgba(29, 78, 216, 0.16);
   --status-glow-emerald: rgba(4, 120, 87, 0.10);
@@ -178,6 +186,8 @@
   --color-zinc-900: var(--zinc-900-val);
   --color-zinc-950: var(--zinc-950-val);
 
+  --color-blue-400: var(--blue-400-val);
+  --color-blue-500: var(--blue-500-val);
   --color-emerald-400: var(--emerald-400-val);
   --color-emerald-500: var(--emerald-500-val);
   --color-fuchsia-400: var(--fuchsia-400-val);

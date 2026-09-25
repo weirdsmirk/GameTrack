@@ -3,7 +3,7 @@ import { useGameTrackStore } from "../store";
 import { motion, AnimatePresence } from "motion/react";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { 
-  Upload, Download, Trash2, Loader2, Settings, Joystick, RefreshCw, Link2, Unlink, ExternalLink, X, Check, ChevronDown, Info
+  Upload, Download, Trash2, Loader2, Settings, Joystick, RefreshCw, Link2, Unlink, ExternalLink, X, Check, Info
 } from "lucide-react";
 import { THEMES } from "../themes";
 
@@ -42,26 +42,6 @@ export const SettingsModal: React.FC = React.memo(() => {
   const panelRef = useModalA11y(isSettingsOpen);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [canScrollDown, setCanScrollDown] = useState(false);
-
-  useEffect(() => {
-    if (!isSettingsOpen) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const update = () => {
-      setCanScrollDown(el.scrollHeight - el.scrollTop - el.clientHeight > 24);
-    };
-    update();
-    el.addEventListener("scroll", update, { passive: true });
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    window.addEventListener("resize", update);
-    return () => {
-      el.removeEventListener("scroll", update);
-      ro.disconnect();
-      window.removeEventListener("resize", update);
-    };
-  }, [isSettingsOpen]);
 
   useEffect(() => {
     if (isSettingsOpen) {
@@ -730,15 +710,9 @@ export const SettingsModal: React.FC = React.memo(() => {
 
             </div>
 
-            {canScrollDown && (
-              <>
-                <div className="absolute bottom-0 inset-x-0 h-10 bg-gradient-to-t from-brand-bg to-transparent pointer-events-none" />
-                <div className="absolute -bottom-1.5 inset-x-0 flex justify-center pointer-events-none">
-                  <ChevronDown className="w-6 h-6 text-brand-accent" />
-                </div>
-              </>
-            )}
-
+            {/* No bottom fade and no chevron — same as the logs rail. The
+                panel scrolls on its own and the clipped next row already shows
+                there is more below. */}
           </motion.div>
         </div>
       )}

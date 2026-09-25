@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import { 
-  Trophy, Calendar, Shuffle, ChevronDown
+  Trophy, Calendar, Shuffle
 } from "lucide-react";
 import { motion } from "motion/react";
 import { formatPlaytime, formatPlaytimeLong, formatPlaytimePrecise } from "../utils/time";
@@ -103,7 +103,7 @@ export const DashboardView: React.FC = React.memo(() => {
       <div className="flex flex-col lg:flex-row justify-between items-start gap-8">
         <div className="space-y-3">
           {/* Huge Display Hero Title */}
-          <h1 className="text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none">
+          <h1 className="relative z-30 pointer-events-none text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none">
             GAME<br /><span className="text-brand-accent">TRACK_</span>
           </h1>
           <p className="max-w-none text-brand-muted text-sm sm:text-base font-medium leading-relaxed lg:whitespace-nowrap">
@@ -208,8 +208,13 @@ export const DashboardView: React.FC = React.memo(() => {
           5/7 of the row, so the track refused to shrink and the real split came
           out 602:498 instead of 5:2. Log rows still truncate their title with
           the status badge shrink-0, so the rail degrades to an ellipsis rather
-          than wrapping. */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,5fr)_minmax(0,2fr)] gap-10">
+          than wrapping. The two columns are left to stretch to a common height
+          (align-items defaults to stretch on a grid): the posters set the row
+          height from their own 2:3 ratio, and the Logs rail fills it and
+          scrolls internally. Neither column hardcodes a pixel height, so they
+          stay level at every viewport width instead of only at the one the
+          old 488px was measured at. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,5fr)_minmax(0,2fr)] gap-10 items-stretch">
         
         {/* Next To Play Recommendations */}
         <div className="space-y-6">
@@ -312,15 +317,18 @@ export const DashboardView: React.FC = React.memo(() => {
                         on bare artwork. */}
                     <div
                       aria-hidden="true"
-                      className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/20 to-black/95 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-300"
+                      className="absolute inset-0 bg-gradient-to-b from-black/65 via-black/15 to-black/85 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-300"
                     />
 
                     <div className="absolute inset-0 p-4 flex flex-col justify-between opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-300 ease-out">
                       {/* Data pinned to the top corners: year left, platform and
-                          score right. */}
-                      <div className="flex items-start justify-between gap-3 font-mono text-[10px] uppercase tracking-widest">
-                        <span className="shrink-0 text-white/75">{game.year ?? "—"}</span>
-                        <span className="flex items-center gap-2 min-w-0 justify-end text-white/75">
+                          score right. Sans-serif rather than the mono used by
+                          the app's telemetry micro-labels — these sit on
+                          artwork next to a display title, and mono read as
+                          machine output against the poster. */}
+                      <div className="flex items-start justify-between gap-3 font-sans text-[11px] font-semibold uppercase tracking-widest">
+                        <span className="shrink-0 text-white/85">{game.year ?? "—"}</span>
+                        <span className="flex items-center gap-2 min-w-0 justify-end text-white/85">
                           {hasScore && (
                             <span className="shrink-0 text-brand-accent font-black">MC {game.critic_score}</span>
                           )}
@@ -331,7 +339,7 @@ export const DashboardView: React.FC = React.memo(() => {
                       {/* Display-scale title, first word in accent. The accent
                           is on the opening word so the line clamp can never eat
                           it. */}
-                      <h4 className="text-xl sm:text-2xl lg:text-3xl font-black uppercase tracking-tight leading-[0.95] text-white line-clamp-3 break-words drop-shadow-[0_2px_6px_rgba(0,0,0,0.95)]">
+                      <h4 className="text-lg sm:text-[22px] lg:text-[27px] font-black uppercase tracking-tight leading-[0.95] text-white line-clamp-3 break-words">
                         <span className="text-brand-accent">{accentWord}</span>
                         {headWords && <span> {headWords}</span>}
                       </h4>
@@ -351,28 +359,39 @@ export const DashboardView: React.FC = React.memo(() => {
           )}
         </div>
 
-        {/* Recent Activity Panel */}
-        <div className="space-y-6">
-          <div className="border-b border-brand-border pb-3 flex items-center lg:h-[46px]">
+        {/* Recent Activity Panel — the rail stretches to whatever height the
+            poster row resolves to at this viewport, and scrolls inside itself.
+            The old lg:h-[488px] fixed the list height, so the two columns only
+            lined up at one screen width; flex-1 min-h-0 on a flex column lets
+            the row's height come from the tallest sibling and have the list
+            fill it, with min-h-0 so overflow-y-auto actually bounds it. */}
+        <div className="space-y-6 flex flex-col h-full min-h-0">
+          <div className="border-b border-brand-border pb-3 flex items-center shrink-0 lg:h-[46px]">
             <h3 className="text-lg font-bold tracking-tight uppercase text-white">
               Logs
             </h3>
           </div>
 
           {loadingAnalytics ? (
-            <div className="space-y-3 animate-pulse">
+            <div className="space-y-3 animate-pulse flex-1 min-h-0 overflow-hidden">
               {[...Array(5)].map((_, i) => (
                 <div key={i} className="h-16 bg-zinc-900/50 rounded-none border border-brand-border" />
               ))}
             </div>
           ) : recentActivity.length === 0 ? (
-            <div className="border border-brand-border border-dashed rounded-none p-6 text-center flex flex-col items-center justify-center h-48">
+            <div className="border border-brand-border border-dashed rounded-none p-6 text-center flex flex-col items-center justify-center h-48 shrink-0">
               <Calendar className="w-8 h-8 text-brand-muted mb-2" />
               <p className="text-brand-muted text-xs uppercase font-bold font-mono">No recent activity logs</p>
             </div>
           ) : (
-            <div className="relative">
-              <div className="space-y-3 lg:h-[488px] lg:overflow-y-auto lg:pr-1">
+            <div className="relative flex-1 min-h-0">
+              {/* absolute inset-0, not h-full: a percentage height against a
+                  flex-basis-0 parent is circular, so the browser falls back to
+                  the list's natural height (3200px+) and the whole row grows
+                  to match. An out-of-flow child contributes nothing to the
+                  intrinsic height, so the posters stay the tallest thing here
+                  and the rail scrolls inside whatever height they resolve to. */}
+              <div className="absolute inset-0 space-y-3 overflow-y-auto pr-1">
                 {recentActivity.map((game) => (
                   <div
                     key={game.id}
@@ -405,22 +424,21 @@ export const DashboardView: React.FC = React.memo(() => {
                   </div>
                 ))}
               </div>
-              {recentActivity.length > 6 && (
-                <>
-                  <div className="absolute bottom-0 inset-x-0 h-10 bg-gradient-to-t from-brand-bg to-transparent pointer-events-none hidden lg:block" />
-                  <div className="absolute -bottom-1.5 inset-x-0 flex justify-center pointer-events-none hidden lg:flex">
-                    <ChevronDown className="w-6 h-6 text-brand-accent" />
-                  </div>
-                </>
-              )}
+              {/* No bottom fade and no chevron. The rail scrolls on its own and
+                  the clipped next row is already the cue that more content
+                  sits below; both devices sat on top of that row and read as
+                  rendering artefacts rather than as affordances. */}
             </div>
           )}
         </div>
 
       </div>
 
-      {/* Full analytics telemetry — moved here from the former standalone tab */}
-      <div className="border-t border-brand-border pt-10">
+      {/* Full analytics telemetry — moved here from the former standalone tab.
+          The border-t and its pt-10 are gone; the root's space-y-10 already
+          spaces the sections, so the rule only added a hard line across the
+          page. */}
+      <div>
         <AnalyticsView />
       </div>
 

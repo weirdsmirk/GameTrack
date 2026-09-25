@@ -221,6 +221,16 @@ const tabs = [
             resolves just ahead of the wordmark and the reveal cascades
             instead of snapping as one block.
 
+            This bar sits at z-20, deliberately below the page titles, which
+            carry `relative z-30` so a 110px title scrolls up and over the
+            bar rather than being sliced by it. That only works because the
+            view's motion.div has no residual transform/opacity/will-change
+            once its enter animation completes and the inline transform is
+            cleared — any of those would re-create a stacking context and
+            trap the title's z-index below this bar. The titles are also
+            pointer-events-none so their boxes cannot swallow clicks meant
+            for the tab row.
+
             Single element on purpose: the bar's height is driven by the 34px
             button row, so the row stays perfectly centred inside it instead of
             overflowing a fixed-height backdrop. py-10 puts that row's top edge

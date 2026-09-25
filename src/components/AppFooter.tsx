@@ -18,7 +18,12 @@ import { LEGAL_ORDER } from "./LegalView";
  */
 export const AppFooter: React.FC = () => {
   return (
-    <footer className="mt-24 border-t border-brand-border pt-10">
+    /* The rule is a pseudo-element rather than border-t so it can break out of
+       the page gutter. The negatives mirror the content wrapper's own padding
+       (px-6, md:px-12), so the line lands exactly on the viewport edges at
+       every breakpoint. It still lands inside the wrapper's padding box, so the
+       wrapper's overflow-x-hidden does not clip it. */
+    <footer className="relative mt-24 pt-10 before:absolute before:top-0 before:-left-6 before:-right-6 md:before:-left-12 md:before:-right-12 before:h-px before:bg-brand-border before:content-['']">
       <div className="flex flex-col gap-10 lg:flex-row lg:items-end lg:justify-between">
         {/* The statement carries its own weight — no label above it. */}
         <p className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tighter leading-[0.92] text-white">
@@ -36,13 +41,10 @@ export const AppFooter: React.FC = () => {
             </span>
           </div>
 
-          <p className="font-mono text-[11px] font-bold uppercase tracking-widest text-brand-muted">
-            // Local database · yours forever
-          </p>
-
-          {/* Legal links. Sans-serif rather than the mono micro-label used
-              above: these are body-copy destinations, not telemetry, and
-              read better as plain UI text. Wrapped in <nav> for the landmark. */}
+          {/* Legal links. Sans-serif rather than the mono micro-label the
+              local-database line above used to carry: these are body-copy
+              destinations, not telemetry, and read better as plain UI text.
+              Wrapped in <nav> for the landmark. */}
           <nav aria-label="Legal" className="flex flex-wrap items-center gap-x-5 gap-y-2">
             {LEGAL_ORDER.map((doc) => (
               <Link
