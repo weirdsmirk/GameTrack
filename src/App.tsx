@@ -17,6 +17,7 @@ import { Settings, Terminal } from "lucide-react";
 import PageLoader from "./components/PageLoader";
 import BackToTop from "./components/BackToTop";
 import { Buttons } from "./components/Buttons";
+import AppFooter from "./components/AppFooter";
 
 const ENTERED_KEY = "gametrack_entered";
 
@@ -207,7 +208,7 @@ const tabs = [
             over the hero, so content keeps its original top offset and the
             title owns the top of the screen until the bar slides in. */}
         <main ref={mainRef} className="flex-1 flex flex-col min-w-0 min-h-0 bg-brand-bg overflow-y-auto scroll-smooth antialiased">
-          <div className="w-full px-6 md:px-12 py-10 pb-24 overflow-x-hidden shrink-0 relative">
+          <div className="w-full px-6 md:px-12 pt-10 pb-10 overflow-x-hidden shrink-0 relative">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={activeTab}
@@ -224,6 +225,9 @@ const tabs = [
                 {renderActiveView()}
               </motion.div>
             </AnimatePresence>
+            {/* Sits outside AnimatePresence so it persists across tab switches
+                instead of re-animating with the view. */}
+            <AppFooter />
           </div>
         </main>
 
@@ -232,6 +236,12 @@ const tabs = [
             settings gear are always mounted and always visible, floating over
             the hero; only the bar behind them (opaque fill + GAMETRACK
             wordmark) fades in once the user scrolls past the hero.
+
+            Both states cross-fade on opacity/background-color only — no
+            transform, so nothing pops or slides. The fill runs 420ms and the
+            wordmark 520ms on the same expo-out curve, so the backdrop
+            resolves just ahead of the wordmark and the reveal cascades
+            instead of snapping as one block.
 
             Single element on purpose: the bar's height is driven by the 34px
             button row, so the row stays perfectly centred inside it instead of
@@ -242,12 +252,12 @@ const tabs = [
             No border: the fill and height alone separate it from content. */}
         <nav
           aria-label="Primary"
-          className={`fixed inset-x-0 top-0 z-20 flex items-center gap-4 px-6 md:px-12 py-8 pointer-events-none transition-colors duration-100 ease-out ${
+          className={`fixed inset-x-0 top-0 z-20 flex items-center gap-4 px-6 md:px-12 py-8 pointer-events-none transition-colors duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
             navVisible ? "bg-brand-bg" : "bg-transparent"
           }`}
         >
           <div
-            className={`flex items-center gap-2 select-none transition-opacity duration-100 ease-out ${
+            className={`flex items-center gap-2 select-none transition-opacity duration-[520ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
               navVisible ? "opacity-100 pointer-events-auto" : "opacity-0"
             }`}
           >

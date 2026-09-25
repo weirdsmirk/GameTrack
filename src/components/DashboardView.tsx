@@ -8,6 +8,7 @@ import { motion } from "motion/react";
 import { formatPlaytime, formatPlaytimeLong, formatPlaytimePrecise } from "../utils/time";
 import { getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms } from "../constants";
 import { PosterImage } from "./PosterImage";
+import { Buttons } from "./Buttons";
 import AnalyticsView from "./AnalyticsView";
 import ActiveGamesModal from "./ActiveGamesModal";
 
@@ -196,32 +197,42 @@ export const DashboardView: React.FC = React.memo(() => {
           </div>
         </div>
       )}
-      {/* Suggestions and Recent Activity Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+      {/* Suggestions and Recent Activity Grid — 3:1, so the Logs rail stays a
+          rail. Log rows truncate their title and keep the status badge
+          shrink-0, so the narrower column degrades to an ellipsis. */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
         
         {/* Next To Play Recommendations */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-3 space-y-6">
           <div className="flex items-center justify-between border-b border-brand-border pb-3 gap-3 lg:h-[46px]">
             <div className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-brand-accent" />
               <h3 className="text-lg font-bold tracking-tight uppercase text-white">Suggestions</h3>
             </div>
+            {/* One shuffle for the row. It used to live inside each suggestion
+                card, which would render three identical controls. */}
+            {!loadingAnalytics && suggestions.length > 0 && (
+              <Buttons
+                variant="primary"
+                onClick={fetchSuggestions}
+                aria-label="Shuffle suggestions"
+                title="Shuffle suggestions"
+                className="px-3 py-1.5 text-[11px] flex items-center justify-center gap-1.5 shrink-0"
+              >
+                <Shuffle className="w-3.5 h-3.5" />
+                Shuffle
+              </Buttons>
+            )}
           </div>
 
           {loadingAnalytics ? (
-            <div className="h-[488px] bg-zinc-900/50 rounded-none border border-brand-border animate-pulse flex flex-col md:flex-row">
-              <div className="w-full md:w-[40%] h-[200px] md:h-full bg-zinc-800/40 border-r border-brand-border/30" />
-              <div className="flex-1 p-8 space-y-6 flex flex-col justify-between">
-                <div className="space-y-6">
-                  <div className="h-4 bg-zinc-800/50 w-24" />
-                  <div className="h-10 bg-zinc-800/50 w-2/3" />
-                  <div className="h-20 bg-zinc-800/50 w-full" />
-                </div>
-                <div className="h-12 bg-zinc-800/50 w-full" />
-              </div>
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-5 lg:h-[418px]">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="aspect-[2/3] lg:aspect-auto lg:h-full bg-zinc-900/50 border border-brand-border animate-pulse" />
+              ))}
             </div>
           ) : suggestions.length === 0 ? (
-            <div className="border border-brand-border border-dashed rounded-none p-8 text-center flex flex-col items-center justify-center h-[488px]">
+            <div className="border border-brand-border border-dashed rounded-none p-8 text-center flex flex-col items-center justify-center lg:h-[418px]">
               <Trophy className="w-10 h-10 text-brand-muted mb-3" />
               <p className="text-white text-sm font-bold uppercase tracking-wider">Suggested directive empty</p>
               <p className="text-brand-muted text-xs mt-1 max-w-sm">
@@ -229,7 +240,11 @@ export const DashboardView: React.FC = React.memo(() => {
               </p>
             </div>
           ) : (
-            <div>
+            /* Poster row. lg:h-[418px] is 46px header + 24px gap + 418px, so
+               this block ends flush with the 488px Logs rail beside it. At lg
+               the cards drop their 2:3 ratio and fill that height (object-cover
+               crops ~4% off the width) to keep the two columns aligned. */
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-5 lg:h-[418px]">
               {suggestions.map((game, index) => (
                 <motion.div
                   initial={{ opacity: 0 }}
@@ -246,77 +261,39 @@ export const DashboardView: React.FC = React.memo(() => {
                   tabIndex={0}
                   role="button"
                   aria-label={`Open details for ${game.title}`}
-                  className="bg-zinc-950/20 border border-brand-border rounded-none flex flex-col md:flex-row h-auto md:h-[488px] overflow-hidden group hover:border-brand-accent/40 transition-all focus-within:border-brand-accent focus:outline-none cursor-pointer"
+                  className="relative aspect-[2/3] lg:aspect-auto lg:h-full overflow-hidden border border-brand-border bg-zinc-900 group hover:border-brand-accent transition-colors focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent cursor-pointer"
                 >
-                  {/* Left Side: Massive Game Poster — always shown at its true 2:3 portrait ratio */}
-                  <div className="w-full aspect-[2/3] md:w-auto md:h-full relative overflow-hidden shrink-0 border-b md:border-b-0 md:border-r border-brand-border/40 bg-zinc-900">
-                    <PosterImage
-                      src={game.poster_url}
-                      alt={game.title}
-                      eager
-                      className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-200 transform-gpu will-change-transform"
-                    />
-                    {customizations.showRatingBadge && game.critic_score != null && (
-                      <div className="absolute top-4 left-4 bg-zinc-950/90 border border-brand-accent px-2.5 py-1 font-mono text-xs font-black text-brand-accent uppercase tracking-wider shadow-lg">
-                        MC: {game.critic_score}
-                      </div>
-                    )}
-                  </div>
+                  <PosterImage
+                    src={game.poster_url}
+                    alt={game.title}
+                    eager={index === 0}
+                    className="absolute inset-0 h-full w-full object-cover group-hover:scale-[1.03] transition-transform duration-300 transform-gpu will-change-transform"
+                  />
 
-                  {/* Right Side: Info & Actions */}
-                  <div className="flex-1 p-6 md:p-8 flex flex-col justify-between h-full bg-zinc-950/35 min-w-0">
-                    <div className="space-y-6">
-                      {/* Genre Badges */}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[11px] font-bold text-brand-accent border border-brand-accent/50 px-2 py-0.5 tracking-wider uppercase font-mono">
-                          DIRECTIVE TARGET
-                        </span>
-                        {(game.genres || []).slice(0, 2).map((genre: string) => (
-                          <span key={genre} className="text-[11px] font-bold text-brand-muted border border-brand-border px-2 py-0.5 tracking-wider uppercase font-mono">
-                            {genre}
-                          </span>
-                        ))}
-                      </div>
+                  {/* Scrim: legibility only — the title sits on artwork, so it
+                      needs a guaranteed floor of contrast at the bottom edge. */}
+                  <div
+                    aria-hidden="true"
+                    className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/55 to-transparent"
+                  />
 
-                      {/* Big Title */}
-                      <div className="space-y-1">
-                        <h2 className="text-3xl sm:text-4xl xl:text-5xl font-black uppercase tracking-tighter leading-[0.95] text-white font-sans group-hover:text-brand-accent transition-colors break-words">
-                          {game.title}
-                        </h2>
-                        {game.year && (
-                          <p className="text-[11px] font-mono text-brand-muted uppercase tracking-widest">
-                            RELEASED: {game.year}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Synopsis */}
-                      {game.synopsis && (
-                        <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed line-clamp-3">
-                          {game.synopsis}
-                        </p>
-                      )}
+                  {customizations.showRatingBadge && game.critic_score != null && (
+                    <div className="absolute top-3 left-3 bg-zinc-950/90 border border-brand-accent px-2 py-0.5 font-mono text-[11px] font-black text-brand-accent uppercase tracking-wider">
+                      MC: {game.critic_score}
                     </div>
+                  )}
 
-                    {/* Footer Action Buttons */}
-                    <div className="space-y-4 mt-auto">
+                  <div className="absolute inset-x-0 bottom-0 p-4 flex flex-col gap-2">
+                    <h4 className="text-sm xl:text-base font-black uppercase tracking-tight leading-[1.05] text-white line-clamp-3 break-words">
+                      {game.title}
+                    </h4>
+                    <div className="flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-widest text-white/70">
+                      {game.year ? <span className="shrink-0">{game.year}</span> : <span />}
                       {game.owned_platforms && game.owned_platforms.filter(p => platforms.some(ap => platformIdMatches(ap.id, p))).length > 0 && (
-                        <div className="text-[11px] text-brand-muted font-mono uppercase tracking-wider truncate">
-                          DEPLOYED: {game.owned_platforms.filter(p => platforms.some(ap => platformIdMatches(ap.id, p))).map(p => platforms.find(ap => platformIdMatches(ap.id, p))?.label || p).join(", ")}
-                        </div>
+                        <span className="truncate">
+                          {game.owned_platforms.filter(p => platforms.some(ap => platformIdMatches(ap.id, p))).map(p => platforms.find(ap => platformIdMatches(ap.id, p))?.label || p).join(", ")}
+                        </span>
                       )}
-                      
-                      <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-brand-border/40">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            fetchSuggestions();
-                          }}
-                          className="w-full py-2.5 px-4 bg-brand-accent text-brand-accent-ink font-black text-[11px] uppercase tracking-wider hover:opacity-90 transition-all cursor-pointer text-center flex items-center justify-center gap-1.5"
-                        >
-                          SHUFFLE <Shuffle className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
                     </div>
                   </div>
                 </motion.div>

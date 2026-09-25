@@ -1177,7 +1177,9 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         shuffled[i] = shuffled[j]!;
         shuffled[j] = temp;
       }
-      const selected = shuffled.slice(0, 1);
+      // Three at a time: the dashboard renders them as a poster row, so the
+      // row is filled rather than padded with placeholders.
+      const selected = shuffled.slice(0, 3);
 
       set({ suggestions: selected });
     } catch (err: unknown) {

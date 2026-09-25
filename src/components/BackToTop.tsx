@@ -7,19 +7,33 @@ interface BackToTopProps {
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   /** How far (px) the user must scroll before the button appears. */
   showAfter?: number;
+  /**
+   * How close (px) to the very bottom of the document the button stands
+   * down. The footer is the app's closing statement; a floating button
+   * parked in the middle of it reads as a mistake. Roughly the footer's
+   * height, so the button is gone by the time it is fully readable.
+   */
+  standDownNearEnd?: number;
 }
 
-export const BackToTop: React.FC<BackToTopProps> = ({ scrollContainerRef, showAfter = 600 }) => {
+export const BackToTop: React.FC<BackToTopProps> = ({
+  scrollContainerRef,
+  showAfter = 600,
+  standDownNearEnd = 190,
+}) => {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    const onScroll = () => setVisible(el.scrollTop > showAfter);
+    const onScroll = () => {
+      const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - standDownNearEnd;
+      setVisible(el.scrollTop > showAfter && !atEnd);
+    };
     onScroll();
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, [scrollContainerRef, showAfter]);
+  }, [scrollContainerRef, showAfter, standDownNearEnd]);
 
   const scrollToTop = () => {
     scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
