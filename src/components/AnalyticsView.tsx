@@ -81,11 +81,27 @@ export const AnalyticsView: React.FC = React.memo(() => {
 
   return (
     <div className="space-y-10">
-      {/* Section Header — analytics now lives on the home (dashboard) page */}
-      <div className="border-b border-brand-border pb-3 flex items-center gap-2">
-        <h2 className="text-lg font-bold tracking-tight uppercase text-white">System Analytics</h2>
-        <p className="text-[11px] font-mono text-brand-muted uppercase tracking-widest ml-auto hidden sm:block">
-          Personal gameplay telemetry & system analytics
+      {/* Section header — analytics lives on the home (dashboard) page, so it
+          takes the same display treatment as the other views' titles rather
+          than the small ruled label bar it used to use. Stays an <h2>: it is a
+          section on the dashboard, not a page of its own, and the page already
+          has an <h1>. The ruled divider above it lives on the wrapper in
+          DashboardView. */}
+      <div>
+        {/* Text stays title case in the DOM and is uppercased by the class, so
+            the rendered result matches the other views' titles pixel for pixel
+            while the accessible name is still read as "System Analytics"
+            rather than shouted in caps. The <br /> would otherwise splice a
+            line break into that name, so it is set explicitly — the visible
+            text is the same words, so label-in-name still holds. */}
+        <h2
+          aria-label="System Analytics"
+          className="text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none"
+        >
+          System<br />Analytics
+        </h2>
+        <p className="mt-3 max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
+          Personal gameplay telemetry &amp; system analytics
         </p>
       </div>
 
