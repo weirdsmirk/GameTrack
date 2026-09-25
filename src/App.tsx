@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { useGameTrackStore } from "./store";
 import Toast from "./components/Toast";
 import NotFoundView from "./components/NotFoundView";
-import LandingView from "./components/LandingView";
 import DashboardView from "./components/DashboardView";
 import LibraryView from "./components/LibraryView";
 import DiscoverView from "./components/DiscoverView";
@@ -13,12 +12,11 @@ import AuthModal from "./components/AuthModal";
 import GameDetailsModal from "./components/GameDetailsModal";
 import AddGameModal from "./components/AddGameModal";
 import { ActivePlayingConflictModal } from "./components/ActivePlayingConflictModal";
-import { Settings, Terminal } from "lucide-react";
+import { Settings } from "lucide-react";
 import PageLoader from "./components/PageLoader";
 import { Buttons } from "./components/Buttons";
 import AppFooter from "./components/AppFooter";
-
-const ENTERED_KEY = "gametrack_entered";
+import { getLegalDoc, LegalView } from "./components/LegalView";
 
 export default function App() {
   const {
@@ -29,21 +27,20 @@ export default function App() {
     loadingGames,
     fetchCustomizations,
   } = useGameTrackStore();
-  const [pathname] = useState(() => window.location.pathname);
+  const [pathname, setPathname] = useState(() => window.location.pathname);
+  // The app has no router; Link pushes history state and fires popstate, so
+  // re-read the path when that happens instead of reloading the document.
+  useEffect(() => {
+    const onPop = () => setPathname(window.location.pathname);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const [booted, setBooted] = useState(false);
   // The floating tab row (and settings gear) is always on screen; only the
   // bar behind it — backdrop plus GAMETRACK wordmark — waits until the hero
   // has scrolled past. Listens on <main> — the real scroller — because the
   // shell is h-screen with an inner overflow container, so window never scrolls.
   const [navVisible, setNavVisible] = useState(false);
-  const [entered, setEntered] = useState(() => {
-    try {
-      return localStorage.getItem(ENTERED_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
-
   const mainRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
 
@@ -54,9 +51,9 @@ export default function App() {
     }
   }, [activeTab]);
 
-  // Reveal the nav bar backdrop only after the hero has scrolled past.
-  // `entered` gates this because mainRef is only mounted once the landing
-  // gate is dismissed.
+  // Reveal the nav bar backdrop only after the hero has scrolled past. <main>
+  // is mounted unconditionally now that the landing gate is gone, so this runs
+  // once on mount with no gating.
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
@@ -67,7 +64,7 @@ export default function App() {
     onScroll();
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, [entered]);
+  }, []);
 
   // Preload everything once at boot — games, Steam identity, analytics,
   // wishlist and custom platforms — so every tab is instant afterwards.
@@ -87,18 +84,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleEnter = () => {
-    try {
-      localStorage.setItem(ENTERED_KEY, "1");
-    } catch {
-      /* ignore */
-    }
-    setEntered(true);
-    setActiveTab("dashboard");
-  };
-
   useEffect(() => {
-    if (!entered) return;
     let chord: string | null = null;
     let chordTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -146,7 +132,7 @@ export default function App() {
       window.removeEventListener("keydown", onKey);
       if (chordTimer) clearTimeout(chordTimer);
     };
-  }, [entered]);
+  }, []);
 
 const tabs = [
     { id: "dashboard", label: "CENTRAL" },
@@ -168,26 +154,19 @@ const tabs = [
     }
   };
 
+  // Legal pages (privacy, terms, licence, DMCA). Rendered before the 404
+  // check and before the app shell, so a policy is reachable without booting
+  // the data layer.
+  const legalDoc = getLegalDoc(pathname);
+  if (legalDoc) {
+    return <LegalView doc={legalDoc} />;
+  }
+
   // Custom 404 — any unknown path renders the not-found terminal instead of the app shell
   if (pathname !== "/") {
     return (
       <div className="min-h-dvh bg-brand-bg font-sans selection:bg-brand-accent/30 selection:text-brand-accent">
         <NotFoundView path={pathname} />
-        {!booted && (
-          <PageLoader checks={[!loadingGames]} onComplete={() => setBooted(true)} />
-        )}
-      </div>
-    );
-  }
-
-  // Landing gate — shown full-screen until the user enters
-  if (!entered) {
-    return (
-      <div className="h-screen overflow-y-auto bg-brand-bg text-zinc-300 font-sans selection:bg-brand-accent/30 selection:text-brand-accent">
-        <LandingView onEnter={handleEnter} />
-        <SettingsModal />
-        <AuthModal />
-        <Toast />
         {!booted && (
           <PageLoader checks={[!loadingGames]} onComplete={() => setBooted(true)} />
         )}
@@ -262,10 +241,10 @@ const tabs = [
               navVisible ? "opacity-100 pointer-events-auto" : "opacity-0"
             }`}
           >
-            <Terminal className="w-4 h-4 text-brand-accent shrink-0" />
             <span className="text-base font-black tracking-tighter leading-none">
               <span className="text-white">GAME</span>
               <span className="text-brand-accent">TRACK</span>
+              <span className="text-brand-accent">_</span>
             </span>
           </div>
           <div className="ml-auto flex items-stretch gap-1.5 pointer-events-auto">

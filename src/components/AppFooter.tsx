@@ -1,6 +1,6 @@
 import React from "react";
-import { motion, useReducedMotion } from "motion/react";
-import { Terminal } from "lucide-react";
+import { Link } from "./Link";
+import { LEGAL_ORDER } from "./LegalView";
 
 /**
  * Closing brand statement for the app shell.
@@ -11,12 +11,12 @@ import { Terminal } from "lucide-react";
  * and no links — the dashboard already reports state, and the nav already
  * navigates. This is a signature, not a second information layer.
  *
- * One authored motion: the caret blinks like a real terminal prompt. It is
- * the only thing that moves, and it stops entirely under reduced-motion.
+ * Fully static. The blinking caret that used to follow the wordmark is gone:
+ * with a literal underscore in GAMETRACK_ it read as a second cursor, and a
+ * footer that animated while the identical navbar wordmark did not was
+ * inconsistent anyway.
  */
 export const AppFooter: React.FC = () => {
-  const reduce = useReducedMotion();
-
   return (
     <footer className="mt-24 border-t border-brand-border pt-10">
       <div className="flex flex-col gap-10 lg:flex-row lg:items-end lg:justify-between">
@@ -29,26 +29,31 @@ export const AppFooter: React.FC = () => {
 
         <div className="flex flex-col items-start gap-5 lg:items-end shrink-0">
           <div className="flex items-center gap-2.5">
-            <Terminal className="w-4 h-4 text-brand-accent shrink-0" aria-hidden="true" />
             <span className="text-2xl font-black tracking-tighter leading-none">
               <span className="text-white">GAME</span>
               <span className="text-brand-accent">TRACK</span>
+              <span className="text-brand-accent">_</span>
             </span>
-            <motion.span
-              aria-hidden="true"
-              className="w-[3px] h-5 bg-brand-accent"
-              animate={reduce ? undefined : { opacity: [1, 1, 0, 0] }}
-              transition={
-                reduce
-                  ? undefined
-                  : { duration: 1.2, repeat: Infinity, times: [0, 0.5, 0.5, 1], ease: "linear" }
-              }
-            />
           </div>
 
           <p className="font-mono text-[11px] font-bold uppercase tracking-widest text-brand-muted">
             // Local database · yours forever
           </p>
+
+          {/* Legal links. Sans-serif rather than the mono micro-label used
+              above: these are body-copy destinations, not telemetry, and
+              read better as plain UI text. Wrapped in <nav> for the landmark. */}
+          <nav aria-label="Legal" className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            {LEGAL_ORDER.map((doc) => (
+              <Link
+                key={doc.slug}
+                to={`/${doc.slug}`}
+                className="font-sans text-xs font-semibold text-zinc-400 hover:text-brand-accent transition-colors"
+              >
+                {doc.title}
+              </Link>
+            ))}
+          </nav>
         </div>
       </div>
     </footer>
