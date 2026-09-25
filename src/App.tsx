@@ -187,8 +187,12 @@ const tabs = [
         <main ref={mainRef} className="flex-1 flex flex-col min-w-0 min-h-0 bg-brand-bg overflow-y-auto scroll-smooth antialiased">
           <div className="w-full px-6 md:px-12 py-10 pb-24 overflow-x-hidden shrink-0 relative">
             {/* Top navigation — boxed tabs, floated top-right so the page
-                title starts immediately below (matches the hero mock) */}
-            <nav aria-label="Primary" className="absolute top-10 right-6 md:right-12 z-20 flex flex-wrap items-center justify-end gap-2">
+                title starts immediately below (matches the hero mock).
+                `fixed` (not `absolute`) so the bar is pinned to the viewport and
+                survives any scroll of the <main> scroller. The opaque
+                `bg-brand-bg` keeps page content from showing through the frame
+                as it slides underneath. */}
+            <nav aria-label="Primary" className="fixed top-10 right-6 md:right-12 z-20 flex flex-wrap items-stretch justify-end gap-2 border border-brand-border bg-brand-bg p-2">
               {tabs.map((tab) => {
                 const isActive = activeTab === tab.id;
                 return (
