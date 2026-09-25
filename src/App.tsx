@@ -245,14 +245,16 @@ const tabs = [
 
             Single element on purpose: the bar's height is driven by the 34px
             button row, so the row stays perfectly centred inside it instead of
-            overflowing a fixed-height backdrop. The nav spans the full width
+            overflowing a fixed-height backdrop. py-10 puts that row's top edge
+            at 40px, level with the view's <h1> box, so the tabs sit on the
+            title's line rather than floating above it. The nav spans the full width
             in both states, so it carries pointer-events-none and re-enables
             them on the wordmark and buttons — otherwise the transparent
             over-hero state would swallow clicks across the top of the page.
             No border: the fill and height alone separate it from content. */}
         <nav
           aria-label="Primary"
-          className={`fixed inset-x-0 top-0 z-20 flex items-center gap-4 px-6 md:px-12 py-8 pointer-events-none transition-colors duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          className={`fixed inset-x-0 top-0 z-20 flex items-center gap-4 px-6 md:px-12 py-10 pointer-events-none transition-colors duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
             navVisible ? "bg-brand-bg" : "bg-transparent"
           }`}
         >

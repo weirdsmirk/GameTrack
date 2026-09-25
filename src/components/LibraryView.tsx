@@ -400,7 +400,7 @@ export const LibraryView: React.FC = () => {
           style={{ height: showFilters ? filtersPanelHeight : 0 }}
           className="overflow-hidden transition-[height] duration-[160ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
         >
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               {/* Status Selector */}
               <div className="relative">
                   <label htmlFor="filter-status" className="block text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted mb-1">Status</label>
@@ -468,6 +468,61 @@ export const LibraryView: React.FC = () => {
                 </div>
               </div>
 
+              {/* Visibility toggles — same row as the selects. justify-end
+                  drops each 38px control to the baseline of the select boxes
+                  below their labels, so all six cells line up. The switch
+                  itself is the button: a <button> nested in a <label> was
+                  invalid and gave the control two competing hit areas. */}
+              <div className="flex flex-col justify-end">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={filters.hideCompleted}
+                  aria-label="Hide completed games"
+                  onClick={() => setFilter("hideCompleted", !filters.hideCompleted)}
+                  className={`w-full h-[38px] px-3 flex items-center justify-between gap-2 border cursor-pointer transition-colors ${
+                    filters.hideCompleted
+                      ? "border-brand-accent/60 bg-brand-accent/10"
+                      : "border-brand-border bg-zinc-950 hover:border-brand-accent/50"
+                  }`}
+                >
+                  <span className="text-xs font-semibold text-zinc-300">Hide Completed</span>
+                  <span
+                    aria-hidden="true"
+                    className={`relative w-11 h-6 shrink-0 border transition-colors ${
+                      filters.hideCompleted ? "bg-brand-accent border-brand-accent" : "bg-zinc-900 border-brand-border"
+                    }`}
+                  >
+                    <span className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 transition-all duration-200 ${filters.hideCompleted ? "left-[22px] bg-brand-accent-ink" : "left-0.5 bg-brand-muted"}`} />
+                  </span>
+                </button>
+              </div>
+
+              <div className="flex flex-col justify-end">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={filters.hideEndless}
+                  aria-label="Hide endless games"
+                  onClick={() => setFilter("hideEndless", !filters.hideEndless)}
+                  className={`w-full h-[38px] px-3 flex items-center justify-between gap-2 border cursor-pointer transition-colors ${
+                    filters.hideEndless
+                      ? "border-brand-accent/60 bg-brand-accent/10"
+                      : "border-brand-border bg-zinc-950 hover:border-brand-accent/50"
+                  }`}
+                >
+                  <span className="text-xs font-semibold text-zinc-300">Hide Endless</span>
+                  <span
+                    aria-hidden="true"
+                    className={`relative w-11 h-6 shrink-0 border transition-colors ${
+                      filters.hideEndless ? "bg-brand-accent border-brand-accent" : "bg-zinc-900 border-brand-border"
+                    }`}
+                  >
+                    <span className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 transition-all duration-200 ${filters.hideEndless ? "left-[22px] bg-brand-accent-ink" : "left-0.5 bg-brand-muted"}`} />
+                  </span>
+                </button>
+              </div>
+
               {/* Reset Filters button */}
               <div className="flex flex-col justify-end">
                 <button
@@ -477,46 +532,6 @@ export const LibraryView: React.FC = () => {
                   <RefreshCw className="w-3.5 h-3.5" />
                   Reset Filters
                 </button>
-              </div>
-            </div>
-
-            {/* Shelf + visibility row */}
-            <div className="mt-4 grid grid-cols-1 gap-3">
-              <div className="border border-brand-border/70 bg-zinc-950/35 p-3.5 sm:p-4">
-                <p className="text-[10px] font-mono font-bold uppercase tracking-[0.16em] text-brand-muted mb-2">Visibility</p>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-                  <label className={`flex min-h-12 items-center justify-between gap-3 px-3.5 border cursor-pointer group transition-colors ${filters.hideCompleted ? "border-brand-accent/60 bg-brand-accent/10" : "border-brand-border bg-zinc-950 hover:border-brand-accent/50"}`}>
-                    <span className="text-xs font-sans font-semibold text-zinc-300 group-hover:text-white">Hide Completed</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={filters.hideCompleted}
-                      aria-label="Hide completed games"
-                      onClick={() => setFilter("hideCompleted", !filters.hideCompleted)}
-                      className={`relative w-11 h-6 shrink-0 border transition-colors cursor-pointer ${
-                        filters.hideCompleted ? "bg-brand-accent border-brand-accent" : "bg-zinc-900 border-brand-border"
-                      }`}
-                    >
-                      <span className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 transition-all duration-200 ${filters.hideCompleted ? "left-[22px] bg-brand-accent-ink" : "left-0.5 bg-brand-muted"}`} />
-                    </button>
-                  </label>
-
-                  <label className={`flex min-h-12 items-center justify-between gap-3 px-3.5 border cursor-pointer group transition-colors ${filters.hideEndless ? "border-brand-accent/60 bg-brand-accent/10" : "border-brand-border bg-zinc-950 hover:border-brand-accent/50"}`}>
-                    <span className="text-xs font-sans font-semibold text-zinc-300 group-hover:text-white">Hide Endless</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={filters.hideEndless}
-                      aria-label="Hide endless games"
-                      onClick={() => setFilter("hideEndless", !filters.hideEndless)}
-                      className={`relative w-11 h-6 shrink-0 border transition-colors cursor-pointer ${
-                        filters.hideEndless ? "bg-brand-accent border-brand-accent" : "bg-zinc-900 border-brand-border"
-                      }`}
-                    >
-                      <span className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 transition-all duration-200 ${filters.hideEndless ? "left-[22px] bg-brand-accent-ink" : "left-0.5 bg-brand-muted"}`} />
-                    </button>
-                  </label>
-                </div>
               </div>
             </div>
         </div>
