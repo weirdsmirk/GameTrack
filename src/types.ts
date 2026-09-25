@@ -103,13 +103,6 @@ export interface CustomizationSettings {
   showRatingBadge: boolean;
 }
 
-export interface PlaytimeEntry {
-  id: number;
-  game_id: number;
-  hours: number;
-  logged_at: number;
-}
-
 export interface BackupInfo {
   name: string;
   created_at: number;

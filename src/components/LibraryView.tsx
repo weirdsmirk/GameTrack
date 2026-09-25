@@ -789,21 +789,15 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
           </div>
         )}
 
-        {/* Status marker — plain coloured square, top-right. The resting copy
-            fades out on hover and the hover copy below fades in, both pinned to
-            the same top-2.5 right-2.5. Cross-fading in place rather than moving
-            between the two, because a marker that shifts a few pixels between
-            states reads as a glitch rather than as a state change. */}
+        {/* Status marker — plain coloured square, top-right, shown at rest only.
+            On hover it fades out and the overlay's status word takes that
+            corner, so the two are never on screen together. There is no
+            hover copy to cross-fade in, which is what keeps the corner from
+            shifting: the swatch holds one position and simply leaves. */}
         {!selectMode && (
           <StatusMarker
             status={game.status}
             className="absolute top-2.5 right-2.5 z-10 transition-opacity duration-200 group-hover:opacity-0"
-          />
-        )}
-        {!selectMode && (
-          <StatusMarker
-            status={game.status}
-            className="absolute top-2.5 right-2.5 z-10 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
           />
         )}
         <PosterImage

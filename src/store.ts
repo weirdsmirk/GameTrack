@@ -3,7 +3,7 @@ import {
   Game, LibrarySummary,
   GenreAnalytics, NextToPlaySuggestion,
   IGDBGame, SteamSettings, DiscoverLists, CustomizationSettings, WishlistItem, ManualWishlistEntry,
-  PlayingConflict, PlaytimeEntry
+  PlayingConflict
 } from "./types";
 import { isThemeId, applyTheme, applyThemeWithReboot } from "./themes";
 import { Platform, slugifyPlatformLabel, mergeCustomPlatforms, igdbGenreNamesFor } from "./constants";
@@ -227,10 +227,6 @@ interface GameTrackState {
   addCustomPlatform: (label: string) => Promise<boolean>;
   removeCustomPlatform: (id: string) => Promise<boolean>;
   _saveCustomPlatforms: (platforms: Platform[]) => Promise<boolean>;
-
-  gameHistory: PlaytimeEntry[];
-  historyGameId: number | null;
-  fetchGameHistory: (gameId: number) => Promise<void>;
 
   searchFocusToken: number;
   requestSearchFocus: () => void;
@@ -1456,20 +1452,6 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     const ok = await get()._saveCustomPlatforms(next);
     if (ok) get().showToast("Platform tag removed", "info");
     return ok;
-  },
-
-  // ── Playtime history ────────────────────────────────────────
-  gameHistory: [],
-  historyGameId: null,
-  fetchGameHistory: async (gameId) => {
-    try {
-      const res = await fetch(`/api/games/${gameId}/playtime`);
-      if (!res.ok) return;
-      const data = await res.json();
-      set({ gameHistory: Array.isArray(data.entries) ? data.entries : [], historyGameId: gameId });
-    } catch (err) {
-      console.error("Failed to fetch playtime history:", err);
-    }
   },
 
   // ── Search focus ─────────────────────────────────────────────

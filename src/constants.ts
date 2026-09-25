@@ -197,8 +197,8 @@ export const getStatusLabel = (status: string): string => {
 
 /**
  * Status palette, shared by every status surface in the app (poster markers,
- * the logs rail, game details, active games) so a status reads as the same
- * colour everywhere:
+ * the logs rail, game details) so a status reads as the same colour
+ * everywhere:
  *
  *   completed -> green      playing  -> blue
  *   backlog   -> grey       endless  -> purple

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useGameTrackStore } from "../store";
 import {
-  X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2, History
+  X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2, ChevronDown, Check
 } from "lucide-react";
 import { formatPlaytimePrecise } from "../utils/time";
 import { motion, AnimatePresence } from "motion/react";
@@ -15,7 +15,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     syncGameSynopsis, resetGamePoster, resetGameMetadata,
     showToast, customPlatforms, customizations,
     games, openPlayingConflict,
-    gameHistory, historyGameId, fetchGameHistory,
   } = useGameTrackStore();
 
   const availablePlatforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
@@ -34,6 +33,10 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   const [hidePlaytime, setHidePlaytime] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Quick status picker — the full-width status button in the sidebar opens
+  // this instead of forcing the user through the whole edit form.
+  const [statusPickerOpen, setStatusPickerOpen] = useState(false);
+  const [statusBusy, setStatusBusy] = useState(false);
 
   // Change Poster modal — URL entry or device upload.
   const [posterModalOpen, setPosterModalOpen] = useState(false);
@@ -105,7 +108,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     if (selectedGame.igdb_id && (!selectedGame.synopsis || selectedGame.synopsis === "No synopsis available." || selectedGame.synopsis === "No details provided." || selectedGame.synopsis.trim() === "")) {
       syncGameSynopsis(selectedGame.id, selectedGame.igdb_id);
     }
-    fetchGameHistory(selectedGame.id);
   }, [selectedGame, syncGameSynopsis]);
 
   // Mirror background synopsis refreshes (auto IGDB sync, poster uploads) into
@@ -231,6 +233,57 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   };
 
 
+  /**
+   * Change status without entering the edit form. Mirrors the two rules the
+   * full save path enforces: "playing" is exclusive (another playing title gets
+   * parked, via the existing conflict dialog), and moving to "completed"
+   * stamps date_completed if it was never set.
+   */
+  const handleQuickStatus = async (next: "backlog" | "playing" | "completed" | "endless") => {
+    if (!selectedGame || next === selectedGame.status) {
+      setStatusPickerOpen(false);
+      return;
+    }
+    setStatusBusy(true);
+    try {
+      const stamp = next === "completed" && !selectedGame.date_completed
+        ? { date_completed: Date.now() }
+        : {};
+
+      if (next === "playing") {
+        const currentlyPlaying = games.find((g) => g.status === "playing" && g.id !== selectedGame.id);
+        if (currentlyPlaying) {
+          openPlayingConflict({
+            currentGame: currentlyPlaying,
+            pendingTitle: selectedGame.title,
+            onConfirmSwitch: async (action) => {
+              await updateGame(currentlyPlaying.id, {
+                status: action === "completed" ? "completed" : "backlog",
+                ...(action === "completed" ? { date_completed: Date.now() } : {}),
+              });
+              await updateGame(selectedGame.id, { status: next, ...stamp });
+              showToast("Status updated", "success", `${selectedGame.title} is now ${getStatusLabel(next).toLowerCase()}`);
+            },
+          });
+          setStatusPickerOpen(false);
+          return;
+        }
+      }
+
+      const success = await updateGame(selectedGame.id, { status: next, ...stamp });
+      if (success) {
+        setStatusPickerOpen(false);
+        showToast("Status updated", "success", `${selectedGame.title} is now ${getStatusLabel(next).toLowerCase()}`);
+      } else {
+        showToast("Failed to update status", "error");
+      }
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "An unexpected error occurred", "error");
+    } finally {
+      setStatusBusy(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!selectedGame) return;
     const success = await deleteGame(selectedGame.id);
@@ -323,11 +376,12 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
   // Using imported getStatusBadgeColor from constants
 
-  // Outer trap pauses while the nested Change Poster dialog is open, which
-  // gets its own trap — Tab then cycles the inner dialog instead of the
-  // background form. Focus returns to the Custom Poster trigger on close.
-  const modalRef = useModalA11y(Boolean(selectedGame) && !posterModalOpen);
+  // Outer trap pauses while a nested dialog is open, which gets its own trap —
+  // Tab then cycles the inner dialog instead of the background form. The
+  // status picker is nested the same way the poster dialog is.
+  const modalRef = useModalA11y(Boolean(selectedGame) && !posterModalOpen && !statusPickerOpen);
   const posterModalRef = useModalA11y(posterModalOpen);
+  const statusPickerRef = useModalA11y(statusPickerOpen);
 
   // Set when the user presses inside the panel; a subsequent click landing on
   // the backdrop after a drag-select is then ignored (see handleBackdropClick).
@@ -339,7 +393,9 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (posterModalOpen) {
+        if (statusPickerOpen) {
+          setStatusPickerOpen(false);
+        } else if (posterModalOpen) {
           closePosterModal();
         } else if (isEditing) {
           setIsEditing(false);
@@ -354,7 +410,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
       document.body.style.overflow = "";
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedGame, setSelectedGame, isEditing, posterModalOpen, showToast]);
+  }, [selectedGame, setSelectedGame, isEditing, posterModalOpen, statusPickerOpen, showToast]);
 
   const handleClose = () => {
     setSelectedGame(null);
@@ -368,7 +424,9 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         dragStartRef.current = false;
         return;
       }
-      if (posterModalOpen) {
+      if (statusPickerOpen) {
+        setStatusPickerOpen(false);
+      } else if (posterModalOpen) {
         closePosterModal();
       } else if (isEditing) {
         setIsEditing(false);
@@ -485,9 +543,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               </p>
               
               <div className="flex flex-wrap gap-2 pt-1">
-                <span className={`px-2 py-0.5 rounded-none text-[11px] font-black border uppercase tracking-wider ${getStatusBadgeColor(selectedGame.status)}`}>
-                  {getStatusLabel(selectedGame.status)}
-                </span>
                 {customizations.showRatingBadge && selectedGame.critic_score != null && (
                   <span className="px-2 py-0.5 rounded-none text-[11px] font-mono font-black bg-zinc-900 border border-brand-border text-brand-accent">
                     CRITIC: {selectedGame.critic_score}
@@ -504,6 +559,21 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   </a>
                 )}
               </div>
+
+              {/* Status — full-width and clickable, sitting below the badge row
+                  (so it lands under VIEW ON STEAM) and opening the quick picker
+                  instead of the full edit form. */}
+              <button
+                type="button"
+                onClick={() => setStatusPickerOpen(true)}
+                aria-haspopup="dialog"
+                aria-label={`Status: ${getStatusLabel(selectedGame.status)}. Change status`}
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-none border uppercase tracking-wider text-xs font-black transition-colors cursor-pointer hover:brightness-125 ${getStatusBadgeColor(selectedGame.status)}`}
+              >
+                <span>{getStatusLabel(selectedGame.status)}</span>
+                <ChevronDown className="w-4 h-4 shrink-0" />
+              </button>
+
               {selectedGame.owned_platforms && selectedGame.owned_platforms.filter(p => availablePlatforms.some(ap => platformIdMatches(ap.id, p))).length > 0 && (
                 <div className="pt-2 border-t border-brand-border/45 mt-3">
                   <p className="text-[11px] font-mono text-brand-muted uppercase font-bold tracking-widest mb-1">Platforms Owned</p>
@@ -823,25 +893,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
             </div>
           ) : (
             <div className="space-y-6">
-              <section className="border border-brand-border/60 bg-zinc-950/35 p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <History className="w-3.5 h-3.5 text-brand-accent" />
-                  <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Playtime History</h4>
-                </div>
-                {historyGameId === selectedGame.id && gameHistory.length > 0 ? (
-                  <div className="divide-y divide-brand-border/50">
-                    {gameHistory.map((entry) => (
-                      <div key={entry.id} className="flex items-center justify-between py-2 text-[11px] font-mono">
-                        <span className="text-white">+{formatPlaytimePrecise(entry.hours)}</span>
-                        <span className="text-brand-muted">{new Date(entry.logged_at).toLocaleDateString()}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-[10px] font-mono uppercase tracking-wider text-brand-muted">No logged changes yet</p>
-                )}
-              </section>
-
               <div className="pt-0">
                 <div className="text-zinc-300 text-xs sm:text-sm font-sans space-y-3 leading-relaxed pr-2 select-text">
                   {selectedGame.synopsis ? (
@@ -908,7 +959,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
-          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80"
           onClick={(e) => { if (e.target === e.currentTarget) closePosterModal(); }}
         >
           <motion.div
@@ -996,6 +1047,82 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 PNG, JPEG or WebP — uploads are resized and stored locally. Use Reset to restore the original poster.
               </p>
             </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+
+    {/* Quick status picker — opened by the full-width status button in the
+        sidebar. Applies immediately, so no edit form and no second Save. */}
+    <AnimatePresence>
+      {selectedGame && statusPickerOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80"
+          onClick={(e) => { if (e.target === e.currentTarget) setStatusPickerOpen(false); }}
+        >
+          <motion.div
+            ref={statusPickerRef}
+            initial={{ scale: 0.96, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.96, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="status-picker-title"
+            className="w-full max-w-sm bg-brand-bg border border-brand-border shadow-2xl"
+          >
+            <div className="px-5 py-4 border-b border-brand-border/60 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 id="status-picker-title" className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">
+                  Change Status
+                </h3>
+                <p className="text-[10px] font-mono text-brand-muted uppercase tracking-wider truncate mt-0.5">
+                  {selectedGame.title}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStatusPickerOpen(false)}
+                aria-label="Close status dialog"
+                className="w-[30px] h-[30px] shrink-0 rounded-none bg-zinc-950 border border-brand-border text-brand-muted hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="p-3 space-y-1.5">
+              {STATUSES.map((opt) => {
+                const active = opt.value === selectedGame.status;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    disabled={statusBusy}
+                    onClick={() => handleQuickStatus(opt.value)}
+                    aria-current={active}
+                    className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-none border text-xs font-black uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
+                      active
+                        ? getStatusBadgeColor(opt.value)
+                        : "bg-zinc-950/40 border-brand-border/60 text-brand-muted hover:border-brand-accent hover:text-white"
+                    }`}
+                  >
+                    <span>{opt.label}</span>
+                    {active && <Check className="w-4 h-4 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+
+            {statusBusy && (
+              <div className="px-5 pb-4 flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-brand-muted">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Saving…
+              </div>
+            )}
           </motion.div>
         </motion.div>
       )}

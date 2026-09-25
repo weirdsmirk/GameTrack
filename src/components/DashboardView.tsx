@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import { 
@@ -10,32 +10,21 @@ import { getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlat
 import { PosterImage } from "./PosterImage";
 import { Buttons } from "./Buttons";
 import AnalyticsView from "./AnalyticsView";
-import ActiveGamesModal from "./ActiveGamesModal";
 
 // Render a single stat card in bold brutalist style
 interface StatCardProps {
   title: string;
   value: string | number;
   subtext: string;
-  onClick?: () => void;
 }
 
-const StatCard = React.memo(({ title, value, subtext, onClick }: StatCardProps) => {
+const StatCard = React.memo(({ title, value, subtext }: StatCardProps) => {
   // Check if the value is a string with a space or ends with H (e.g. "13H 34M" or "38H")
   const isPlaytime = typeof value === "string" && (value.includes(" ") || value.endsWith("H"));
   
   return (
     <div
-      onClick={onClick}
-      onKeyDown={onClick ? (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick();
-        }
-      } : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      role={onClick ? "button" : undefined}
-      className={`bg-transparent border border-brand-border px-6 py-6 rounded-none relative overflow-hidden group hover:border-brand-accent/50 transition-colors h-full flex flex-col justify-between${onClick ? " cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent" : ""}`}>
+      className="bg-transparent border border-brand-border px-6 py-6 rounded-none relative overflow-hidden h-full flex flex-col justify-between">
       <div className="space-y-2">
         <p className="text-xs font-bold uppercase tracking-widest text-brand-muted font-mono">{title}</p>
         
@@ -95,7 +84,6 @@ export const DashboardView: React.FC = React.memo(() => {
   }, [fetchAnalytics, summary, lastAnalyticsFetch]);
 
   const activeGames = React.useMemo(() => games.filter(g => g.status === "playing"), [games]);
-  const [activeGamesOpen, setActiveGamesOpen] = useState(false);
 
   return (
     <div className="space-y-10">
@@ -130,7 +118,6 @@ export const DashboardView: React.FC = React.memo(() => {
             title="Active Backlog"
             value={summary?.active_games ?? 0}
             subtext="currently in active play"
-            onClick={() => setActiveGamesOpen(true)}
           />
           <StatCard
             title="Completed"
@@ -441,12 +428,6 @@ export const DashboardView: React.FC = React.memo(() => {
       <div>
         <AnalyticsView />
       </div>
-
-      <ActiveGamesModal
-        open={activeGamesOpen}
-        games={activeGames}
-        onClose={() => setActiveGamesOpen(false)}
-      />
 
     </div>
   );

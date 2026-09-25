@@ -41,14 +41,36 @@ export default function App() {
   // has scrolled past. Listens on <main> — the real scroller — because the
   // shell is h-screen with an inner overflow container, so window never scrolls.
   const [navVisible, setNavVisible] = useState(false);
+  // Suppresses the bar's fade for a single update, so a tab switch can drop it
+  // as a hard cut instead of animating it out across the view swap.
+  const [navNoTransition, setNavNoTransition] = useState(false);
   const mainRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
+  // Set for exactly one scroll event: the one caused by the tab-switch reset
+  // below. See the reset effect for why.
+  const navResetRef = useRef(false);
 
-  // Reset scroll position to top instantly when switching tabs
+  // Reset scroll position to top instantly when switching tabs.
   useEffect(() => {
-    if (mainRef.current) {
-      mainRef.current.scrollTo({ top: 0, behavior: "instant" });
-    }
+    const el = mainRef.current;
+    if (!el) return;
+    // This programmatic scroll emits a real scroll event, which the reveal
+    // handler would otherwise process as an ordinary "scrolled home" — fading
+    // the bar out over 420ms in the middle of the page swap. Two animated
+    // things crossing at once is what read as a flash.
+    //
+    // The bar still has to go: the new view opens at scrollTop 0, and "bar
+    // down" only looks right once the h1 has scrolled up and cleared the
+    // wordmark. Holding it down here would drop the GAMETRACK wordmark behind
+    // the title. So the reset is flagged, and the handler responds to it with
+    // an instant hide instead of a fade.
+    //
+    // Bail when already at the top: there is no reset to absorb, and the flag
+    // is consumed by the next event — which on a fresh load would otherwise be
+    // the user's very first scroll, turning their normal reveal into a cut.
+    if (el.scrollTop === 0) return;
+    navResetRef.current = true;
+    el.scrollTo({ top: 0, behavior: "instant" });
   }, [activeTab]);
 
   // Reveal the nav bar backdrop only after the hero has scrolled past. <main>
@@ -60,10 +82,57 @@ export default function App() {
     // Reveal the nav bar backdrop as soon as the user starts scrolling the
     // hero away, rather than waiting for the hero to fully clear it.
     const HERO_SCROLL_END = 48;
-    const onScroll = () => setNavVisible(el.scrollTop > HERO_SCROLL_END);
+    // Crossing the threshold only *arms* the reveal. The bar drops in after a
+    // beat, so a flick of the wheel (or a rubber-band that snaps back) doesn't
+    // flash it. Hiding is deliberately not delayed — scrolling back up should
+    // clear the bar at once, never leave it hanging over the hero.
+    const HERO_REVEAL_DELAY = 300;
+    let revealTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const onScroll = () => {
+      // Any real scroll re-arms the fade for subsequent reveals/hides.
+      setNavNoTransition(false);
+      const past = el.scrollTop > HERO_SCROLL_END;
+      if (past) {
+        if (revealTimer === null) {
+          revealTimer = setTimeout(() => {
+            revealTimer = null;
+            setNavVisible(true);
+          }, HERO_REVEAL_DELAY);
+        }
+      } else {
+        if (revealTimer !== null) {
+          clearTimeout(revealTimer);
+          revealTimer = null;
+        }
+        setNavVisible(false);
+      }
+    };
+    // A tab switch is not a scroll gesture. Consume its event and drop the bar
+    // without a transition, so the cut lands in a single frame instead of
+    // animating out underneath the incoming view. One-shot: scrollTo with an
+    // explicit position emits exactly one event.
+    const onScrollEvent = () => {
+      if (navResetRef.current) {
+        navResetRef.current = false;
+        if (revealTimer !== null) {
+          clearTimeout(revealTimer);
+          revealTimer = null;
+        }
+        setNavNoTransition(true);
+        setNavVisible(false);
+        return;
+      }
+      onScroll();
+    };
+    // Called directly, not through the wrapper, so the initial state read can
+    // never consume a pending flag.
     onScroll();
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+    el.addEventListener("scroll", onScrollEvent, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScrollEvent);
+      if (revealTimer !== null) clearTimeout(revealTimer);
+    };
   }, []);
 
   // Preload everything once at boot — games, Steam identity, analytics,
@@ -242,14 +311,18 @@ const tabs = [
             No border: the fill and height alone separate it from content. */}
         <nav
           aria-label="Primary"
-          className={`fixed inset-x-0 top-0 z-20 flex items-center gap-4 px-6 md:px-12 py-10 pointer-events-none transition-colors duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-            navVisible ? "bg-brand-bg" : "bg-transparent"
-          }`}
+          className={`fixed inset-x-0 top-0 z-20 flex items-center gap-4 px-6 md:px-12 py-10 pointer-events-none ${
+            navNoTransition
+              ? "transition-none"
+              : "transition-colors duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+          } ${navVisible ? "bg-brand-bg" : "bg-transparent"}`}
         >
           <div
-            className={`flex items-center gap-2 select-none transition-opacity duration-[520ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-              navVisible ? "opacity-100 pointer-events-auto" : "opacity-0"
-            }`}
+            className={`flex items-center gap-2 select-none ${
+              navNoTransition
+                ? "transition-none"
+                : "transition-opacity duration-[520ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
+            } ${navVisible ? "opacity-100 pointer-events-auto" : "opacity-0"}`}
           >
             <span className="text-base font-black tracking-tighter leading-none">
               <span className="text-white">GAME</span>

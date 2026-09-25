@@ -44,16 +44,6 @@ function isUniqueConstraintError(err: unknown): boolean {
   return err instanceof Error && err.message.includes("UNIQUE constraint failed");
 }
 
-const logPlaytimeInsert = db.prepare(
-  "INSERT INTO playtime_entries (game_id, hours, logged_at) VALUES (?, ?, ?)"
-);
-
-/** Record a playtime increase. Never fabricates sessions for existing totals. */
-function logPlaytimeDelta(gameId: number, hours: number, loggedAt: number): void {
-  if (hours < 0.01) return;
-  logPlaytimeInsert.run(gameId, hours, loggedAt);
-}
-
 /** Shown whenever IGDB rejects the stored credentials — tells the operator the fix. */
 const IGDB_SETUP_HINT =
   "IGDB is not reachable with the configured credentials. Set valid IGDB_CLIENT_ID / IGDB_CLIENT_SECRET (Twitch developer app) in .env and restart the server.";
@@ -433,16 +423,7 @@ apiRouter.put("/games/:id", (req: Request, res: Response) => {
         ? 1
         : existing.metadata_custom;
 
-    // User-raised playtime is a played session — log it for history.
-    // Steam-sync writes bypass PUT and are never logged (bulk
-    // corrections, not sessions).
-    const playDelta =
-      sent("playtime") && typeof g.playtime === "number"
-        ? Math.round((g.playtime - (existing.playtime || 0)) * 100) / 100
-        : 0;
-
     const apply = db.transaction(() => {
-      if (playDelta >= 0.01) logPlaytimeDelta(gameId, playDelta, now);
       stmts.updateGame.run({
       title: g.title ?? existing.title,
       year: g.year !== undefined ? g.year : existing.year,
@@ -999,8 +980,6 @@ export async function runSteamSyncInternal(): Promise<{
           existing.personal_rating !== null ||
           hasCustomPoster;
         const nextPlay = Number(game.playtime) || 0;
-        const prevPlay = Number(existing.playtime) || 0;
-        const delta = Math.round((nextPlay - prevPlay) * 100) / 100;
         stmts.updateGame.run({
           title: preserve ? existing.title : game.title,
           year: preserve ? existing.year : (game.year ?? existing.year),
@@ -1022,7 +1001,6 @@ export async function runSteamSyncInternal(): Promise<{
           updated_at: Date.now(),
           id: existing.id,
         });
-        if (delta >= 0.01) logPlaytimeDelta(existing.id, delta, Date.now());
         updated++;
         return;
       }
@@ -1031,10 +1009,7 @@ export async function runSteamSyncInternal(): Promise<{
       if (titleMatch) {
         const mergedPlatforms = new Set<string>([...safeJsonParse<string[]>(titleMatch.owned_platforms, []), ...game.owned_platforms]);
         const nextPlay = Number(game.playtime) || 0;
-        const prevPlay = Number(titleMatch.playtime) || 0;
         adoptSteamAppid.run(game.steam_appid, nextPlay, JSON.stringify([...mergedPlatforms]), Date.now(), titleMatch.id);
-        const delta = Math.round((nextPlay - prevPlay) * 100) / 100;
-        if (delta >= 0.01) logPlaytimeDelta(titleMatch.id, delta, Date.now());
         adopted++;
         return;
       }
@@ -1128,7 +1103,6 @@ apiRouter.delete("/wipe", (_req: Request, res: Response) => {
   try {
     const wipe = db.transaction(() => {
       stmts.deleteAllGames.run();
-      db.exec("DELETE FROM playtime_entries");
     });
     wipe();
     res.json({ success: true });
@@ -1400,31 +1374,13 @@ apiRouter.post("/wishlist/:id/own", (req: Request, res: Response) => {
   }
 });
 
-// ── PLAYTIME HISTORY ────────────────────────────────────────────────
-
-// GET /api/games/:id/playtime — session log for one game (newest first)
-apiRouter.get("/games/:id/playtime", (req: Request, res: Response) => {
-  try {
-    const paramParsed = IdParamSchema.safeParse(req.params);
-    if (!paramParsed.success) return res.status(400).json({ error: "Invalid game ID" });
-    if (!stmts.getGameById.get(paramParsed.data.id)) return res.status(404).json({ error: "Game not found" });
-    const rows = db.prepare("SELECT id, game_id, hours, logged_at FROM playtime_entries WHERE game_id = ? ORDER BY logged_at DESC LIMIT 50")
-      .all(paramParsed.data.id);
-    const total = db.prepare("SELECT COALESCE(SUM(hours), 0) AS h FROM playtime_entries WHERE game_id = ?").get(paramParsed.data.id) as { h: number };
-    res.json({ entries: rows, loggedTotal: Math.round(total.h * 100) / 100 });
-  } catch (err) {
-    console.error("GET /api/games/:id/playtime error:", err);
-    res.status(500).json({ error: "Failed to fetch playtime history" });
-  }
-});
-
 // ── BACKUPS ─────────────────────────────────────────────────────────
 // Automatic daily snapshots plus on-demand ones, kept in data/backups.
 // Restores copy tables online inside a transaction — no restart needed.
 
 const BACKUP_DIR = path.join(DATA_DIR, "backups");
 const BACKUP_NAME_RE = /^[a-zA-Z0-9._-]+\.db$/;
-const USER_TABLES = ["games", "wishlist", "settings", "playtime_entries"] as const;
+const USER_TABLES = ["games", "wishlist", "settings"] as const;
 
 function ensureBackupDir(): void {
   if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 });
@@ -1834,9 +1790,6 @@ apiRouter.post("/duplicates/merge", (req: Request, res: Response) => {
         updated_at: Date.now(),
         id: keepId,
       });
-      // Move the loser's sessions onto the keeper first.
-      db.prepare("UPDATE OR IGNORE playtime_entries SET game_id = ? WHERE game_id = ?").run(keepId, removeId);
-      db.prepare("DELETE FROM playtime_entries WHERE game_id = ?").run(removeId);
       stmts.deleteGame.run(removeId);
     });
     merge();

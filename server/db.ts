@@ -75,7 +75,7 @@ db.exec(`
 // only after a block completes successfully; a failed migration fails loudly
 // at startup instead of being silently re-run every boot.
 
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 15;
 
 function migrateTo(target: number) {
   const current = Number(db.pragma("user_version", { simple: true })) || 0;
@@ -279,24 +279,20 @@ function runMigration(version: number) {
     }
   }
 
-  if (version === 13) {
-    // Playtime history and its supporting indexes.
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS playtime_entries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-        hours REAL NOT NULL CHECK (hours > 0),
-        logged_at INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_playtime_game ON playtime_entries(game_id);
-      CREATE INDEX IF NOT EXISTS idx_playtime_date ON playtime_entries(logged_at);
-    `);
-  }
-
   if (version === 14) {
     // Custom collections were removed from the application. Drop their
     // normalized tables for existing databases as part of the migration.
     db.exec("DROP TABLE IF EXISTS collection_games; DROP TABLE IF EXISTS collections;");
+  }
+
+  if (version === 15) {
+    // Playtime history was removed from the application. Drop its table and
+    // indexes, following the same pattern as the collections removal above.
+    db.exec(`
+      DROP INDEX IF EXISTS idx_playtime_game;
+      DROP INDEX IF EXISTS idx_playtime_date;
+      DROP TABLE IF EXISTS playtime_entries;
+    `);
   }
 
   if (version === 12) {
@@ -464,16 +460,6 @@ function ensureSchemaIntegrity() {
   normalizeRawgRemnants();
   normalizePosterPolicy();
   upgradeIgdbPosterQuality();
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS playtime_entries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-      hours REAL NOT NULL CHECK (hours > 0),
-      logged_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_playtime_game ON playtime_entries(game_id);
-    CREATE INDEX IF NOT EXISTS idx_playtime_date ON playtime_entries(logged_at);
-  `);
 }
 
 ensureSchemaIntegrity();

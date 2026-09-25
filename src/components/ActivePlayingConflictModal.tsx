@@ -58,7 +58,7 @@ export const ActivePlayingConflictModal: React.FC = React.memo(() => {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
           onClick={() => !processing && closePlayingConflict()}
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 bg-black/80"
         />
 
         {/* Modal Window */}
