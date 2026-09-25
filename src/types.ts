@@ -101,7 +101,6 @@ export interface CustomizationSettings {
   discoverColumns: number; // 3, 4, 5, 6, 7
   showPlaytimeBadge: boolean;
   showRatingBadge: boolean;
-  density: "comfortable" | "compact";
 }
 
 export interface PlaytimeEntry {

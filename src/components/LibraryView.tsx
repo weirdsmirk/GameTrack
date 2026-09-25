@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { Game } from "../types";
 
-import { STATUSES, getStatusLabel, getStatusMarkerColor, platformIdMatches, mergeCustomPlatforms, libraryGridClass } from "../constants";
+import { STATUSES, getStatusLabel, getStatusMarkerColor, getStatusTextColor, platformIdMatches, mergeCustomPlatforms, libraryGridClass } from "../constants";
 import { formatPlaytimeLong } from "../utils/time";
 import { PosterImage } from "./PosterImage";
 
@@ -636,7 +636,7 @@ export const LibraryView: React.FC = () => {
 
       {/* Grid View */}
       {loadingGames ? (
-        <div className={`grid ${libraryGridClass(customizations.libraryColumns)} ${customizations.density === "compact" ? "gap-2" : "gap-4"} animate-pulse`}>
+        <div className={`grid ${libraryGridClass(customizations.libraryColumns)} gap-4 animate-pulse`}>
           {[...Array(10)].map((_, i) => (
             <div key={i} className="aspect-[2/3] bg-zinc-900/50 border border-brand-border rounded-none" />
           ))}
@@ -672,7 +672,7 @@ export const LibraryView: React.FC = () => {
           </button>
         </div>
       ) : (
-        <div className={`grid ${libraryGridClass(customizations.libraryColumns)} ${customizations.density === "compact" ? "gap-2" : "gap-4"}`}>
+        <div className={`grid ${libraryGridClass(customizations.libraryColumns)} gap-4`}>
           {visibleList.map((game) => (
             <LibraryGameCard
               key={game.id}
@@ -684,7 +684,6 @@ export const LibraryView: React.FC = () => {
               onDragOverCard={handleDragOverCard}
               onDragEnd={handleDragEnd}
               showRating={customizations.showRatingBadge}
-              density={customizations.density}
               selectMode={selectMode}
               selected={selectedIds.has(game.id)}
               onToggleSelect={toggleSelect}
@@ -725,7 +724,6 @@ interface LibraryGameCardProps {
   onDragOverCard?: (game: Game) => void;
   onDragEnd?: () => void;
   showRating?: boolean;
-  density?: "comfortable" | "compact";
   selectMode?: boolean;
   selected?: boolean;
   onToggleSelect?: (id: number) => void;
@@ -733,7 +731,6 @@ interface LibraryGameCardProps {
 
 const LibraryGameCard = React.memo<LibraryGameCardProps>(({ 
   game, onClick, reorderable, isDragging, onDragStart, onDragOverCard, onDragEnd, showRating = true,
-  density = "comfortable",
   selectMode = false, selected = false, onToggleSelect 
 }) => {
   const handleCardClick = () => {
@@ -769,7 +766,7 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
       onDragOver={reorderable ? (e) => { e.preventDefault(); onDragOverCard?.(game); } : undefined}
       onDragEnd={reorderable ? (e) => { e.preventDefault(); onDragEnd?.(); } : undefined}
       title={reorderable ? "Drag to reorder" : undefined}
-      className={`group bg-transparent rounded-none overflow-hidden cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2 transition-all duration-200 relative flex flex-col justify-between border border-brand-border hover:border-brand-accent ${
+      className={`group bg-transparent rounded-none overflow-hidden cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2 transition-all duration-200 relative flex flex-col justify-between border border-brand-border/40 hover:border-brand-accent ${
         selectMode && selected
           ? "ring-2 ring-brand-accent/50 bg-brand-accent/[0.04] border-brand-accent"
           : ""
@@ -817,15 +814,14 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
 
         {/* Score Floating Badge — also steps aside on hover for the same reason */}
         {showRating && game.critic_score != null && (
-          <div className={`absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm ${density === "compact" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-[11px]"} font-mono font-black text-brand-accent border border-brand-border z-10 shadow-sm transition-opacity duration-200 group-hover:opacity-0`}>
+          <div className="absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[11px] font-mono font-black text-brand-accent border border-brand-border z-10 shadow-sm transition-opacity duration-200 group-hover:opacity-0">
             {game.critic_score}
           </div>
         )}
 
-        {/* Hover state — scrim, playtime top-left, and the display title at the
-            bottom with its first word in accent. The status is NOT rendered
-            here: the cross-faded marker above holds the top-right corner in
-            both states, so it never moves. Fires on keyboard focus too, so it
+        {/* Hover state — scrim, a data row across the top (playtime left,
+            status as coloured type right), and the display title at the bottom
+            with its first word in accent. Fires on keyboard focus too, so it
             is not mouse-only. */}
         <div
           aria-hidden="true"
@@ -835,6 +831,12 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
           <div className="flex items-start justify-between gap-3 font-sans text-[11px] font-semibold uppercase tracking-widest">
             <span className="shrink-0 text-white/85">
               {game.hide_playtime === 1 ? "—" : formatPlaytimeLong(game.playtime)}
+            </span>
+            {/* Status as coloured type rather than a swatch, matching the
+                playtime beside it. The swatch in the top-right corner is
+                cross-faded in separately and stays put. */}
+            <span className={`shrink-0 ${getStatusTextColor(game.status)}`}>
+              {getStatusLabel(game.status)}
             </span>
           </div>
           <h4 className="text-lg sm:text-[22px] lg:text-[27px] font-black uppercase tracking-tight leading-[0.95] text-white line-clamp-3 break-words">

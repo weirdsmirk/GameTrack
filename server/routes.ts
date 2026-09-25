@@ -857,7 +857,6 @@ const CustomizationsSchema = z.object({
   discoverColumns: z.number().int().min(3).max(7).default(6),
   showPlaytimeBadge: z.boolean().default(true),
   showRatingBadge: z.boolean().default(true),
-  density: z.enum(["comfortable", "compact"]).default("comfortable"),
 });
 
 // GET /api/settings/customizations — persisted UI preferences.

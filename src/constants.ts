@@ -226,6 +226,26 @@ export const getStatusBadgeColor = (status: string): string => {
 
 /** Solid square marker colors per status — used by the small corner status
  *  badges on Library cards. */
+/**
+ * Status colour as text only, for places that show the status as a word
+ * rather than a badge or a swatch — e.g. the poster hover row, where the
+ * status reads as coloured type beside the playtime rather than a pill.
+ * Shares the palette with getStatusBadgeColor/getStatusMarkerColor.
+ */
+export const getStatusTextColor = (status: string): string => {
+  switch (status) {
+    case "playing":
+      return "text-blue-400";
+    case "completed":
+      return "text-emerald-400";
+    case "endless":
+      return "text-fuchsia-400";
+    case "backlog":
+    default:
+      return "text-zinc-400";
+  }
+};
+
 export const getStatusMarkerColor = (status: string): string => {
   switch (status) {
     case "playing":
