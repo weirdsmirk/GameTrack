@@ -34,9 +34,9 @@ const StatCard = React.memo(({ title, value, subtext, onClick }: StatCardProps) 
       } : undefined}
       tabIndex={onClick ? 0 : undefined}
       role={onClick ? "button" : undefined}
-      className={`bg-transparent border border-brand-border p-6 rounded-none relative overflow-hidden group hover:border-brand-accent/50 transition-colors h-full flex flex-col justify-between${onClick ? " cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent" : ""}`}>
+      className={`bg-transparent border border-brand-border px-6 py-8 rounded-none relative overflow-hidden group hover:border-brand-accent/50 transition-colors h-full flex flex-col justify-between${onClick ? " cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent" : ""}`}>
       <div className="space-y-2">
-        <p className="text-xs font-bold uppercase tracking-widest text-brand-muted font-mono">{title}</p>
+        <p className="text-[13px] font-bold uppercase tracking-widest text-brand-muted font-mono">{title}</p>
         
         {isPlaytime ? (
           <div className="flex flex-wrap items-baseline gap-x-1.5 mt-2 font-sans tracking-tighter leading-none">
@@ -46,20 +46,20 @@ const StatCard = React.memo(({ title, value, subtext, onClick }: StatCardProps) 
               return (
                 <React.Fragment key={idx}>
                   {idx > 0 && <span className="w-1" />}
-                  <span className="text-5xl sm:text-6xl font-black text-white leading-none">{numberVal}</span>
-                  <span className="text-xl sm:text-2xl font-black text-brand-accent uppercase leading-none self-baseline align-baseline">{unitVal}</span>
+                  <span className="text-6xl sm:text-7xl font-black text-white leading-none">{numberVal}</span>
+                  <span className="text-2xl sm:text-3xl font-black text-brand-accent uppercase leading-none self-baseline align-baseline">{unitVal}</span>
                 </React.Fragment>
               );
             })}
           </div>
         ) : (
-          <h3 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white mt-2 font-sans tracking-tighter leading-none flex flex-wrap">
+          <h3 className="text-5xl sm:text-6xl lg:text-7xl font-black text-white mt-2 font-sans tracking-tighter leading-none flex flex-wrap">
             {value}
           </h3>
         )}
       </div>
       
-      <p className="text-xs text-brand-muted mt-3 font-medium uppercase tracking-wider">{subtext}</p>
+      <p className="text-[13px] text-brand-muted mt-3 font-medium uppercase tracking-wider">{subtext}</p>
     </div>
   );
 });
@@ -113,13 +113,13 @@ export const DashboardView: React.FC = React.memo(() => {
 
       {/* Analytics KPI Block */}
       {loadingAnalytics && !summary ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 animate-pulse">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-28 bg-zinc-900/50 border border-brand-border rounded-none" />
+            <div key={i} className="h-49 bg-zinc-900/50 border border-brand-border rounded-none" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           <StatCard
             title="Registered Games"
             value={summary?.total_games ?? 0}

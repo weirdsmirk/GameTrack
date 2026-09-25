@@ -29,9 +29,9 @@ export const BackToTop: React.FC<BackToTopProps> = ({ scrollContainerRef, showAf
     <AnimatePresence>
       {visible && (
         <motion.div
-          initial={{ opacity: 0, y: 28, filter: "blur(8px)" }}
-          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-          exit={{ opacity: 0, y: 28, filter: "blur(8px)" }}
+          initial={{ opacity: 0, y: 28 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 28 }}
           transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
           className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40"
         >
@@ -40,7 +40,7 @@ export const BackToTop: React.FC<BackToTopProps> = ({ scrollContainerRef, showAf
             onClick={scrollToTop}
             aria-label="Back to top"
             title="Back to top"
-            className="px-5 py-2.5"
+            className="px-3 py-1.5 text-[11px]"
           >
             Back to top
           </Buttons>

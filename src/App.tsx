@@ -242,7 +242,7 @@ const tabs = [
             No border: the fill and height alone separate it from content. */}
         <nav
           aria-label="Primary"
-          className={`fixed inset-x-0 top-0 z-20 flex items-center gap-4 px-6 md:px-12 py-4 pointer-events-none transition-colors duration-100 ease-out ${
+          className={`fixed inset-x-0 top-0 z-20 flex items-center gap-4 px-6 md:px-12 py-8 pointer-events-none transition-colors duration-100 ease-out ${
             navVisible ? "bg-brand-bg" : "bg-transparent"
           }`}
         >
@@ -263,7 +263,7 @@ const tabs = [
               return (
                 <Buttons
                   key={tab.id}
-                  variant={isActive ? "primary" : "secondary"}
+                  variant={isActive ? "primary" : "tab"}
                   onClick={() => setActiveTab(tab.id)}
                   aria-current={isActive ? "page" : undefined}
                   className="px-4 py-2"
