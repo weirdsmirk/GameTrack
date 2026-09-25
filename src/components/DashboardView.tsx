@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import { 
-  Trophy, Clock, Sparkles, Calendar, Shuffle, ChevronDown
+  Trophy, Calendar, Shuffle, ChevronDown
 } from "lucide-react";
 import { motion } from "motion/react";
 import { formatPlaytime, formatPlaytimeLong, formatPlaytimePrecise } from "../utils/time";
@@ -197,16 +197,24 @@ export const DashboardView: React.FC = React.memo(() => {
           </div>
         </div>
       )}
-      {/* Suggestions and Recent Activity Grid — 3:1, so the Logs rail stays a
-          rail. Log rows truncate their title and keep the status badge
-          shrink-0, so the narrower column degrades to an ellipsis. */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
+      {/* Suggestions and Recent Activity Grid — 5:2 via explicit fr tracks.
+          The old lg:grid-cols-4 + col-span-3 made the Logs rail only one
+          quarter wide (255px) and, because a 3-track span also absorbs two
+          internal gaps, Suggestions came out far wider than the 3:1 implied.
+          fr tracks divide the space after the single gap, so 5:2 is honest and
+          can be dialled in either direction. The minmax(0, …) wrapper is
+          required, not decoration: a bare 5fr track has an automatic min-content
+          floor, and the three 2:3 posters inside Suggestions are wider than
+          5/7 of the row, so the track refused to shrink and the real split came
+          out 602:498 instead of 5:2. Log rows still truncate their title with
+          the status badge shrink-0, so the rail degrades to an ellipsis rather
+          than wrapping. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,5fr)_minmax(0,2fr)] gap-10">
         
         {/* Next To Play Recommendations */}
-        <div className="lg:col-span-3 space-y-6">
+        <div className="space-y-6">
           <div className="flex items-center justify-between border-b border-brand-border pb-3 gap-3 lg:h-[46px]">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-brand-accent" />
               <h3 className="text-lg font-bold tracking-tight uppercase text-white">Suggestions</h3>
             </div>
             {/* One shuffle for the row. It used to live inside each suggestion
@@ -226,13 +234,13 @@ export const DashboardView: React.FC = React.memo(() => {
           </div>
 
           {loadingAnalytics ? (
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-5 lg:h-[418px]">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-5">
               {[...Array(3)].map((_, i) => (
-                <div key={i} className="aspect-[2/3] lg:aspect-auto lg:h-full bg-zinc-900/50 border border-brand-border animate-pulse" />
+                <div key={i} className="aspect-[2/3] bg-zinc-900/50 border border-brand-border animate-pulse" />
               ))}
             </div>
           ) : suggestions.length === 0 ? (
-            <div className="border border-brand-border border-dashed rounded-none p-8 text-center flex flex-col items-center justify-center lg:h-[418px]">
+            <div className="border border-brand-border border-dashed rounded-none p-8 text-center flex flex-col items-center justify-center h-[300px]">
               <Trophy className="w-10 h-10 text-brand-muted mb-3" />
               <p className="text-white text-sm font-bold uppercase tracking-wider">Suggested directive empty</p>
               <p className="text-brand-muted text-xs mt-1 max-w-sm">
@@ -240,12 +248,34 @@ export const DashboardView: React.FC = React.memo(() => {
               </p>
             </div>
           ) : (
-            /* Poster row. lg:h-[418px] is 46px header + 24px gap + 418px, so
-               this block ends flush with the 488px Logs rail beside it. At lg
-               the cards drop their 2:3 ratio and fill that height (object-cover
-               crops ~4% off the width) to keep the two columns aligned. */
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-5 lg:h-[418px]">
-              {suggestions.map((game, index) => (
+            /* Poster row. No fixed height on purpose: the earlier lg:h-[418px]
+               was tuned to one viewport width, so on a wider screen the
+               row got stretched and object-cover sliced the bottom off every
+               poster (the MAFIA and BLASPHEMOUS logos were cut in half).
+               Height is now derived from the poster's own 2:3 ratio, so the
+               art is never cropped at any width.
+
+               The card is nothing but the poster at rest. Title and meta are
+               revealed inside it on hover, so the default view is pure
+               artwork — no caption strip, and no text sitting on the art
+               until it is asked for. The scrim exists only for that hover
+               state, where type has to hold up over arbitrary artwork. */
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-5">
+              {suggestions.map((game, index) => {
+                const ownedPlatforms = (game.owned_platforms || [])
+                  .filter(p => platforms.some(ap => platformIdMatches(ap.id, p)))
+                  .map(p => platforms.find(ap => platformIdMatches(ap.id, p))?.label || p);
+                const hasScore = customizations.showRatingBadge && game.critic_score != null;
+                // Accent goes on the FIRST word, not the last. At this display
+                // size a long title hits the line clamp on the final line, so a
+                // trailing accent word gets cut off and the colour silently
+                // vanishes on exactly the longest titles. The first word is
+                // always on line one, and opening on the accent gives the
+                // poster a stronger read than a trailing one anyway.
+                const titleWords = game.title.trim().split(/\s+/);
+                const accentWord = titleWords[0] ?? "";
+                const headWords = titleWords.slice(1).join(" ");
+                return (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -261,43 +291,62 @@ export const DashboardView: React.FC = React.memo(() => {
                   tabIndex={0}
                   role="button"
                   aria-label={`Open details for ${game.title}`}
-                  className="relative aspect-[2/3] lg:aspect-auto lg:h-full overflow-hidden border border-brand-border bg-zinc-900 group hover:border-brand-accent transition-colors focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent cursor-pointer"
+                  className="group relative border border-brand-border bg-zinc-950/30 hover:border-brand-accent transition-colors focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent cursor-pointer overflow-hidden"
                 >
-                  <PosterImage
-                    src={game.poster_url}
-                    alt={game.title}
-                    eager={index === 0}
-                    className="absolute inset-0 h-full w-full object-cover group-hover:scale-[1.03] transition-transform duration-300 transform-gpu will-change-transform"
-                  />
+                  {/* True 2:3 poster — a 2:3 source fills this box exactly, so
+                      object-cover never has to crop. The hover scale is on the
+                      image only; the overlay is its sibling so it does not
+                      scale and blur with the artwork. */}
+                  <div className="relative aspect-[2/3] overflow-hidden bg-zinc-900">
+                    <PosterImage
+                      src={game.poster_url}
+                      alt={game.title}
+                      eager={index === 0}
+                      className="h-full w-full object-cover group-hover:scale-[1.04] group-focus-visible:scale-[1.04] transition-transform duration-500 ease-out transform-gpu will-change-transform"
+                    />
 
-                  {/* Scrim: legibility only — the title sits on artwork, so it
-                      needs a guaranteed floor of contrast at the bottom edge. */}
-                  <div
-                    aria-hidden="true"
-                    className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/55 to-transparent"
-                  />
+                    {/* Legibility scrim for the hover caption only. Dark at BOTH
+                        ends and clear through the middle, because the data now
+                        sits top-left/top-right and the title bottom-left — a
+                        single bottom-up gradient would leave the top row sitting
+                        on bare artwork. */}
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/20 to-black/95 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-300"
+                    />
 
-                  {customizations.showRatingBadge && game.critic_score != null && (
-                    <div className="absolute top-3 left-3 bg-zinc-950/90 border border-brand-accent px-2 py-0.5 font-mono text-[11px] font-black text-brand-accent uppercase tracking-wider">
-                      MC: {game.critic_score}
-                    </div>
-                  )}
-
-                  <div className="absolute inset-x-0 bottom-0 p-4 flex flex-col gap-2">
-                    <h4 className="text-sm xl:text-base font-black uppercase tracking-tight leading-[1.05] text-white line-clamp-3 break-words">
-                      {game.title}
-                    </h4>
-                    <div className="flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-widest text-white/70">
-                      {game.year ? <span className="shrink-0">{game.year}</span> : <span />}
-                      {game.owned_platforms && game.owned_platforms.filter(p => platforms.some(ap => platformIdMatches(ap.id, p))).length > 0 && (
-                        <span className="truncate">
-                          {game.owned_platforms.filter(p => platforms.some(ap => platformIdMatches(ap.id, p))).map(p => platforms.find(ap => platformIdMatches(ap.id, p))?.label || p).join(", ")}
+                    <div className="absolute inset-0 p-4 flex flex-col justify-between opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity duration-300 ease-out">
+                      {/* Data pinned to the top corners: year left, platform and
+                          score right. */}
+                      <div className="flex items-start justify-between gap-3 font-mono text-[10px] uppercase tracking-widest">
+                        <span className="shrink-0 text-white/75">{game.year ?? "—"}</span>
+                        <span className="flex items-center gap-2 min-w-0 justify-end text-white/75">
+                          {hasScore && (
+                            <span className="shrink-0 text-brand-accent font-black">MC {game.critic_score}</span>
+                          )}
+                          {ownedPlatforms.length > 0 && <span className="truncate">{ownedPlatforms.join(", ")}</span>}
                         </span>
-                      )}
+                      </div>
+
+                      {/* Display-scale title, first word in accent. The accent
+                          is on the opening word so the line clamp can never eat
+                          it. */}
+                      <h4 className="text-xl sm:text-2xl lg:text-3xl font-black uppercase tracking-tight leading-[0.95] text-white line-clamp-3 break-words drop-shadow-[0_2px_6px_rgba(0,0,0,0.95)]">
+                        <span className="text-brand-accent">{accentWord}</span>
+                        {headWords && <span> {headWords}</span>}
+                      </h4>
                     </div>
                   </div>
+
+                  {/* The hover caption is visual only, so the data still has to
+                      reach assistive tech and stay findable by keyboard. */}
+                  <span className="sr-only">
+                    {[game.year, hasScore ? `Metacritic ${game.critic_score}` : null, ownedPlatforms.join(", ")]
+                      .filter(Boolean).join(" · ")}
+                  </span>
                 </motion.div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -305,8 +354,7 @@ export const DashboardView: React.FC = React.memo(() => {
         {/* Recent Activity Panel */}
         <div className="space-y-6">
           <div className="border-b border-brand-border pb-3 flex items-center lg:h-[46px]">
-            <h3 className="text-lg font-bold tracking-tight uppercase text-white flex items-center gap-2">
-              <Clock className="w-5 h-5 text-brand-accent" />
+            <h3 className="text-lg font-bold tracking-tight uppercase text-white">
               Logs
             </h3>
           </div>

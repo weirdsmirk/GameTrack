@@ -15,7 +15,6 @@ import AddGameModal from "./components/AddGameModal";
 import { ActivePlayingConflictModal } from "./components/ActivePlayingConflictModal";
 import { Settings, Terminal } from "lucide-react";
 import PageLoader from "./components/PageLoader";
-import BackToTop from "./components/BackToTop";
 import { Buttons } from "./components/Buttons";
 import AppFooter from "./components/AppFooter";
 
@@ -301,8 +300,6 @@ const tabs = [
         <AuthModal />
         <ActivePlayingConflictModal />
         <Toast />
-        {/* Floating back-to-top: appears on every page once the user scrolls down */}
-        <BackToTop scrollContainerRef={mainRef} />
 
         {/* Full-screen boot loader: the screen in index.html stays blank (like
             the theme change) while the game registry preloads, then fades to
