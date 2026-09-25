@@ -13,7 +13,7 @@ import AuthModal from "./components/AuthModal";
 import GameDetailsModal from "./components/GameDetailsModal";
 import AddGameModal from "./components/AddGameModal";
 import { ActivePlayingConflictModal } from "./components/ActivePlayingConflictModal";
-import { Settings } from "lucide-react";
+import { Settings, Terminal } from "lucide-react";
 import PageLoader from "./components/PageLoader";
 import BackToTop from "./components/BackToTop";
 import { Buttons } from "./components/Buttons";
@@ -31,6 +31,11 @@ export default function App() {
   } = useGameTrackStore();
   const [pathname] = useState(() => window.location.pathname);
   const [booted, setBooted] = useState(false);
+  // The floating tab row (and settings gear) is always on screen; only the
+  // bar behind it — backdrop plus GAMETRACK wordmark — waits until the hero
+  // has scrolled past. Listens on <main> — the real scroller — because the
+  // shell is h-screen with an inner overflow container, so window never scrolls.
+  const [navVisible, setNavVisible] = useState(false);
   const [entered, setEntered] = useState(() => {
     try {
       return localStorage.getItem(ENTERED_KEY) === "1";
@@ -48,6 +53,21 @@ export default function App() {
       mainRef.current.scrollTo({ top: 0, behavior: "instant" });
     }
   }, [activeTab]);
+
+  // Reveal the nav bar backdrop only after the hero has scrolled past.
+  // `entered` gates this because mainRef is only mounted once the landing
+  // gate is dismissed.
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    // Reveal the nav bar backdrop as soon as the user starts scrolling the
+    // hero away, rather than waiting for the hero to fully clear it.
+    const HERO_SCROLL_END = 48;
+    const onScroll = () => setNavVisible(el.scrollTop > HERO_SCROLL_END);
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [entered]);
 
   // Preload everything once at boot — games, Steam identity, analytics,
   // wishlist and custom platforms — so every tab is instant afterwards.
@@ -183,40 +203,11 @@ const tabs = [
         <div className="fixed top-[-150px] left-1/3 w-[800px] h-[400px] bg-brand-accent/[0.04] blur-[150px] rounded-full pointer-events-none z-0" />
         <div className="fixed bottom-[-200px] right-1/4 w-[600px] h-[500px] bg-brand-accent/[0.02] blur-[150px] rounded-full pointer-events-none z-0" />
 
-        {/* Main workspace — full width, top navigation */}
+        {/* Main workspace — full width, top navigation. The nav bar is hidden
+            over the hero, so content keeps its original top offset and the
+            title owns the top of the screen until the bar slides in. */}
         <main ref={mainRef} className="flex-1 flex flex-col min-w-0 min-h-0 bg-brand-bg overflow-y-auto scroll-smooth antialiased">
           <div className="w-full px-6 md:px-12 py-10 pb-24 overflow-x-hidden shrink-0 relative">
-            {/* Top navigation — boxed tabs, floated top-right so the page
-                title starts immediately below (matches the hero mock).
-                `fixed` (not `absolute`) so the bar is pinned to the viewport and
-                survives any scroll of the <main> scroller. The opaque
-                `bg-brand-bg` keeps page content from showing through the frame
-                as it slides underneath. */}
-            <nav aria-label="Primary" className="fixed top-10 right-6 md:right-12 z-20 flex flex-wrap items-stretch justify-end gap-2 border border-brand-border bg-brand-bg p-2">
-              {tabs.map((tab) => {
-                const isActive = activeTab === tab.id;
-                return (
-                  <Buttons
-                    key={tab.id}
-                    variant={isActive ? "primary" : "secondary"}
-                    onClick={() => setActiveTab(tab.id)}
-                    aria-current={isActive ? "page" : undefined}
-                    className="px-6 py-2.5"
-                  >
-                    {tab.label}
-                  </Buttons>
-                );
-              })}
-              <Buttons
-                variant="icon"
-                onClick={() => setSettingsOpen(true)}
-                aria-label="Open Settings"
-                title="Open Settings"
-                className="p-2.5"
-              >
-                <Settings className="w-5 h-5" />
-              </Buttons>
-            </nav>
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={activeTab}
@@ -237,6 +228,61 @@ const tabs = [
         </main>
 
         {/* Global Overlays & Portals */}
+        {/* Primary nav — one element, two visual states. The tab row and
+            settings gear are always mounted and always visible, floating over
+            the hero; only the bar behind them (opaque fill + GAMETRACK
+            wordmark) fades in once the user scrolls past the hero.
+
+            Single element on purpose: the bar's height is driven by the 34px
+            button row, so the row stays perfectly centred inside it instead of
+            overflowing a fixed-height backdrop. The nav spans the full width
+            in both states, so it carries pointer-events-none and re-enables
+            them on the wordmark and buttons — otherwise the transparent
+            over-hero state would swallow clicks across the top of the page.
+            No border: the fill and height alone separate it from content. */}
+        <nav
+          aria-label="Primary"
+          className={`fixed inset-x-0 top-0 z-20 flex items-center gap-4 px-6 md:px-12 py-4 pointer-events-none transition-colors duration-100 ease-out ${
+            navVisible ? "bg-brand-bg" : "bg-transparent"
+          }`}
+        >
+          <div
+            className={`flex items-center gap-2 select-none transition-opacity duration-100 ease-out ${
+              navVisible ? "opacity-100 pointer-events-auto" : "opacity-0"
+            }`}
+          >
+            <Terminal className="w-4 h-4 text-brand-accent shrink-0" />
+            <span className="text-base font-black tracking-tighter leading-none">
+              <span className="text-white">GAME</span>
+              <span className="text-brand-accent">TRACK</span>
+            </span>
+          </div>
+          <div className="ml-auto flex items-stretch gap-1.5 pointer-events-auto">
+            {tabs.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <Buttons
+                  key={tab.id}
+                  variant={isActive ? "primary" : "secondary"}
+                  onClick={() => setActiveTab(tab.id)}
+                  aria-current={isActive ? "page" : undefined}
+                  className="px-4 py-2"
+                >
+                  {tab.label}
+                </Buttons>
+              );
+            })}
+            <Buttons
+              variant="icon"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Open Settings"
+              title="Open Settings"
+              className="p-2"
+            >
+              <Settings className="w-4 h-4" />
+            </Buttons>
+          </div>
+        </nav>
         <GameDetailsModal />
         <AddGameModal />
         <SettingsModal />
