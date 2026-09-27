@@ -26,7 +26,7 @@ const StatCard = React.memo(({ title, value, subtext }: StatCardProps) => {
     <div
       className="bg-transparent border border-brand-border px-6 py-6 rounded-none relative overflow-hidden h-full flex flex-col justify-between">
       <div className="space-y-2">
-        <p className="text-xs font-bold uppercase tracking-widest text-brand-muted font-mono">{title}</p>
+        <p className="text-xs font-bold uppercase tracking-widest text-brand-muted">{title}</p>
         
         {isPlaytime ? (
           <div className="flex flex-wrap items-baseline gap-x-1.5 mt-2 font-sans tracking-tighter leading-none">
@@ -148,22 +148,22 @@ export const DashboardView: React.FC = React.memo(() => {
               className="bg-session-bg text-session-text p-8 sm:p-10 rounded-none flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 transition-all border-l-8 border-brand-accent select-none"
             >
               <div className="space-y-4">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext font-mono">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext">
                   CURRENT_SESSION
                 </h3>
                 <h2 className="text-3xl sm:text-5xl lg:text-6xl font-black uppercase tracking-tighter leading-none text-session-text font-sans">
                   {game.title}
                 </h2>
-                <p className="text-xs font-bold text-session-subtext font-mono tracking-wider max-w-lg uppercase">
+                <p className="text-xs font-bold text-session-subtext tracking-wider max-w-lg uppercase">
                   {game.genres?.slice(0, 3).join("  •  ") ?? ""}
                 </p>
               </div>
               
               <div className="text-left sm:text-right shrink-0">
-                <p className="text-[11px] font-mono tracking-widest text-session-subtext uppercase font-bold">
+                <p className="text-[11px] tracking-widest text-session-subtext uppercase font-bold">
                   Accumulated
                 </p>
-                <div className="font-mono text-3xl sm:text-4xl font-black text-session-text tracking-tight mt-1">
+                <div className="text-3xl sm:text-4xl font-black text-session-text tracking-tight mt-1">
                   {game.hide_playtime === 1 ? "—" : formatPlaytimePrecise(game.playtime)}
                 </div>
                 <button
@@ -179,13 +179,13 @@ export const DashboardView: React.FC = React.memo(() => {
       ) : (
         <div className="bg-session-bg text-session-text p-8 sm:p-10 rounded-none flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 transition-all border-l-8 border-brand-accent select-none">
           <div className="space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext font-mono">
+            <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext">
               NO_ACTIVE_SESSION
             </h3>
             <h2 className="text-3xl sm:text-5xl lg:text-6xl font-black uppercase tracking-tighter leading-none text-session-text font-sans">
               READY_FOR_ENGAGEMENT
             </h2>
-            <p className="text-xs font-bold text-session-subtext font-mono tracking-wider max-w-lg uppercase">
+            <p className="text-xs font-bold text-session-subtext tracking-wider max-w-lg uppercase">
               MARK_A_TITLE_AS_CURRENTLY_PLAYING_TO_INITIATE_METRIC_TRACKING
             </p>
           </div>
@@ -375,7 +375,7 @@ export const DashboardView: React.FC = React.memo(() => {
           ) : recentActivity.length === 0 ? (
             <div className="border border-brand-border border-dashed rounded-none p-6 text-center flex flex-col items-center justify-center h-48 shrink-0">
               <Calendar className="w-8 h-8 text-brand-muted mb-2" />
-              <p className="text-brand-muted text-xs uppercase font-bold font-mono">No recent activity logs</p>
+              <p className="text-brand-muted text-xs uppercase font-bold">No recent activity logs</p>
             </div>
           ) : (
             <div className="relative flex-1 min-h-0">
@@ -408,10 +408,10 @@ export const DashboardView: React.FC = React.memo(() => {
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-brand-muted font-mono font-bold">
+                      <span className="text-[11px] text-brand-muted font-bold">
                         {game.hide_playtime === 1 ? "—" : formatPlaytimeLong(game.playtime)}
                       </span>
-                      <p className="text-[11px] text-brand-muted font-mono uppercase font-bold">
+                      <p className="text-[11px] text-brand-muted uppercase font-bold">
                         {new Date(game.updated_at).toLocaleDateString()}
                       </p>
                     </div>

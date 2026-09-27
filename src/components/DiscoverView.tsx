@@ -290,7 +290,7 @@ export const DiscoverView: React.FC = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search Witcher, Elden Ring, Doom, Metroid, Zelda..."
-            className="w-full pl-11 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-mono uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors"
+            className="w-full pl-11 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors"
           />
           {query && (
             <button
@@ -506,13 +506,13 @@ export const DiscoverView: React.FC = () => {
                 
                 <div className="space-y-2">
                   <h3 id="discover-modal-title" className="text-xl font-black tracking-tight text-white uppercase">{infoModalGame.title}</h3>
-                  <p className="text-xs text-brand-muted font-mono uppercase font-bold">
+                  <p className="text-xs text-brand-muted uppercase font-bold">
                     {infoModalGame.year ? `${infoModalGame.year} // ` : ""}{infoModalGame.genres?.join(", ") || "Unknown Genre"}
                   </p>
                   
                   <div className="flex flex-wrap gap-2 pt-1">
                     {customizations.showRatingBadge && infoModalGame.critic_score != null && (
-                      <span className="px-2 py-0.5 rounded-none text-[11px] font-mono font-black bg-zinc-900 border border-brand-border text-brand-accent">
+                      <span className="px-2 py-0.5 rounded-none text-[11px] font-black bg-zinc-900 border border-brand-border text-brand-accent">
                         METACRITIC: {infoModalGame.critic_score}
                       </span>
                     )}
@@ -579,7 +579,7 @@ export const DiscoverView: React.FC = () => {
               
               {/* Header: Fixed at the top */}
               <div className="px-6 py-5 md:px-8 md:py-6 border-b border-brand-border/40 shrink-0 bg-brand-bg relative pr-16">
-                <span className="text-[11px] font-mono font-bold tracking-widest text-brand-accent uppercase">Registry Directives</span>
+                <span className="text-[11px] font-bold tracking-widest text-brand-accent uppercase">Registry Directives</span>
                 <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tight mt-1 truncate">
                   {infoModalGame.title}
                 </h2>
@@ -588,11 +588,11 @@ export const DiscoverView: React.FC = () => {
               {/* Scrollable Content Area */}
               <div className="flex-1 md:overflow-y-auto p-6 md:p-8 space-y-6 overscroll-contain">
                 <div className="pt-2">
-                  <h4 className="text-xs font-mono font-bold uppercase tracking-widest text-zinc-400 mb-2">About the Game</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-400 mb-2">About the Game</h4>
                   {loadingDetails ? (
                     <div className="flex flex-col items-center justify-center py-12 space-y-3">
                       <Loader2 className="w-8 h-8 animate-spin text-brand-accent" />
-                      <span className="text-[11px] font-mono font-bold text-brand-muted uppercase tracking-wider">Retrieving details from registry...</span>
+                      <span className="text-[11px] font-bold text-brand-muted uppercase tracking-wider">Retrieving details from registry...</span>
                     </div>
                   ) : (
                     <div className="text-zinc-300 text-xs sm:text-sm font-sans space-y-4 leading-relaxed pr-2 select-text">
@@ -665,7 +665,7 @@ const DiscoverGameCard = React.memo<DiscoverGameCardProps>(({
       <div className="p-4 flex-1 flex flex-col justify-between">
         <div>
           <h4 className="font-bold text-white text-sm line-clamp-1 uppercase tracking-tight">{game.title}</h4>
-          <p className="block truncate whitespace-nowrap text-[11px] text-brand-muted mt-0.5 font-mono uppercase font-bold">
+          <p className="block truncate whitespace-nowrap text-[11px] text-brand-muted mt-0.5 uppercase font-bold">
             {game.year ? `${game.year} // ` : ""}{(game.genres || []).slice(0, 1).join(" • ") || "Unknown Genre"}
           </p>
         </div>
@@ -829,7 +829,7 @@ const TabbedCuratedSection: React.FC<TabbedCuratedSectionProps> = ({
         </div>
       ) : (
         <div className="border border-brand-border border-dashed p-8 text-center">
-          <p className="text-brand-muted text-xs font-mono uppercase font-bold tracking-wider">
+          <p className="text-brand-muted text-xs uppercase font-bold tracking-wider">
             {genreLabel
               ? `No ${genreLabel} titles in “${active.label}”`
               : "This list is empty right now"}
@@ -914,13 +914,13 @@ const CuratedGameCard = React.memo<{
           </div>
         )}
         {showRating && game.critic_score != null && (
-          <div className="absolute bottom-2 right-2 bg-zinc-950/90 backdrop-blur-sm px-1.5 py-0.5 text-[10px] font-mono font-black text-brand-accent border border-brand-border shadow-sm">
+          <div className="absolute bottom-2 right-2 bg-zinc-950/90 backdrop-blur-sm px-1.5 py-0.5 text-[10px] font-black text-brand-accent border border-brand-border shadow-sm">
             {game.critic_score}
           </div>
         )}
       </div>
       <h5 className="font-bold text-white text-xs uppercase tracking-tight mt-2 line-clamp-1">{game.title}</h5>
-      <p className="text-[10px] font-mono font-bold uppercase tracking-wider text-brand-muted mt-0.5">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted mt-0.5">
         {game.year || "TBA"}
       </p>
     </div>

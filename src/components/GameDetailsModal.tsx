@@ -538,13 +538,13 @@ export const GameDetailsModal: React.FC = React.memo(() => {
             
             <div className="space-y-2">
               <h3 id="details-modal-title" className={`text-xl font-black tracking-tight uppercase ${selectedGame.status === "completed" ? "text-brand-accent" : "text-white"}`}>{selectedGame.title}</h3>
-              <p className="text-xs text-brand-muted font-mono uppercase font-bold">
+              <p className="text-xs text-brand-muted uppercase font-bold">
                 {selectedGame.year ? `${selectedGame.year} // ` : ""}{selectedGame.genres?.slice(0, 2).join(", ")}
               </p>
               
               <div className="flex flex-wrap gap-2 pt-1">
                 {customizations.showRatingBadge && selectedGame.critic_score != null && (
-                  <span className="px-2 py-0.5 rounded-none text-[11px] font-mono font-black bg-zinc-900 border border-brand-border text-brand-accent">
+                  <span className="px-2 py-0.5 rounded-none text-[11px] font-black bg-zinc-900 border border-brand-border text-brand-accent">
                     CRITIC: {selectedGame.critic_score}
                   </span>
                 )}
@@ -576,7 +576,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
               {selectedGame.owned_platforms && selectedGame.owned_platforms.filter(p => availablePlatforms.some(ap => platformIdMatches(ap.id, p))).length > 0 && (
                 <div className="pt-2 border-t border-brand-border/45 mt-3">
-                  <p className="text-[11px] font-mono text-brand-muted uppercase font-bold tracking-widest mb-1">Platforms Owned</p>
+                  <p className="text-[11px] text-brand-muted uppercase font-bold tracking-widest mb-1">Platforms Owned</p>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedGame.owned_platforms.filter(p => availablePlatforms.some(ap => platformIdMatches(ap.id, p))).map(p => {
                       const platLabel = availablePlatforms.find(ap => platformIdMatches(ap.id, p))?.label || p;
@@ -628,11 +628,11 @@ export const GameDetailsModal: React.FC = React.memo(() => {
           {/* Header Controls (Fixed, does not scroll) */}
           <div className="px-6 md:px-8 py-4 border-b border-brand-border/60 shrink-0 bg-brand-bg flex justify-between items-center">
             {isEditing ? (
-              <p className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">
+              <p className="text-[11px] font-black uppercase tracking-widest text-brand-accent">
                 EDIT_METADATA
               </p>
             ) : (
-              <p className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">TITLE CONTROL PANEL</p>
+              <p className="text-[11px] font-black uppercase tracking-widest text-brand-accent">TITLE CONTROL PANEL</p>
             )}
             <div className="flex items-center gap-2.5">
               {isEditing ? (
@@ -681,7 +681,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 {/* Editable Title */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1 sm:col-span-2">
-                  <label htmlFor="edit-game-title" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Game Title</label>
+                  <label htmlFor="edit-game-title" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Game Title</label>
                   <input
                     id="edit-game-title"
                     type="text"
@@ -694,7 +694,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
-                  <label htmlFor="edit-game-year" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Release Year</label>
+                  <label htmlFor="edit-game-year" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Release Year</label>
                   <input
                     id="edit-game-year"
                     type="number"
@@ -704,7 +704,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label htmlFor="edit-game-completed" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Completion Date</label>
+                  <label htmlFor="edit-game-completed" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Completion Date</label>
                   <input
                     id="edit-game-completed"
                     type="date"
@@ -714,7 +714,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label htmlFor="edit-game-hours" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">
+                  <label htmlFor="edit-game-hours" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">
                     Playtime
                   </label>
                   <div className="flex gap-2">
@@ -729,7 +729,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                         placeholder="Hours"
                         className="w-full pl-4 pr-7 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
                       />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-black text-brand-muted pointer-events-none">H</span>
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-brand-muted pointer-events-none">H</span>
                     </div>
                     <div className="relative flex-1 min-w-0">
                       <input
@@ -742,7 +742,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                         placeholder="Minutes"
                         className="w-full pl-4 pr-7 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
                       />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-black text-brand-muted pointer-events-none">M</span>
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-brand-muted pointer-events-none">M</span>
                     </div>
                     <button
                       type="button"
@@ -762,8 +762,8 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Personal Rating</label>
-                  <span className="flex items-center gap-1.5 text-[11px] font-mono font-black uppercase tracking-widest">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Personal Rating</label>
+                  <span className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest">
                     <span className={`w-1.5 h-1.5 ${ratingValue > 0 ? "bg-brand-accent" : "bg-zinc-600"}`} />
                     <span className={ratingValue > 0 ? "text-brand-accent" : "text-brand-muted"}>
                       {ratingValue > 0 ? `Rated ${ratingValue}/10` : "Unrated"}
@@ -813,7 +813,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
               {/* Status — edited here, saved via Apply */}
               <div className="space-y-2">
-                <span id="edit-game-status-label" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Status</span>
+                <span id="edit-game-status-label" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Status</span>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="radiogroup" aria-labelledby="edit-game-status-label">
                   {STATUSES.map((s) => {
                     const active = editStatus === s.value;
@@ -850,7 +850,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
             {/* Owned Platforms checkboxes */}
               <div className="space-y-2">
-                <label className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Platform Tag checklist</label>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Platform Tag checklist</label>
                 <div className="flex flex-wrap gap-1.5">
                   {availablePlatforms.map((plat) => (
                     <label
@@ -879,7 +879,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               </div>
 
               <div className="space-y-1.5">
-                <label htmlFor="edit-game-synopsis" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Game Synopsis / Description</label>
+                <label htmlFor="edit-game-synopsis" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Game Synopsis / Description</label>
                 <textarea
                   id="edit-game-synopsis"
                   value={synopsis}
@@ -900,7 +900,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                       <p key={idx}>{paragraph}</p>
                     ))
                   ) : (
-                    <p className="text-brand-muted text-xs uppercase font-mono">No description available.</p>
+                    <p className="text-brand-muted text-xs uppercase">No description available.</p>
                   )}
                 </div>
               </div>
@@ -914,29 +914,29 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               {/* Registry Metrics */}
               <div className="grid grid-cols-3 gap-3">
                 <div className={`bg-zinc-900/60 border p-3.5 flex flex-col justify-between h-[76px] ${selectedGame.hide_playtime === 1 ? "border-dashed border-red-500/25" : "border-brand-border/50"}`}>
-                    <p className="text-[8px] sm:text-[11px] font-mono text-brand-muted uppercase font-bold tracking-widest leading-none">Aggregate Hours</p>
+                    <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">Aggregate Hours</p>
                     {selectedGame.hide_playtime === 1 ? (
-                      <h5 className="text-sm sm:text-lg font-black text-red-400/80 font-mono mt-2 leading-none uppercase inline-flex items-center gap-1.5 line-through decoration-2 decoration-red-500/40" title="Playtime is hidden — shown only to you">
+                      <h5 className="text-sm sm:text-lg font-black text-red-400/80 mt-2 leading-none uppercase inline-flex items-center gap-1.5 line-through decoration-2 decoration-red-500/40" title="Playtime is hidden — shown only to you">
                         <EyeOff className="w-3.5 h-3.5 shrink-0" />
                         Hidden
                       </h5>
                     ) : (
-                      <h5 className="text-sm sm:text-lg font-black text-white font-mono mt-2 leading-none uppercase">
+                      <h5 className="text-sm sm:text-lg font-black text-white mt-2 leading-none uppercase">
                         {formatPlaytimePrecise(selectedGame.playtime)}
                       </h5>
                     )}
                   </div>
                   
                   <div className="bg-zinc-900/60 border border-brand-border/50 p-3.5 flex flex-col justify-between h-[76px]">
-                    <p className="text-[8px] sm:text-[11px] font-mono text-brand-muted uppercase font-bold tracking-widest leading-none">Personal Grade</p>
-                    <h5 className="text-sm sm:text-lg font-black text-brand-accent font-mono mt-2 leading-none uppercase">
+                    <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">Personal Grade</p>
+                    <h5 className="text-sm sm:text-lg font-black text-brand-accent mt-2 leading-none uppercase">
                       {selectedGame.personal_rating !== null ? `${selectedGame.personal_rating}/10` : "—"}
                     </h5>
                   </div>
 
                   <div className="bg-zinc-900/60 border border-brand-border/50 p-3.5 flex flex-col justify-between h-[76px]">
-                    <p className="text-[8px] sm:text-[11px] font-mono text-brand-muted uppercase font-bold tracking-widest leading-none">Entry Date</p>
-                    <h5 className="text-sm sm:text-lg font-black text-white font-mono mt-2 leading-none uppercase">
+                    <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">Entry Date</p>
+                    <h5 className="text-sm sm:text-lg font-black text-white mt-2 leading-none uppercase">
                       {new Date(selectedGame.date_added).toLocaleDateString()}
                     </h5>
                   </div>
@@ -974,7 +974,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
             className="w-full max-w-md bg-brand-bg border border-brand-border shadow-2xl"
           >
             <div className="px-5 py-4 border-b border-brand-border/60 flex items-center justify-between">
-              <h3 id="poster-modal-title" className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">
+              <h3 id="poster-modal-title" className="text-[11px] font-black uppercase tracking-widest text-brand-accent">
                 Change Poster
               </h3>
               <button
@@ -990,7 +990,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
             <div className="p-5 space-y-4">
               {/* Option 1: image URL */}
               <div className="space-y-1.5">
-                <label htmlFor="poster-url-input" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">
+                <label htmlFor="poster-url-input" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">
                   Poster image URL
                 </label>
                 <div className="flex gap-2">
@@ -1001,7 +1001,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     onChange={(e) => setPosterUrlInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") handleApplyPosterUrl(); }}
                     placeholder="https://example.com/poster.jpg"
-                    className="flex-1 min-w-0 px-3 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-mono text-white focus:outline-none focus:border-brand-accent placeholder:text-zinc-600"
+                    className="flex-1 min-w-0 px-3 py-2 bg-brand-bg border border-brand-border rounded-none text-xs text-white focus:outline-none focus:border-brand-accent placeholder:text-zinc-600"
                   />
                   <button
                     type="button"
@@ -1017,7 +1017,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
               <div className="flex items-center gap-3">
                 <div className="flex-1 h-px bg-brand-border/60" />
-                <span className="text-[9px] font-mono font-bold uppercase tracking-widest text-brand-muted">or</span>
+                <span className="text-[9px] font-bold uppercase tracking-widest text-brand-muted">or</span>
                 <div className="flex-1 h-px bg-brand-border/60" />
               </div>
 
@@ -1043,7 +1043,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   e.target.value = "";
                 }}
               />
-              <p className="text-[10px] font-mono text-brand-muted uppercase tracking-wider leading-relaxed">
+              <p className="text-[10px] text-brand-muted uppercase tracking-wider leading-relaxed">
                 PNG, JPEG or WebP — uploads are resized and stored locally. Use Reset to restore the original poster.
               </p>
             </div>
@@ -1077,10 +1077,10 @@ export const GameDetailsModal: React.FC = React.memo(() => {
           >
             <div className="px-5 py-4 border-b border-brand-border/60 flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <h3 id="status-picker-title" className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">
+                <h3 id="status-picker-title" className="text-[11px] font-black uppercase tracking-widest text-brand-accent">
                   Change Status
                 </h3>
-                <p className="text-[10px] font-mono text-brand-muted uppercase tracking-wider truncate mt-0.5">
+                <p className="text-[10px] text-brand-muted uppercase tracking-wider truncate mt-0.5">
                   {selectedGame.title}
                 </p>
               </div>
@@ -1118,7 +1118,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
             </div>
 
             {statusBusy && (
-              <div className="px-5 pb-4 flex items-center gap-2 text-[10px] font-mono uppercase tracking-wider text-brand-muted">
+              <div className="px-5 pb-4 flex items-center gap-2 text-[10px] uppercase tracking-wider text-brand-muted">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 Saving…
               </div>

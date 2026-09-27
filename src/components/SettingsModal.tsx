@@ -160,7 +160,7 @@ export const SettingsModal: React.FC = React.memo(() => {
             <div className="flex items-center justify-between border-b border-brand-border p-5 shrink-0">
               <div className="flex items-center gap-2">
                 <Settings className="w-5 h-5 text-brand-accent stroke-[3]" />
-                <h3 id="settings-modal-title" className="text-sm font-mono font-black uppercase tracking-widest text-white">System Settings</h3>
+                <h3 id="settings-modal-title" className="text-sm font-black uppercase tracking-widest text-white">System Settings</h3>
               </div>
               <button
                 onClick={() => setSettingsOpen(false)}
@@ -177,7 +177,7 @@ export const SettingsModal: React.FC = React.memo(() => {
               {/* 1. Steam */}
               <div className="space-y-3.5">
                 <div className="flex items-center gap-2">
-                  <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Steam</h4>
+                  <h4 className="text-[11px] font-black uppercase tracking-widest text-brand-accent">Steam</h4>
                   <span className="relative inline-flex group/info">
                     <button
                       type="button"
@@ -190,7 +190,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                     <span
                       role="tooltip"
                       id="steam-sync-info"
-                      className="absolute left-5 top-1/2 -translate-y-1/2 z-20 hidden group-hover/info:block group-focus-within/info:block w-56 p-2.5 bg-zinc-950 border border-brand-border text-[11px] text-zinc-400 font-mono leading-relaxed shadow-xl pointer-events-none"
+                      className="absolute left-5 top-1/2 -translate-y-1/2 z-20 hidden group-hover/info:block group-focus-within/info:block w-56 p-2.5 bg-zinc-950 border border-brand-border text-[11px] text-zinc-400 leading-relaxed shadow-xl pointer-events-none"
                     >
                       Link your Steam account, then sync to import your owned games — titles, cover art, genres and playtime. Non-Steam games stay manual.
                     </span>
@@ -214,10 +214,10 @@ export const SettingsModal: React.FC = React.memo(() => {
                           )}
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-mono font-black uppercase tracking-widest text-white truncate">
+                          <p className="text-sm font-black uppercase tracking-widest text-white truncate">
                             {steamSettings.steamName || "Steam account"}
                           </p>
-                          <p className="text-[11px] font-mono text-brand-muted uppercase tracking-wider mt-0.5 truncate">
+                          <p className="text-[11px] text-brand-muted uppercase tracking-wider mt-0.5 truncate">
                             Last sync: {formatLastSync(steamSettings.lastSync)}
                           </p>
                         </div>
@@ -271,18 +271,18 @@ export const SettingsModal: React.FC = React.memo(() => {
                             )}
                           </div>
                           <div className="min-w-0">
-                            <p className="text-sm font-mono font-black uppercase tracking-widest text-white truncate">
+                            <p className="text-sm font-black uppercase tracking-widest text-white truncate">
                               {steamSettings.steamName || "Steam account"}
                             </p>
                           </div>
                         </div>
                       ) : (
-                        <p className="text-[11px] font-mono text-brand-muted uppercase tracking-wider leading-relaxed">
+                        <p className="text-[11px] text-brand-muted uppercase tracking-wider leading-relaxed">
                           // No Steam account linked yet
                         </p>
                       )}
                       <div className="space-y-1">
-                        <label htmlFor="settings-steam-profile" className="block text-[8px] font-mono uppercase tracking-widest text-brand-muted font-bold">Steam Profile URL or ID64</label>
+                        <label htmlFor="settings-steam-profile" className="block text-[8px] uppercase tracking-widest text-brand-muted font-bold">Steam Profile URL or ID64</label>
                         <input
                           id="settings-steam-profile"
                           type="text"
@@ -290,9 +290,9 @@ export const SettingsModal: React.FC = React.memo(() => {
                           value={steamProfile}
                           onChange={(e) => setSteamProfile(e.target.value)}
                           placeholder="https://steamcommunity.com/id/yourname"
-                          className="w-full px-3 py-2 bg-zinc-950 border border-brand-border text-xs font-mono focus:outline-none focus:border-brand-accent text-white"
+                          className="w-full px-3 py-2 bg-zinc-950 border border-brand-border text-xs focus:outline-none focus:border-brand-accent text-white"
                         />
-                        <p className="text-[8px] font-mono text-brand-muted uppercase tracking-wider pt-0.5">
+                        <p className="text-[8px] text-brand-muted uppercase tracking-wider pt-0.5">
                           // API key is read from .env on the server
                         </p>
                       </div>
@@ -324,7 +324,7 @@ export const SettingsModal: React.FC = React.memo(() => {
 
               {/* 3. Interface Theme */}
               <div className="space-y-3.5">
-                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Interface Theme</h4>
+                <h4 className="text-[11px] font-black uppercase tracking-widest text-brand-accent">Interface Theme</h4>
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-3">
                   <div className="grid grid-cols-2 gap-2">
                     {THEMES.map((theme) => {
@@ -356,14 +356,14 @@ export const SettingsModal: React.FC = React.memo(() => {
                             </span>
                             {active && <Check className="w-3.5 h-3.5 text-brand-accent shrink-0 stroke-[3]" />}
                           </div>
-                          <p className="text-[9px] font-mono uppercase tracking-wider text-brand-muted mt-0.5 truncate">
+                          <p className="text-[9px] uppercase tracking-wider text-brand-muted mt-0.5 truncate">
                             {theme.code} // {theme.description}
                           </p>
                         </button>
                       );
                     })}
                   </div>
-                  <p className="text-[9px] font-mono text-brand-muted uppercase tracking-wider pt-0.5">
+                  <p className="text-[9px] text-brand-muted uppercase tracking-wider pt-0.5">
                     // Theme applies instantly and is saved locally
                   </p>
                 </div>
@@ -371,16 +371,16 @@ export const SettingsModal: React.FC = React.memo(() => {
 
               {/* 4. Display & Layout */}
               <div className="space-y-3.5">
-                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Display & Layout</h4>
+                <h4 className="text-[11px] font-black uppercase tracking-widest text-brand-accent">Display & Layout</h4>
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">
                   
                   {/* Library Grid Columns */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <label className="block text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">
+                      <label className="block text-[11px] uppercase tracking-widest text-brand-muted font-bold">
                         Library Grid Columns
                       </label>
-                      <span className="text-[11px] font-mono font-bold text-brand-accent">
+                      <span className="text-[11px] font-bold text-brand-accent">
                         {customizations.libraryColumns} COLS
                       </span>
                     </div>
@@ -405,10 +405,10 @@ export const SettingsModal: React.FC = React.memo(() => {
                   {/* Discover Grid Columns */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <label className="block text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">
+                      <label className="block text-[11px] uppercase tracking-widest text-brand-muted font-bold">
                         Discover Grid Columns
                       </label>
-                      <span className="text-[11px] font-mono font-bold text-brand-accent">
+                      <span className="text-[11px] font-bold text-brand-accent">
                         {customizations.discoverColumns} COLS
                       </span>
                     </div>
@@ -433,7 +433,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                   {/* Badges Toggles */}
                   <div className="pt-2 border-t border-brand-border/40 space-y-2.5">
                     <div className="flex items-center justify-between group">
-                      <span id="settings-toggle-critic-label" className="text-[11px] font-mono uppercase tracking-wider text-zinc-300 group-hover:text-white">
+                      <span id="settings-toggle-critic-label" className="text-[11px] uppercase tracking-wider text-zinc-300 group-hover:text-white">
                         Show Critic Scores
                       </span>
                       <button
@@ -464,11 +464,11 @@ export const SettingsModal: React.FC = React.memo(() => {
 
               {/* 5. Data Import */}
               <div className="space-y-3.5">
-                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Data Import</h4>
+                <h4 className="text-[11px] font-black uppercase tracking-widest text-brand-accent">Data Import</h4>
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">
                   
                   <div className="space-y-2">
-                    <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Library Export</p>
+                    <p className="text-[11px] uppercase tracking-widest text-brand-muted font-bold">Library Export</p>
                     <button
                       type="button"
                       onClick={async () => {
@@ -485,7 +485,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Library Restore</p>
+                    <p className="text-[11px] uppercase tracking-widest text-brand-muted font-bold">Library Restore</p>
                     <button
                       type="button"
                       onClick={() => libraryInputRef.current?.click()}
@@ -510,7 +510,7 @@ export const SettingsModal: React.FC = React.memo(() => {
               {/* 6. Custom Platform Tags */}
               <div className="space-y-3.5">
                 <div className="flex items-center gap-2">
-                  <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">Custom Platform Tags</h4>
+                  <h4 className="text-[11px] font-black uppercase tracking-widest text-brand-accent">Custom Platform Tags</h4>
                   <span className="relative inline-flex group/info">
                     <button
                       type="button"
@@ -523,7 +523,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                     <span
                       role="tooltip"
                       id="custom-tags-info"
-                      className="absolute left-5 top-1/2 -translate-y-1/2 z-20 hidden group-hover/info:block group-focus-within/info:block w-56 p-2.5 bg-zinc-950 border border-brand-border text-[11px] text-zinc-400 font-mono leading-relaxed shadow-xl pointer-events-none"
+                      className="absolute left-5 top-1/2 -translate-y-1/2 z-20 hidden group-hover/info:block group-focus-within/info:block w-56 p-2.5 bg-zinc-950 border border-brand-border text-[11px] text-zinc-400 leading-relaxed shadow-xl pointer-events-none"
                     >
                       Add your own ownership tags (stores, launchers, retro hardware…) — they appear in every game's platform checklist alongside the built-ins.
                     </span>
@@ -543,7 +543,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                         }
                       }}
                       placeholder="e.g. Ubisoft Connect"
-                      className="flex-1 min-w-0 bg-zinc-900 border border-brand-border text-white px-3 py-2 text-xs font-mono uppercase tracking-wider placeholder:text-brand-muted/60 focus:outline-none focus:border-brand-accent"
+                      className="flex-1 min-w-0 bg-zinc-900 border border-brand-border text-white px-3 py-2 text-xs uppercase tracking-wider placeholder:text-brand-muted/60 focus:outline-none focus:border-brand-accent"
                     />
                     <button
                       type="button"
@@ -555,14 +555,14 @@ export const SettingsModal: React.FC = React.memo(() => {
                   </div>
 
                   {customPlatforms.length === 0 ? (
-                    <p className="text-[11px] font-mono text-brand-muted uppercase tracking-wider">
+                    <p className="text-[11px] text-brand-muted uppercase tracking-wider">
                       No custom tags yet — the built-in platforms remain available.
                     </p>
                   ) : (
                     <div className="border border-brand-border divide-y divide-brand-border">
                       {customPlatforms.map((platform) => (
                         <div key={platform.id} className="flex items-center justify-between gap-3 px-3 py-2.5 bg-zinc-900">
-                          <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-white truncate">{platform.label}</span>
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-white truncate">{platform.label}</span>
                           <button
                             type="button"
                             onClick={() => removeCustomPlatform(platform.id)}
@@ -580,19 +580,19 @@ export const SettingsModal: React.FC = React.memo(() => {
 
               {/* 7. Danger zone */}
               <div className="space-y-3.5">
-                <h4 className="text-[11px] font-mono font-black uppercase tracking-widest text-red-500">System Destruct</h4>
+                <h4 className="text-[11px] font-black uppercase tracking-widest text-red-500">System Destruct</h4>
                 <div className="border border-red-500 bg-red-500/5 p-4.5 space-y-3">
-                  <p className="text-[11px] text-zinc-400 font-mono leading-relaxed">Wiping the database deletes all games permanently from the local database.</p>
+                  <p className="text-[11px] text-zinc-400 leading-relaxed">Wiping the database deletes all games permanently from the local database.</p>
                   
                   {showWipeConfirm ? (
                     <div className="space-y-2.5">
-                      <p className="text-[11px] font-mono text-red-400 uppercase font-black">Type WIPE to confirm:</p>
+                      <p className="text-[11px] text-red-400 uppercase font-black">Type WIPE to confirm:</p>
                       <input
                         type="text"
                         value={wipeConfirmInput}
                         onChange={(e) => setWipeConfirmInput(e.target.value)}
                         placeholder="Type WIPE"
-                        className="w-full px-3 py-1.5 bg-zinc-950 border border-brand-border text-xs font-mono focus:outline-none focus:border-red-500 text-white"
+                        className="w-full px-3 py-1.5 bg-zinc-950 border border-brand-border text-xs focus:outline-none focus:border-red-500 text-white"
                       />
                       <div className="flex gap-2">
                         <button

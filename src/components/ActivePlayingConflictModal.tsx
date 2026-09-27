@@ -79,7 +79,7 @@ export const ActivePlayingConflictModal: React.FC = React.memo(() => {
               <Gamepad2 className="w-5 h-5 text-emerald-400" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-mono uppercase tracking-widest text-brand-muted font-bold">
+              <p className="text-[10px] uppercase tracking-widest text-brand-muted font-bold">
                 Active Session
               </p>
               <h3
@@ -93,7 +93,7 @@ export const ActivePlayingConflictModal: React.FC = React.memo(() => {
 
           {/* Description */}
           <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed font-sans">
-            You're currently playing <span className="font-bold text-white uppercase font-mono">"{currentGame.title}"</span>. Finish it first or switch active games to play <span className="font-bold text-brand-accent">"{pendingTitle}"</span>.
+            You're currently playing <span className="font-bold text-white uppercase">"{currentGame.title}"</span>. Finish it first or switch active games to play <span className="font-bold text-brand-accent">"{pendingTitle}"</span>.
           </p>
 
           {/* Action Buttons */}

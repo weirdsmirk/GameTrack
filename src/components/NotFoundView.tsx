@@ -22,13 +22,13 @@ export default function NotFoundView({ path }: NotFoundViewProps) {
               <span className="w-2 h-2 bg-brand-border" />
               <span className="w-2 h-2 bg-brand-accent" />
             </div>
-            <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-brand-muted">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-brand-muted">
               gametrack // error
             </p>
           </div>
 
           <div className="px-8 py-12 md:py-14 text-center space-y-6">
-            <p className="flex items-center justify-center gap-2 text-[11px] font-mono font-black uppercase tracking-widest text-brand-accent">
+            <p className="flex items-center justify-center gap-2 text-[11px] font-black uppercase tracking-widest text-brand-accent">
               <span className="w-1.5 h-1.5 bg-brand-accent" />
               Status Code 404
             </p>
@@ -38,7 +38,7 @@ export default function NotFoundView({ path }: NotFoundViewProps) {
             <p className="text-2xl md:text-3xl font-black tracking-tight uppercase text-white">
               Entry Not Found
             </p>
-            <p className="text-xs font-mono text-brand-muted leading-relaxed">
+            <p className="text-xs text-brand-muted leading-relaxed">
               The route <span className="text-brand-accent">{path}</span> does not
               exist in the registry. Check the address or return to the terminal.
             </p>
@@ -53,10 +53,10 @@ export default function NotFoundView({ path }: NotFoundViewProps) {
           </div>
 
           <div className="px-4 py-2 border-t border-brand-border bg-zinc-900/40 flex items-center justify-between">
-            <p className="text-[10px] font-mono uppercase tracking-widest text-brand-muted">
+            <p className="text-[10px] uppercase tracking-widest text-brand-muted">
               gametrack // terminal
             </p>
-            <p className="text-[10px] font-mono uppercase tracking-widest text-brand-accent">
+            <p className="text-[10px] uppercase tracking-widest text-brand-accent">
               signal_lost.exe
             </p>
           </div>

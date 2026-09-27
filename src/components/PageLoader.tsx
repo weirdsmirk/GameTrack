@@ -41,9 +41,9 @@ export const PageLoader: React.FC<PageLoaderProps> = ({ checks, onComplete }) =>
     onComplete?.();
   };
 
-  // Fade the label in only once JetBrains Mono is actually loaded, so it
-  // appears fully-formed (like the theme-changer label) with no font-swap
-  // glitch mid-load.
+  // Fade the label in only once Inter is actually loaded, so it appears
+  // fully-formed (like the theme-changer label) with no font-swap glitch
+  // mid-load.
   useEffect(() => {
     let cancelled = false;
     const show = () => {

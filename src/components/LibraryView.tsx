@@ -317,7 +317,7 @@ export const LibraryView: React.FC = () => {
           >
             <Heart className="w-4 h-4" />
             {wishlist.length > 0 && (
-              <span className="absolute -top-2 -right-2 h-[18px] min-w-[18px] px-1 bg-brand-accent text-brand-accent-ink text-[10px] font-mono font-black flex items-center justify-center border border-brand-bg">
+              <span className="absolute -top-2 -right-2 h-[18px] min-w-[18px] px-1 bg-brand-accent text-brand-accent-ink text-[10px] font-black flex items-center justify-center border border-brand-bg">
                 {wishlist.length}
               </span>
             )}
@@ -339,7 +339,7 @@ export const LibraryView: React.FC = () => {
               value={localSearch}
               onChange={(e) => setLocalSearch(e.target.value)}
               placeholder="Filter by title..."
-              className="w-full pl-11 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-mono uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors"
+              className="w-full pl-11 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors"
             />
             {localSearch && (
               <button
@@ -366,7 +366,7 @@ export const LibraryView: React.FC = () => {
             <SlidersHorizontal className="w-4 h-4" />
             <span>Filters</span>
             {activeFiltersCount > 0 && (
-              <span className={`ml-1 px-1.5 py-0.5 text-[11px] font-mono font-black ${showFilters ? "bg-black text-brand-on-color" : "bg-brand-accent text-brand-accent-ink"}`}>
+              <span className={`ml-1 px-1.5 py-0.5 text-[11px] font-black ${showFilters ? "bg-black text-brand-on-color" : "bg-brand-accent text-brand-accent-ink"}`}>
                 {activeFiltersCount}
               </span>
             )}
@@ -403,7 +403,7 @@ export const LibraryView: React.FC = () => {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               {/* Status Selector */}
               <div className="relative">
-                  <label htmlFor="filter-status" className="block text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted mb-1">Status</label>
+                  <label htmlFor="filter-status" className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted mb-1">Status</label>
                   <div className="relative">
                     <select
                       id="filter-status"
@@ -424,7 +424,7 @@ export const LibraryView: React.FC = () => {
 
               {/* Platform Selector */}
               <div className="relative">
-                <label htmlFor="filter-platform" className="block text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted mb-1">Platform</label>
+                <label htmlFor="filter-platform" className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted mb-1">Platform</label>
                 <div className="relative">
                   <select
                     id="filter-platform"
@@ -447,7 +447,7 @@ export const LibraryView: React.FC = () => {
 
               {/* Sort Order Selector */}
               <div className="relative">
-                <label htmlFor="filter-sort" className="block text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted mb-1">Sort By</label>
+                <label htmlFor="filter-sort" className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted mb-1">Sort By</label>
                 <div className="relative">
                   <select
                     id="filter-sort"
@@ -540,7 +540,7 @@ export const LibraryView: React.FC = () => {
       {/* Custom Order hint bar */}
       {isCustomOrder && (
         <div className="flex flex-wrap items-center justify-between gap-3 border border-brand-accent/30 bg-brand-accent/5 px-4 py-2.5 rounded-none">
-          <p className="flex items-center gap-2 text-[11px] font-mono font-bold uppercase tracking-widest text-brand-accent">
+          <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-brand-accent">
             <GripVertical className="w-4 h-4 shrink-0" />
             Drag cards to arrange your library — order saves automatically
           </p>
@@ -573,7 +573,7 @@ export const LibraryView: React.FC = () => {
       {selectMode && (
         <div className="bg-zinc-950 border border-brand-border p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="text-xs font-mono font-black uppercase tracking-widest text-brand-accent bg-brand-accent/10 border border-brand-accent/30 px-2.5 py-1">
+            <span className="text-xs font-black uppercase tracking-widest text-brand-accent bg-brand-accent/10 border border-brand-accent/30 px-2.5 py-1">
               {selectedIds.size} SELECTED
             </span>
             <button
@@ -588,7 +588,7 @@ export const LibraryView: React.FC = () => {
           <div className="flex items-center gap-2">
             {showDeleteConfirm ? (
               <div className="flex items-center gap-2">
-                <span className="text-xs font-mono text-red-400 font-bold uppercase hidden sm:inline">
+                <span className="text-xs text-red-400 font-bold uppercase hidden sm:inline">
                   Delete {selectedIds.size} {selectedIds.size === 1 ? "game" : "games"}?
                 </span>
                 <button
@@ -808,7 +808,7 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
 
         {/* Score Floating Badge — also steps aside on hover for the same reason */}
         {showRating && game.critic_score != null && (
-          <div className="absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[11px] font-mono font-black text-brand-accent border border-brand-border z-10 shadow-sm transition-opacity duration-200 group-hover:opacity-0">
+          <div className="absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[11px] font-black text-brand-accent border border-brand-border z-10 shadow-sm transition-opacity duration-200 group-hover:opacity-0">
             {game.critic_score}
           </div>
         )}

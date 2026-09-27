@@ -163,9 +163,10 @@
 }
 
 /* Map tokens into Tailwind's color system (Tailwind v4) */
+/* One type family for the whole app: Inter. There is no monospace face —
+   the stylesheet, markup and font request below all assume sans-only. */
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   
   --color-brand-bg: var(--brand-bg);
   --color-brand-accent: var(--brand-accent);
@@ -205,12 +206,6 @@
 
 html {
   background-color: var(--brand-bg);
-}
-
-/* Buttons always render in the sans-serif face, never inheriting a
-   monospace ancestor — the brand mono is reserved for data and labels. */
-button {
-  font-family: var(--font-sans);
 }
 
 /* Custom layout helper animations and marquee */
@@ -280,7 +275,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  font-family: var(--font-sans);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.3em;
@@ -310,7 +305,7 @@ button {
 }
 
 #boot-label {
-  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  font-family: var(--font-sans);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.3em;

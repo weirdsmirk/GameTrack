@@ -5,7 +5,7 @@ import { LEGAL_ORDER } from "./LegalView";
 /**
  * Closing brand statement for the app shell.
  *
- * The registry opened on "YOUR LIBRARY. / ONE REGISTRY." on the landing
+ * The registry opened on "YOUR LIBRARY / ONE REGISTRY." on the landing
  * page and closes on the same two lines here, so the library reads as a
  * bounded record rather than an endless feed. Deliberately carries no counts
  * and no links — the dashboard already reports state, and the nav already
@@ -27,7 +27,7 @@ export const AppFooter: React.FC = () => {
       <div className="flex flex-col gap-10 lg:flex-row lg:items-end lg:justify-between">
         {/* The statement carries its own weight — no label above it. */}
         <p className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tighter leading-[0.92] text-white">
-          YOUR LIBRARY.
+          YOUR LIBRARY
           <br />
           <span className="text-brand-accent">ONE REGISTRY.</span>
         </p>

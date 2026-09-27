@@ -306,7 +306,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                 ) : (
                   <Plus className="w-5 h-5 text-brand-accent stroke-[3]" />
                 )}
-                <h3 id="add-game-modal-title" className="text-sm font-mono font-black uppercase tracking-widest truncate">
+                <h3 id="add-game-modal-title" className="text-sm font-black uppercase tracking-widest truncate">
                   {target === "wishlist" ? "Add to Wishlist" : "Register New Game"}
                 </h3>
               </div>
@@ -359,7 +359,7 @@ export const AddGameModal: React.FC = React.memo(() => {
           
           {/* Title */}
           <div className="space-y-1.5">
-            <label htmlFor="add-game-title" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">
+            <label htmlFor="add-game-title" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">
               Game Title <span className="text-red-400">*</span>
             </label>
             <div className="relative" ref={suggestionsRef}>
@@ -384,7 +384,7 @@ export const AddGameModal: React.FC = React.memo(() => {
               {showSuggestions && (loadingSuggestions || suggestions.length > 0) && (
                 <div role="listbox" aria-label="Game title suggestions" className="absolute left-0 right-0 top-full mt-1 bg-zinc-950 border border-brand-border shadow-2xl z-50 max-h-60 overflow-y-auto overscroll-contain">
                   {loadingSuggestions ? (
-                    <div className="flex items-center gap-2 p-3 text-brand-muted text-[11px] font-mono">
+                    <div className="flex items-center gap-2 p-3 text-brand-muted text-[11px]">
                       <div className="w-3 h-3 border-2 border-brand-accent border-t-transparent rounded-full animate-spin"></div>
                       RETRIEVING MATCHED REGISTRY DATA...
                     </div>
@@ -432,7 +432,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                           <p className="text-[11px] font-black uppercase text-white truncate tracking-wider">
                             {suggestion.title}
                           </p>
-                          <div className="flex items-center gap-2 text-[11px] font-mono text-brand-muted mt-0.5">
+                          <div className="flex items-center gap-2 text-[11px] text-brand-muted mt-0.5">
                             {suggestion.year && <span>{suggestion.year}</span>}
                             {suggestion.year && suggestion.genres?.length > 0 && <span>•</span>}
                             {suggestion.genres?.length > 0 && (
@@ -441,7 +441,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                           </div>
                         </div>
                         {showCriticScores && suggestion.critic_score != null && (
-                          <div className="bg-zinc-900 border border-brand-border/60 px-1.5 py-0.5 text-[11px] font-mono font-bold text-brand-accent">
+                          <div className="bg-zinc-900 border border-brand-border/60 px-1.5 py-0.5 text-[11px] font-bold text-brand-accent">
                             {suggestion.critic_score}
                           </div>
                         )}
@@ -457,7 +457,7 @@ export const AddGameModal: React.FC = React.memo(() => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Release Year */}
             <div className="space-y-1.5">
-              <label htmlFor="add-game-year" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Release Year</label>
+              <label htmlFor="add-game-year" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Release Year</label>
               <div className="relative">
                 <Calendar className="absolute left-3.5 top-3.5 w-4 h-4 text-brand-muted" />
                 <input
@@ -475,7 +475,7 @@ export const AddGameModal: React.FC = React.memo(() => {
 
             {/* Genres */}
             <div className="space-y-1.5">
-              <label htmlFor="add-game-genres" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Genres</label>
+              <label htmlFor="add-game-genres" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Genres</label>
               <div className="relative">
                 <List className="absolute left-3.5 top-3.5 w-4 h-4 text-brand-muted" />
                 <input
@@ -494,10 +494,10 @@ export const AddGameModal: React.FC = React.memo(() => {
           {target === "library" && (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label htmlFor="add-game-rating" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">
+              <label htmlFor="add-game-rating" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">
                 Personal Rating
               </label>
-              <span className="flex items-center gap-1.5 text-[11px] font-mono font-black uppercase tracking-widest">
+              <span className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest">
                 <span className={`w-1.5 h-1.5 ${ratingValue > 0 ? "bg-brand-accent" : "bg-zinc-600"}`} />
                 <span className={ratingValue > 0 ? "text-brand-accent" : "text-brand-muted"}>
                   {ratingValue > 0 ? `Rated ${ratingValue}/10` : "Unrated"}
@@ -550,7 +550,7 @@ export const AddGameModal: React.FC = React.memo(() => {
             {/* Playtime */}
             {target === "library" && (
             <div className="space-y-1.5">
-              <label htmlFor="add-game-hours" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Playtime</label>
+              <label htmlFor="add-game-hours" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Playtime</label>
               <div className="flex gap-2">
                 <div className="relative flex-1 min-w-0">
                   <input
@@ -563,7 +563,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                     placeholder="0"
                     className="w-full pl-4 pr-7 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-black text-brand-muted pointer-events-none">H</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-brand-muted pointer-events-none">H</span>
                 </div>
                 <div className="relative flex-1 min-w-0">
                   <input
@@ -576,7 +576,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                     placeholder="0"
                     className="w-full pl-4 pr-7 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-black text-brand-muted pointer-events-none">M</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-brand-muted pointer-events-none">M</span>
                 </div>
               </div>
             </div>
@@ -585,7 +585,7 @@ export const AddGameModal: React.FC = React.memo(() => {
             {/* Critic Score */}
             {showCriticScores && (
             <div className="space-y-1.5">
-              <label htmlFor="add-game-critic" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Critic Score (0-100)</label>
+              <label htmlFor="add-game-critic" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Critic Score (0-100)</label>
               <div className="relative">
                 <Star className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-muted" />
                 <input
@@ -605,7 +605,7 @@ export const AddGameModal: React.FC = React.memo(() => {
             {/* Status */}
             {target === "library" && (
             <div className="space-y-1.5">
-              <label htmlFor="add-game-status" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Current Status</label>
+              <label htmlFor="add-game-status" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Current Status</label>
               <div className="relative">
                 <select
                   id="add-game-status"
@@ -628,7 +628,7 @@ export const AddGameModal: React.FC = React.memo(() => {
 
           {/* Platforms Selection (Checkboxes) */}
           <div className="space-y-1.5">
-              <label className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Owned Platforms</label>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Owned Platforms</label>
               <div className="flex flex-wrap gap-1.5">
                 {availablePlatforms.map((platform) => (
                   <label
@@ -658,7 +658,7 @@ export const AddGameModal: React.FC = React.memo(() => {
 
           {/* Poster URL & Custom Upload */}
           <div className="space-y-1.5">
-            <label htmlFor="add-game-poster" className="text-[11px] font-mono font-bold uppercase tracking-wider text-brand-muted">Poster Image</label>
+            <label htmlFor="add-game-poster" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Poster Image</label>
             <div className="flex flex-col sm:flex-row gap-2">
               <input
                 id="add-game-poster"

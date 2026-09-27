@@ -158,7 +158,7 @@ export const WishlistView: React.FC = () => {
           </h1>
           <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
             Games you want before they enter your library.
-            <span className="ml-2 text-[11px] font-mono font-bold uppercase tracking-widest text-brand-accent">
+            <span className="ml-2 text-[11px] font-bold uppercase tracking-widest text-brand-accent">
               {wishlist.length} {wishlist.length === 1 ? "item" : "items"} tracked
             </span>
           </p>
@@ -191,7 +191,7 @@ export const WishlistView: React.FC = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search IGDB for games you want..."
-            className="w-full pl-11 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-mono uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors h-[38px]"
+            className="w-full pl-11 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs uppercase tracking-wider text-white placeholder-zinc-600 focus:outline-none focus:border-brand-accent transition-colors h-[38px]"
           />
           {query && (
             <button
@@ -240,7 +240,7 @@ export const WishlistView: React.FC = () => {
       {searched && !searchError && (
         <section>
           <div className="mb-4">
-            <span className="text-[11px] font-mono font-bold tracking-widest text-brand-accent uppercase">01</span>
+            <span className="text-[11px] font-bold tracking-widest text-brand-accent uppercase">01</span>
             <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-white">Search Results</h3>
           </div>
           {searching ? (
@@ -250,7 +250,7 @@ export const WishlistView: React.FC = () => {
               ))}
             </div>
           ) : results.length === 0 ? (
-            <p className="text-brand-muted text-sm font-mono uppercase tracking-wider">No matches found.</p>
+            <p className="text-brand-muted text-sm uppercase tracking-wider">No matches found.</p>
           ) : (
             <div className={`grid ${libraryGridClass(customizations.libraryColumns)} gap-4`}>
               {results.map((game) => (
@@ -274,7 +274,7 @@ export const WishlistView: React.FC = () => {
         {selectMode && (
           <div className="bg-zinc-950 border border-brand-border p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <span className="text-xs font-mono font-black uppercase tracking-widest text-brand-accent bg-brand-accent/10 border border-brand-accent/30 px-2.5 py-1">
+              <span className="text-xs font-black uppercase tracking-widest text-brand-accent bg-brand-accent/10 border border-brand-accent/30 px-2.5 py-1">
                 {selectedIds.size} SELECTED
               </span>
               <button
@@ -289,7 +289,7 @@ export const WishlistView: React.FC = () => {
             <div className="flex items-center gap-2">
               {showDeleteConfirm ? (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-red-400 font-bold uppercase hidden sm:inline">
+                  <span className="text-xs text-red-400 font-bold uppercase hidden sm:inline">
                     Remove {selectedIds.size} {selectedIds.size === 1 ? "item" : "items"}?
                   </span>
                   <button
@@ -402,7 +402,7 @@ const WishlistSearchCard = React.memo<WishlistSearchCardProps>(({ game, alreadyW
         className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200 transform-gpu will-change-transform"
       />
       {showRating && game.critic_score != null && (
-        <div className="absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[11px] font-mono font-black text-brand-accent border border-brand-border shadow-sm">
+        <div className="absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[11px] font-black text-brand-accent border border-brand-border shadow-sm">
           MC: {game.critic_score}
         </div>
       )}
@@ -410,7 +410,7 @@ const WishlistSearchCard = React.memo<WishlistSearchCardProps>(({ game, alreadyW
     <div className="p-4 flex-1 flex flex-col justify-between">
       <div>
         <h4 className="font-bold text-white text-sm line-clamp-1 uppercase tracking-tight">{game.title}</h4>
-        <p className="text-[11px] text-brand-muted mt-0.5 font-mono uppercase font-bold">
+        <p className="text-[11px] text-brand-muted mt-0.5 uppercase font-bold">
           {game.year ? `${game.year} // ` : ""}{(game.genres || []).slice(0, 1).join(" • ") || "Unknown Genre"}
         </p>
       </div>
@@ -505,7 +505,7 @@ const WishlistItemCard = React.memo<WishlistItemCardProps>(({
           className="w-full h-full object-cover"
         />
         {showRating && item.critic_score != null && (
-          <div className="absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[11px] font-mono font-black text-brand-accent border border-brand-border shadow-sm">
+          <div className="absolute top-2.5 right-2.5 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[11px] font-black text-brand-accent border border-brand-border shadow-sm">
             MC: {item.critic_score}
           </div>
         )}
@@ -554,7 +554,7 @@ const WishlistItemCard = React.memo<WishlistItemCardProps>(({
       </div>
       <div className="p-3.5">
         <h4 className="font-bold text-white text-xs line-clamp-1 uppercase tracking-tight">{item.title}</h4>
-        <p className="text-[10px] text-brand-muted mt-0.5 font-mono uppercase font-bold">
+        <p className="text-[10px] text-brand-muted mt-0.5 uppercase font-bold">
           {item.year ? `${item.year} // ` : ""}{(item.genres || []).slice(0, 1).join(" • ") || "Unknown Genre"}
         </p>
       </div>

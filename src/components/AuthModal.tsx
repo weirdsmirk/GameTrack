@@ -65,7 +65,7 @@ export const AuthModal: React.FC = React.memo(() => {
             className="relative w-full max-w-sm bg-brand-bg border border-brand-border text-white shadow-2xl z-10"
           >
             <div className="flex items-center justify-between border-b border-brand-border p-5">
-              <h3 id="auth-modal-title" className="text-sm font-mono font-black uppercase tracking-widest text-white">
+              <h3 id="auth-modal-title" className="text-sm font-black uppercase tracking-widest text-white">
                 Steam Connect
               </h3>
               <button
@@ -80,7 +80,7 @@ export const AuthModal: React.FC = React.memo(() => {
 
             {steamSettings?.keySet && steamSettings?.steamId ? (
               <div className="p-6 space-y-4">
-                <p className="text-[11px] font-mono uppercase tracking-widest text-emerald-400 font-bold">
+                <p className="text-[11px] uppercase tracking-widest text-emerald-400 font-bold">
                   // Steam link active
                 </p>
 
@@ -93,10 +93,10 @@ export const AuthModal: React.FC = React.memo(() => {
                     </div>
                   )}
                   <div className="min-w-0">
-                    <p className="text-[11px] font-mono text-white uppercase font-black tracking-wider truncate">
+                    <p className="text-[11px] text-white uppercase font-black tracking-wider truncate">
                       {steamSettings.steamName || "Steam account"}
                     </p>
-                    <p className="text-[8px] font-mono text-brand-muted uppercase tracking-wider mt-0.5 truncate">
+                    <p className="text-[8px] text-brand-muted uppercase tracking-wider mt-0.5 truncate">
                       {steamSettings.profile}
                     </p>
                   </div>
@@ -114,18 +114,18 @@ export const AuthModal: React.FC = React.memo(() => {
               </div>
             ) : (
               <form onSubmit={handleSteamConnect} className="p-6 space-y-4">
-                <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">
+                <p className="text-[11px] uppercase tracking-widest text-brand-muted font-bold">
                   Steam is required to enter the registry.
                 </p>
 
                 {steamSettings?.keySet && !steamSettings?.steamId && (
-                  <p className="px-3 py-2 border border-amber-500/40 bg-amber-500/10 font-mono text-[11px] uppercase tracking-widest text-amber-400 font-bold">
+                  <p className="px-3 py-2 border border-amber-500/40 bg-amber-500/10 text-[11px] uppercase tracking-widest text-amber-400 font-bold">
                     // API key detected on server — enter your profile to link
                   </p>
                 )}
 
                 <div className="space-y-1">
-                  <label htmlFor="auth-steam-profile" className="block text-[8px] font-mono uppercase tracking-widest text-brand-muted font-bold">
+                  <label htmlFor="auth-steam-profile" className="block text-[8px] uppercase tracking-widest text-brand-muted font-bold">
                     Steam Profile URL or ID64
                   </label>
                   <input
@@ -136,11 +136,11 @@ export const AuthModal: React.FC = React.memo(() => {
                     value={steamProfile}
                     onChange={(e) => setSteamProfile(e.target.value)}
                     placeholder="https://steamcommunity.com/id/yourname"
-                    className="w-full px-3 py-2.5 bg-zinc-950 border border-brand-border text-xs font-mono focus:outline-none focus:border-brand-accent text-white"
+                    className="w-full px-3 py-2.5 bg-zinc-950 border border-brand-border text-xs focus:outline-none focus:border-brand-accent text-white"
                   />
                 </div>
 
-                <p className="text-[8px] font-mono text-brand-muted uppercase tracking-wider leading-relaxed">
+                <p className="text-[8px] text-brand-muted uppercase tracking-wider leading-relaxed">
                   Can't find your URL? Open Steam → click your username → "View my profile" → the page URL is your
                   profile URL. Or grab it here:
                 </p>
@@ -163,7 +163,7 @@ export const AuthModal: React.FC = React.memo(() => {
                   Connect Steam
                 </button>
 
-                <p className="text-center text-[8px] font-mono text-brand-muted uppercase tracking-wider">
+                <p className="text-center text-[8px] text-brand-muted uppercase tracking-wider">
                   // API key lives in .env on the server — never in the browser
                 </p>
               </form>

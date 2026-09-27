@@ -27,7 +27,7 @@ class BootBoundary extends Component<{ children: ReactNode }, { failed: boolean 
     if (this.state.failed) {
       return (
         <div className="h-screen w-screen flex items-center justify-center bg-brand-bg">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.3em] text-red-400">
+          <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-red-400">
             FATAL ERROR — CHECK THE CONSOLE
           </p>
         </div>

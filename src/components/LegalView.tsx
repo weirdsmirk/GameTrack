@@ -253,7 +253,7 @@ export const LegalView: React.FC<{ doc: LegalDoc }> = ({ doc }) => (
           <span className="text-brand-accent">TRACK</span>
           <span className="text-brand-accent">_</span>
         </span>
-        <Link to="/" className="font-mono text-[11px] font-bold uppercase tracking-widest text-brand-muted hover:text-brand-accent transition-colors">
+        <Link to="/" className="text-[11px] font-bold uppercase tracking-widest text-brand-muted hover:text-brand-accent transition-colors">
           &larr; Back to registry
         </Link>
       </div>
@@ -261,7 +261,7 @@ export const LegalView: React.FC<{ doc: LegalDoc }> = ({ doc }) => (
       <h1 className="mt-12 text-4xl sm:text-5xl font-black uppercase tracking-tighter leading-[0.95] text-white">
         {doc.title}
       </h1>
-      <p className="mt-3 font-mono text-[11px] uppercase tracking-widest text-brand-muted">
+      <p className="mt-3 text-[11px] uppercase tracking-widest text-brand-muted">
         Last updated {doc.updated}
       </p>
 
@@ -279,7 +279,7 @@ export const LegalView: React.FC<{ doc: LegalDoc }> = ({ doc }) => (
       ))}
 
       <div className="mt-16 border-t border-brand-border pt-6">
-        <p className="font-mono text-[11px] uppercase tracking-widest text-brand-muted">
+        <p className="text-[11px] uppercase tracking-widest text-brand-muted">
           Project source and reports:{" "}
           <a
             href={REPO}
