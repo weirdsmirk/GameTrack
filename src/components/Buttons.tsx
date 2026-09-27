@@ -1,7 +1,7 @@
 import React from "react";
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "tab" | "icon";
+  variant?: "primary" | "tab" | "icon" | "icon-bare";
   /**
    * Declared so callers can hold the node. React 19 passes `ref` as an ordinary
    * prop to function components, and the spread below forwards it to the
@@ -13,9 +13,20 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 /**
  * Unified button styles for the whole app — the brutalist boxed language:
  * square corners, black uppercase type, solid accent fill. Variants:
- * - primary: filled accent box (selected nav tab, confirm actions)
- * - tab:     bare label, no box (unselected menu rows)
- * - icon:    filled accent square for the one icon-only control (nav toggle)
+ * - primary:    filled accent box (selected nav tab, confirm actions)
+ * - tab:        bare label, no box (unselected menu rows)
+ * - icon:       filled accent square for the primary icon-only control
+ * - icon-bare:  the icon and nothing else — no stroke, no fill of its own, the
+ *               page ground behind it. The keyboard-shortcut button, which is a
+ *               footnote next to the toggle and should not weigh like it.
+ *
+ *               The fill is `brand-bg`, which on the page is invisible, and
+ *               that is the point: the nav floats over scrolling content, and
+ *               the dashboard's current-session card is cream. Painted in the
+ *               page ground, the icon stays legible over that card instead of
+ *               disappearing into it. It keeps the same 46/38px box as `icon`
+ *               so the control group stays even, and hover is the icon turning
+ *               accent — there is no box to light up.
  *
  * The transparent borders are deliberate: they keep every tab exactly the
  * same width whether or not it is selected, so switching tabs does not make
@@ -36,6 +47,8 @@ export const Buttons: React.FC<ButtonProps> = ({
       "bg-transparent text-brand-muted border-transparent hover:text-brand-accent font-black uppercase tracking-wider text-xs",
     icon:
       "bg-brand-accent text-black border-transparent hover:bg-brand-accent-hover",
+    "icon-bare":
+      "bg-brand-bg text-white border-transparent hover:text-brand-accent",
   };
   return (
     <button type={type} className={`${base} ${variants[variant]} ${className}`} {...props} />

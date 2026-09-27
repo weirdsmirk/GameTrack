@@ -139,6 +139,8 @@ interface GameTrackState {
   setAddGameOpen: (open: boolean) => void;
   isSettingsOpen: boolean;
   setSettingsOpen: (open: boolean) => void;
+  isShortcutsOpen: boolean;
+  setShortcutsOpen: (open: boolean) => void;
   playingConflict: PlayingConflict | null;
   openPlayingConflict: (conflict: PlayingConflict) => void;
   closePlayingConflict: () => void;
@@ -398,6 +400,8 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   setAddGameOpen: (open) => set({ isAddGameOpen: open }),
   isSettingsOpen: false,
   setSettingsOpen: (open) => set({ isSettingsOpen: open }),
+  isShortcutsOpen: false,
+  setShortcutsOpen: (open) => set({ isShortcutsOpen: open }),
   playingConflict: null,
   openPlayingConflict: (conflict) => set({ playingConflict: conflict }),
   closePlayingConflict: () => set({ playingConflict: null }),

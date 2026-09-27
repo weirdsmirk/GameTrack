@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useGameTrackStore } from "./store";
+import { TABS } from "./tabs";
 import Toast from "./components/Toast";
 import NotFoundView from "./components/NotFoundView";
 import DashboardView from "./components/DashboardView";
@@ -9,21 +10,37 @@ import LibraryView from "./components/LibraryView";
 import DiscoverView from "./components/DiscoverView";
 import WishlistView from "./components/WishlistView";
 import SettingsModal from "./components/SettingsModal";
+import ShortcutsModal from "./components/ShortcutsModal";
 import AuthModal from "./components/AuthModal";
 import GameDetailsModal from "./components/GameDetailsModal";
 import AddGameModal from "./components/AddGameModal";
 import { ActivePlayingConflictModal } from "./components/ActivePlayingConflictModal";
-import { Menu, X } from "lucide-react";
+import { Menu, X, ArrowRight } from "lucide-react";
 import PageLoader from "./components/PageLoader";
 import { Buttons } from "./components/Buttons";
+import { KeyRow } from "./components/KeyRow";
 import AppFooter from "./components/AppFooter";
 import { getLegalDoc, LegalView } from "./components/LegalView";
+
+/**
+ * The right-hand slot of a menu row: the row's own Option digit from md up,
+ * an arrow below it. Both are `shrink-0` and sit in the same place, so the
+ * labels line up down the column at every width — the arrow is a plain
+ * "this goes somewhere" mark that inherits the row's colour (black on the
+ * filled row, muted on the rest).
+ */
+const MenuHint = ({ digit }: { digit: string }) => (
+  <>
+    <ArrowRight className="w-4 h-4 shrink-0 md:hidden" />
+    <KeyRow keys={["ALT", digit]} className="hidden md:block" />
+  </>
+);
 
 export default function App() {
   const {
     activeTab, setActiveTab, fetchGames, fetchAnalytics,
     fetchTrending, fetchDiscoverLists,
-    setSettingsOpen, fetchSteamSettings,
+    setSettingsOpen, setShortcutsOpen, fetchSteamSettings,
     fetchWishlist, fetchCustomPlatforms,
     loadingGames,
     fetchCustomizations,
@@ -130,6 +147,23 @@ export default function App() {
         store.setSettingsOpen(!store.isSettingsOpen);
         return;
       }
+      // Option + 1..4 jumps to a page, in menu order. Matched by physical code
+      // for the same reason as the comma above: Option rewrites e.key, so
+      // Option+1 reports "¡" on a US layout and would never match "1". Reading
+      // the digit off the end of the code also covers the numpad for free, and
+      // indexing TABS is what ties the digit to the page's menu position — the
+      // cheat-sheet modal numbers its rows from the same list.
+      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+        const isDigitKey = e.code.startsWith("Digit") || e.code.startsWith("Numpad");
+        // Anything that is not a plain 1-9 — NumpadDecimal, NumpadAdd, or a
+        // digit past the end of TABS — falls out as undefined here.
+        const tab = isDigitKey ? TABS[Number(e.code.slice(-1)) - 1] : undefined;
+        if (tab) {
+          e.preventDefault();
+          store.setActiveTab(tab.id);
+          return;
+        }
+      }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "/" && !typing(e.target)) {
         e.preventDefault();
@@ -158,13 +192,6 @@ export default function App() {
       if (chordTimer) clearTimeout(chordTimer);
     };
   }, []);
-
-const tabs = [
-    { id: "dashboard", label: "CENTRAL" },
-    { id: "discover", label: "DISCOVER" },
-    { id: "library", label: "LIBRARY" },
-    { id: "analytics", label: "ANALYTICS" }
-  ] as const;
 
   const renderActiveView = () => {
     switch (activeTab) {
@@ -340,37 +367,58 @@ const tabs = [
                       to it now, which is why there is a single control in the
                       nav at every width.
 
-                      Width is `w-max` with a `min-w` floor: the column hugs its
-                      widest label, so a longer one never clips, but it never
-                      squeezes to a label-width strip either. A 1x4 row of equal
-                      columns was tried and reads as a segmented control, not a
-                      menu. */}
-                  <div className="flex flex-col gap-1.5 px-6 pb-6 pt-1 md:w-max md:min-w-[14rem] md:gap-1 md:p-0">
-                    {tabs.map((tab, i) => {
+                      Each row is label-left, hint-right. The hint is the row's
+                      own Option digit from md up, where there is a keyboard to
+                      press it on; below md a phone has no Alt key, so it gets
+                      an arrow instead — a key chord there would be a shortcut
+                      nobody on that screen can take. Both occupy the same slot
+                      so the labels line up down the column either way.
+
+                      Rows are separated by hairlines rather than boxed: with a
+                      label on the left and a hint on the right, a border around
+                      every row drew a box inside a box.
+
+                      The rules hang off a wrapper per row, not off the row. A
+                      border colour on the row itself loses — `tab`/`primary`
+                      both set `border-transparent`, and utility order (not class
+                      order) decides, so it renders invisible. `divide-y` on the
+                      column does not help either: Tailwind v4 nests it in
+                      `:where()`, which contributes no specificity at all, so
+                      `divide-brand-border` ties with `border-transparent` and
+                      loses on source order. A wrapper has no competing
+                      declaration. The rows keep their transparent 1px border so
+                      nothing changes size when one is selected. */}
+                  <div className="flex flex-col px-6 pb-6 pt-1 md:w-max md:min-w-[17rem] md:p-0">
+                    {TABS.map((tab, i) => {
                       const isActive = activeTab === tab.id;
                       return (
-                        <Buttons
-                          key={tab.id}
-                          ref={i === 0 ? firstItemRef : undefined}
-                          variant={isActive ? "primary" : "tab"}
-                          onClick={() => setActiveTab(tab.id)}
-                          aria-current={isActive ? "page" : undefined}
-                          className="w-full py-3 border border-brand-border md:px-4 md:py-2.5 md:border-transparent"
-                        >
-                          {tab.label}
-                        </Buttons>
+                        <div key={tab.id} className={i > 0 ? "border-t border-brand-border" : undefined}>
+                          <Buttons
+                            ref={i === 0 ? firstItemRef : undefined}
+                            variant={isActive ? "primary" : "tab"}
+                            onClick={() => setActiveTab(tab.id)}
+                            aria-current={isActive ? "page" : undefined}
+                            className="w-full py-3.5 text-left md:px-5 flex items-center justify-between gap-4"
+                          >
+                            <span className="truncate min-w-0">{tab.label}</span>
+                            <MenuHint digit={String(i + 1)} />
+                          </Buttons>
+                        </div>
                       );
                     })}
-                    <Buttons
-                      variant="tab"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        setSettingsOpen(true);
-                      }}
-                      className="w-full py-3 border border-brand-border md:px-4 md:py-2.5 md:border-transparent"
-                    >
-                      SETTINGS
-                    </Buttons>
+                    <div className="border-t border-brand-border">
+                      <Buttons
+                        variant="tab"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          setSettingsOpen(true);
+                        }}
+                        className="w-full py-3.5 text-left md:px-5 flex items-center justify-between gap-4"
+                      >
+                        <span className="truncate min-w-0">SETTINGS</span>
+                        <MenuHint digit="," />
+                      </Buttons>
+                    </div>
                   </div>
                 </motion.div>
               </>
@@ -378,11 +426,37 @@ const tabs = [
           </AnimatePresence>
 
           {/* Above the phone scrim (z-10 inside this nav) so the toggle stays
-              crisp and readable while the menu is open. One control, not two:
-              settings moved into the menu, so the filled accent square is the
-              only thing in the nav and needs no outlined partner to sit
-              beside. */}
-          <div className="relative z-20 pointer-events-auto">
+              crisp and readable while the menu is open. The filled accent
+              square is the only control a phone gets; from md up the ghost
+              shortcut button sits beside it, same box and baseline, so the
+              pair reads as one control and one footnote. */}
+          <div className="relative z-20 flex items-center gap-1.5 pointer-events-auto">
+            {/* The keyboard cheat sheet, left of the toggle. Pointer-driven
+                layouts only — a phone has no Alt key to bind anything to, so
+                offering the list there would be a button that opens an empty
+                promise. Same 38px box as the toggle (p-2.5, not p-3) so the
+                pair reads as one row, and the icon alone on the page ground —
+                no stroke, no fill of its own — so it stays a footnote beside
+                the filled one. */}
+            <Buttons
+              variant="icon-bare"
+              onClick={() => setShortcutsOpen(true)}
+              aria-label="Keyboard shortcuts"
+              title="Keyboard shortcuts"
+              className="hidden md:block p-2.5"
+            >
+              {/* A keycap, drawn rather than imported. Lucide's `keyboard` is a
+                  rounded rect with seven dots, which is mush at 16px, and
+                  rounded corners are the one thing this app never draws.
+                  `command` was the other candidate and is prettier still, but
+                  it advertises a modifier the app does not bind — the real
+                  shortcuts are Alt, so a ⌘ on the button would send people
+                  pressing the wrong key. Two shapes say "key" and promise
+                  nothing. */}
+              <span aria-hidden="true" className="flex h-4 w-4 items-center justify-center border border-current">
+                <span className="block h-px w-2 bg-current" />
+              </span>
+            </Buttons>
             <Buttons
               ref={menuButtonRef}
               variant="icon"
@@ -406,6 +480,7 @@ const tabs = [
         <GameDetailsModal />
         <AddGameModal />
         <SettingsModal />
+        <ShortcutsModal />
         <AuthModal />
         <ActivePlayingConflictModal />
         <Toast />

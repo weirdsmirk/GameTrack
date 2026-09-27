@@ -629,7 +629,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
           <div className="px-6 md:px-8 py-4 border-b border-brand-border/60 shrink-0 bg-brand-bg flex justify-between items-center">
             {isEditing ? (
               <p className="text-[11px] font-black uppercase tracking-widest text-brand-accent">
-                EDIT_METADATA
+                EDIT METADATA
               </p>
             ) : (
               <p className="text-[11px] font-black uppercase tracking-widest text-brand-accent">TITLE CONTROL PANEL</p>
