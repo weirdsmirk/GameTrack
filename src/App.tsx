@@ -13,7 +13,7 @@ import AuthModal from "./components/AuthModal";
 import GameDetailsModal from "./components/GameDetailsModal";
 import AddGameModal from "./components/AddGameModal";
 import { ActivePlayingConflictModal } from "./components/ActivePlayingConflictModal";
-import { Settings, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import PageLoader from "./components/PageLoader";
 import { Buttons } from "./components/Buttons";
 import AppFooter from "./components/AppFooter";
@@ -65,10 +65,10 @@ export default function App() {
 
   useEffect(() => {
     if (!menuOpen) return;
-    // Move focus into the menu when it opens. The panel sits before the control
-    // cluster in the DOM (that is what puts it to the left of the trigger on
-    // large screens), so leaving focus on the toggle would make a keyboard user
-    // Tab backwards to reach the items. Escape below hands focus back.
+    // Move focus into the menu when it opens. The panel is positioned, not
+    // reordered, so it still comes before the toggle in the DOM — leaving
+    // focus there would make a keyboard user Tab backwards to reach the items.
+    // Escape below hands focus back.
     firstItemRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -243,19 +243,21 @@ const tabs = [
             menu, at every viewport width, so navigation is the same gesture
             everywhere and the hero title owns the top of the page outright.
 
-            Both controls are accent-filled squares in the app's `Buttons` icon
-            language, which is what lets them float over the 110px hero title
+            The control is an accent-filled square in the app's `Buttons` icon
+            language, which is what lets it float over the 110px hero title
             without a backdrop to hide behind — there is no opaque fill behind
-            them at any scroll position, and no reveal to animate.
+            it at any scroll position, and no reveal to animate. Settings is not
+            a second button beside it; it is the last row of the menu, so
+            everything the app can do is one tap behind the same control.
 
             Sits at z-40, ABOVE the page titles (z-30) — the reverse of the old
             bar, and deliberately so. The bar was a full-bleed strip whose whole
             job was to sit under a scrolling title; the menu is an overlay, and
             measured at every width below 1280px its box overlaps the title (up
-            to 342x68px on a phone, 387x48px of the popover at 768). Below the
+            to 342x68px on a phone, 226x166px of the dropdown at 768). Below the
             titles, the hero glyphs drew straight over the menu items. Still
             under the modals (z-50/60) and the toast (z-100), so opening settings
-            covers the controls as it always did.
+            covers the control as it always did.
 
             `pointer-events-none` on the nav keeps its full-bleed box from eating
             clicks across the top of the page; the button row re-enables them.
@@ -264,18 +266,27 @@ const tabs = [
 
             pt-8 on phones (the controls are 44px there, so the row needs less
             air above it) and pt-10 from md, which puts the row's top edge on the
-            view's <h1> line rather than floating it above the title. */}
+            view's <h1> line rather than floating it above the title.
+
+            The cluster's `md:px-12` right inset is load-bearing twice over: it
+            holds the controls off the viewport edge, and the menu reads the
+            same value as `md:right-12` to line its own right edge up with the
+            cluster. Change one and the other has to change with it. */}
         <nav
           ref={navRef}
           aria-label="Primary"
-          className="fixed inset-x-0 top-0 z-40 flex items-center justify-end px-6 md:px-12 pt-8 md:pt-10 pointer-events-none"
+          className="fixed inset-x-0 top-0 z-40 flex justify-end px-6 md:px-12 pt-8 md:pt-10 pointer-events-none"
         >
-          {/* Menu — one component, two shapes. On a phone it is a full-width
-              panel hanging off the nav's bottom edge, because a row of four
-              labels has nowhere to go at 390px. From md up it becomes a compact
-              popover laid out as a horizontal row, placed before the control
-              cluster in the DOM so flex order puts it to the LEFT of the
-              trigger, anchored to the same top line. */}
+          {/* Menu — one component, two shapes, both opening downward. On a
+              phone it is a full-width panel hanging off the nav's bottom edge,
+              because a column of four labels has nowhere to go at 390px. From
+              md up it is the same column inset from the left, dropping below
+              the toggle like any other preview.
+
+              Either way it is absolutely positioned, so it never takes part in
+              the nav's layout and the two controls cannot be pushed around by
+              it — the click-jump this cluster used to have is gone by
+              construction rather than by an alignment workaround. */}
           <AnimatePresence>
             {menuOpen && (
               <>
@@ -293,6 +304,24 @@ const tabs = [
                   className="md:hidden fixed inset-0 z-10 bg-black/70 pointer-events-auto"
                   aria-hidden="true"
                 />
+                {/* Dropdown below the control cluster, at every width. On a
+                    phone `inset-x-0` makes it a full-bleed panel hanging off
+                    the nav's bottom edge, because a column of four labels has
+                    nowhere to go at 390px. From md up it is inset from the left
+                    instead, so it drops straight down under the toggle the way
+                    any other preview does, with its right edge on the
+                    cluster's — `right-12` is the nav's own `md:px-12`, which is
+                    what keeps the two flush; `left-auto` releases the
+                    full-bleed `inset-x-0` the phone uses.
+
+                    A framed box, but with no padding inside it: the border is
+                    the edge and the rows start against it, so the filled row
+                    runs the full width of the frame with no inset gutter. The
+                    6px of padding that used to sit between border and row is
+                    the gap that made the box look twice as wide as its
+                    contents. `border` rather than `border-b` here — the base
+                    sets a bottom-only rule for the phone panel, and both agree
+                    on the bottom edge, so no override is needed. */}
                 <motion.div
                   key="menu-panel"
                   id="primary-menu"
@@ -301,10 +330,22 @@ const tabs = [
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10, transition: { duration: 0.12 } }}
                   transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                  className="absolute inset-x-0 top-full z-20 bg-brand-bg border-b border-brand-border pointer-events-auto
-                    md:static md:inset-auto md:top-auto md:mr-1.5 md:border md:px-1.5 md:py-1.5"
+                  className="absolute inset-x-0 top-full z-20 mt-1.5 bg-brand-bg border-b border-brand-border pointer-events-auto
+                    md:left-auto md:right-12 md:border"
                 >
-                  <div className="flex flex-col gap-1.5 px-6 pb-6 pt-1 md:flex-row md:items-center md:gap-1 md:p-0">
+                  {/* One column, five rows — at every width: the four
+                      destinations, then settings. Settings is an action rather
+                      than a place, so it takes the same row as everything else
+                      instead of a box of its own; the menu is the only way in
+                      to it now, which is why there is a single control in the
+                      nav at every width.
+
+                      Width is `w-max` with a `min-w` floor: the column hugs its
+                      widest label, so a longer one never clips, but it never
+                      squeezes to a label-width strip either. A 1x4 row of equal
+                      columns was tried and reads as a segmented control, not a
+                      menu. */}
+                  <div className="flex flex-col gap-1.5 px-6 pb-6 pt-1 md:w-max md:min-w-[14rem] md:gap-1 md:p-0">
                     {tabs.map((tab, i) => {
                       const isActive = activeTab === tab.id;
                       return (
@@ -314,21 +355,34 @@ const tabs = [
                           variant={isActive ? "primary" : "tab"}
                           onClick={() => setActiveTab(tab.id)}
                           aria-current={isActive ? "page" : undefined}
-                          className="w-full py-3 border border-brand-border md:w-auto md:px-4 md:py-2 md:border-transparent"
+                          className="w-full py-3 border border-brand-border md:px-4 md:py-2.5 md:border-transparent"
                         >
                           {tab.label}
                         </Buttons>
                       );
                     })}
+                    <Buttons
+                      variant="tab"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setSettingsOpen(true);
+                      }}
+                      className="w-full py-3 border border-brand-border md:px-4 md:py-2.5 md:border-transparent"
+                    >
+                      SETTINGS
+                    </Buttons>
                   </div>
                 </motion.div>
               </>
             )}
           </AnimatePresence>
 
-          {/* Above the phone scrim (z-10 inside this nav) so the two controls
-              stay crisp and readable while the menu is open. */}
-          <div className="relative z-20 flex items-stretch gap-1.5 pointer-events-auto">
+          {/* Above the phone scrim (z-10 inside this nav) so the toggle stays
+              crisp and readable while the menu is open. One control, not two:
+              settings moved into the menu, so the filled accent square is the
+              only thing in the nav and needs no outlined partner to sit
+              beside. */}
+          <div className="relative z-20 pointer-events-auto">
             <Buttons
               ref={menuButtonRef}
               variant="icon"
@@ -337,21 +391,15 @@ const tabs = [
               aria-controls="primary-menu"
               aria-label={menuOpen ? "Close menu" : "Open menu"}
               title={menuOpen ? "Close menu" : "Open menu"}
-              /* 44px on touch — these are the only navigation controls a phone
-                 has. Back to the 32px square from md, where input is a pointer
-                 and the buttons sit inline with the popover. */
-              className="p-3.5 md:p-2"
+              /* 46px on touch — the only navigation control a phone has, kept
+                 above the 44px touch minimum. Tailwind's scale has no 13px
+                 step, so the two options either side of that floor are 42px
+                 (p-3) and 46px (p-3.5), and only one of them clears it. md+ is
+                 pointer-driven, where the target does not have to clear
+                 anything, so that is where the button gets smaller: 38px. */
+              className="p-3.5 md:p-2.5"
             >
               {menuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-            </Buttons>
-            <Buttons
-              variant="icon"
-              onClick={() => setSettingsOpen(true)}
-              aria-label="Open Settings"
-              title="Open Settings"
-              className="p-3.5 md:p-2"
-            >
-              <Settings className="w-4 h-4" />
             </Buttons>
           </div>
         </nav>

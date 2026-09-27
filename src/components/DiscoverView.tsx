@@ -267,17 +267,21 @@ export const DiscoverView: React.FC = () => {
     <div className="space-y-10">
       
       {/* Header Area */}
-      <div className="flex flex-col lg:flex-row justify-between items-start gap-8">
-        <div>
-          {/* Huge Display Hero Title */}
-          <h1 className="relative z-30 pointer-events-none text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none mb-3">
-            DISCOVER<br />TITLES
-          </h1>
-          <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
-            Search the IGDB database to find and add new games.
-          </p>
-          <div aria-hidden="true" className="mt-8 h-px w-full bg-brand-border/60" />
+      <div className="relative pb-8">
+        <div className="flex flex-col lg:flex-row justify-between items-start gap-8">
+          <div>
+            {/* Huge Display Hero Title */}
+            <h1 className="relative z-30 pointer-events-none text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none mb-3">
+              DISCOVER<br />TITLES
+            </h1>
+            <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
+              Search the IGDB database to find and add new games.
+            </p>
+          </div>
         </div>
+        {/* Full-bleed header rule: outside the title column, cancelling the page
+            gutter, so it spans the screen. Same technique as the footer rule. */}
+        <div aria-hidden="true" className="absolute bottom-0 -left-6 -right-6 md:-left-12 md:-right-12 h-px bg-brand-border/60" />
       </div>
 
       {/* Discovery Search Bar */}

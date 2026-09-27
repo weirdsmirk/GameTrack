@@ -155,7 +155,15 @@ export const SettingsModal: React.FC = React.memo(() => {
             aria-modal="true"
             style={{ willChange: "transform" }}
             aria-labelledby="settings-modal-title"
-            className="relative w-full max-w-md h-full bg-brand-bg border-l border-brand-border text-white shadow-2xl flex flex-col z-10"
+            /* Full screen below md: the `max-w-md` cap is what makes this a
+               side panel on a desktop, but it also capped the panel at 448px on
+               a 480px-wide phone, leaving the page showing down one side — a
+               drawer-shaped gap on a screen with no room for a drawer. Same
+               phone/md split as the nav and the menu: below md it takes the
+               viewport whole, from md it is a 448px rail. The left border only
+               means anything when there is a panel beside it, so it is scoped
+               to md with the cap. */
+            className="relative w-full h-full bg-brand-bg text-white shadow-2xl flex flex-col z-10 md:max-w-md md:border-l md:border-brand-border"
           >
             <div className="flex items-center justify-between border-b border-brand-border p-5 shrink-0">
               <div className="flex items-center gap-2">

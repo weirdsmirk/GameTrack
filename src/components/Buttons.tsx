@@ -14,8 +14,8 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
  * Unified button styles for the whole app — the brutalist boxed language:
  * square corners, black uppercase type, solid accent fill. Variants:
  * - primary: filled accent box (selected nav tab, confirm actions)
- * - tab:     bare label, no box (unselected nav tabs)
- * - icon:    filled accent square for icon-only actions (settings gear)
+ * - tab:     bare label, no box (unselected menu rows)
+ * - icon:    filled accent square for the one icon-only control (nav toggle)
  *
  * The transparent borders are deliberate: they keep every tab exactly the
  * same width whether or not it is selected, so switching tabs does not make

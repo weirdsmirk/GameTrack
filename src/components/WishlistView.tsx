@@ -151,29 +151,34 @@ export const WishlistView: React.FC = () => {
   return (
     <div className="space-y-10">
       {/* Header and Back Action */}
-      <div className="flex flex-col lg:flex-row justify-between lg:items-end gap-6">
-        <div>
-          <h1 className="relative z-30 pointer-events-none text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none mb-3">
-            WISH<br />LISTED
-          </h1>
-          <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
-            Games you want before they enter your library.
-            <span className="ml-2 text-[11px] font-bold uppercase tracking-widest text-brand-accent">
-              {wishlist.length} {wishlist.length === 1 ? "item" : "items"} tracked
-            </span>
-          </p>
-          <div aria-hidden="true" className="mt-8 h-px w-full bg-brand-border/60" />
-        </div>
+      <div className="relative pb-8">
+        <div className="flex flex-col lg:flex-row justify-between lg:items-end gap-6">
+          <div>
+            <h1 className="relative z-30 pointer-events-none text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none mb-3">
+              WISH<br />LISTED
+            </h1>
+            <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
+              Games you want before they enter your library.
+              <span className="ml-2 text-[11px] font-bold uppercase tracking-widest text-brand-accent">
+                {wishlist.length} {wishlist.length === 1 ? "item" : "items"} tracked
+              </span>
+            </p>
+          </div>
 
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            onClick={() => setActiveTab("library")}
-            className="flex items-center gap-2 bg-transparent border border-brand-border text-white px-6 py-3 rounded-none text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to Library
-          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => setActiveTab("library")}
+              className="flex items-center gap-2 bg-transparent border border-brand-border text-white px-6 py-3 rounded-none text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Library
+            </button>
+          </div>
         </div>
+        {/* Full-bleed header rule: outside the title column, cancelling the page
+            gutter, so it spans the screen and passes under the back action too.
+            Same technique as the footer rule. */}
+        <div aria-hidden="true" className="absolute bottom-0 -left-6 -right-6 md:-left-12 md:-right-12 h-px bg-brand-border/60" />
       </div>
 
       {/* Search Bar & Select Action */}

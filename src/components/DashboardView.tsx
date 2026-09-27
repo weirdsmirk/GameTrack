@@ -165,19 +165,27 @@ export const DashboardView: React.FC = React.memo(() => {
   return (
     <div className="space-y-10">
       {/* Top Welcome / Action Area */}
-      <div className="flex flex-col lg:flex-row justify-between items-start gap-8">
-        <div className="space-y-3">
-          {/* Huge Display Hero Title */}
-          <h1 className="relative z-30 pointer-events-none text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none">
-            GAME<br /><span className="text-brand-accent">TRACK_</span>
-          </h1>
-          <p className="max-w-none text-brand-muted text-sm sm:text-base font-medium leading-relaxed lg:whitespace-nowrap">
-            Your personal gaming registry. Track, organize, and analyze your library.
-          </p>
-          {/* Hairline rule closing the header block, shared by every view so the
-              title, its subtext and the rule read the same everywhere. Decorative. */}
-          <div aria-hidden="true" className="mt-8 h-px w-full bg-brand-border/60" />
+      <div className="relative pb-8">
+        <div className="flex flex-col lg:flex-row justify-between items-start gap-8">
+          <div className="space-y-3">
+            {/* Huge Display Hero Title */}
+            <h1 className="relative z-30 pointer-events-none text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none">
+              GAME<br /><span className="text-brand-accent">TRACK_</span>
+            </h1>
+            <p className="max-w-none text-brand-muted text-sm sm:text-base font-medium leading-relaxed lg:whitespace-nowrap">
+              Your personal gaming registry. Track, organize, and analyze your library.
+            </p>
+          </div>
         </div>
+        {/* Hairline rule closing the header block, shared by every view so the
+            title, its subtext and the rule read the same everywhere. Decorative.
+
+            It sits OUTSIDE the title column and cancels the page gutter
+            (-mx-6 / md:-mx-12) so it runs the full width of the screen rather
+            than stopping at the subtext — the same full-bleed trick the footer
+            rule uses, and the page wrapper's overflow-x-hidden keeps it from
+            ever becoming a horizontal scrollbar. */}
+        <div aria-hidden="true" className="absolute bottom-0 -left-6 -right-6 md:-left-12 md:-right-12 h-px bg-brand-border/60" />
       </div>
 
       {/* Registry strip — one ruled band, five cells, matching the System

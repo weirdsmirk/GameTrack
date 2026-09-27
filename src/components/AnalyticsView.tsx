@@ -82,7 +82,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
       {/* Page header — the same title / subtext / hairline treatment as every
           other view, and the only <h1> on the page now that analytics has its
           own route out of the dashboard. */}
-      <div>
+      <div className="relative pb-8">
         {/* Text stays title case in the DOM and is uppercased by the class, so
             the rendered result matches the other views' titles pixel for pixel
             while the accessible name is still read as "System Analytics"
@@ -98,7 +98,9 @@ export const AnalyticsView: React.FC = React.memo(() => {
         <p className="mt-3 max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
           Personal gameplay telemetry &amp; system analytics
         </p>
-        <div aria-hidden="true" className="mt-8 h-px w-full bg-brand-border/60" />
+        {/* Full-bleed header rule: cancels the page gutter so it spans the
+            screen, matching the other views. Same technique as the footer rule. */}
+        <div aria-hidden="true" className="absolute bottom-0 -left-6 -right-6 md:-left-12 md:-right-12 h-px bg-brand-border/60" />
       </div>
 
       {/* Telemetry readout — one instrument, not four cards.
