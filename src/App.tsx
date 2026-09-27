@@ -42,6 +42,8 @@ export default function App() {
   // as two accent squares and the page title owns the top of the screen.
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const firstItemRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -63,6 +65,11 @@ export default function App() {
 
   useEffect(() => {
     if (!menuOpen) return;
+    // Move focus into the menu when it opens. The panel sits before the control
+    // cluster in the DOM (that is what puts it to the left of the trigger on
+    // large screens), so leaving focus on the toggle would make a keyboard user
+    // Tab backwards to reach the items. Escape below hands focus back.
+    firstItemRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       setMenuOpen(false);
@@ -233,7 +240,7 @@ const tabs = [
         {/* Global Overlays & Portals */}
         {/* Primary nav — a floating control cluster, not a bar. The horizontal
             tab row and the wordmark are gone: every destination now lives in the
-            drawer, at every viewport width, so navigation is the same gesture
+            menu, at every viewport width, so navigation is the same gesture
             everywhere and the hero title owns the top of the page outright.
 
             Both controls are accent-filled squares in the app's `Buttons` icon
@@ -241,19 +248,27 @@ const tabs = [
             without a backdrop to hide behind — there is no opaque fill behind
             them at any scroll position, and no reveal to animate.
 
-            Sits at z-20, below the page titles, which carry `relative z-30` so a
-            110px title scrolls up and over the controls rather than being
-            sliced by them. The titles are pointer-events-none, so their boxes
-            cannot swallow clicks meant for the buttons. `pointer-events-none` on
-            the nav keeps its full-bleed box from eating clicks across the top of
-            the page; the button row re-enables them.
+            Sits at z-40, ABOVE the page titles (z-30) — the reverse of the old
+            bar, and deliberately so. The bar was a full-bleed strip whose whole
+            job was to sit under a scrolling title; the menu is an overlay, and
+            measured at every width below 1280px its box overlaps the title (up
+            to 342x68px on a phone, 387x48px of the popover at 768). Below the
+            titles, the hero glyphs drew straight over the menu items. Still
+            under the modals (z-50/60) and the toast (z-100), so opening settings
+            covers the controls as it always did.
 
-            pt-10 puts the row's top edge on the view's <h1> line rather than
-            floating it above the title. */}
+            `pointer-events-none` on the nav keeps its full-bleed box from eating
+            clicks across the top of the page; the button row re-enables them.
+            The titles are pointer-events-none too, so their boxes cannot swallow
+            clicks meant for the menu.
+
+            pt-8 on phones (the controls are 44px there, so the row needs less
+            air above it) and pt-10 from md, which puts the row's top edge on the
+            view's <h1> line rather than floating it above the title. */}
         <nav
           ref={navRef}
           aria-label="Primary"
-          className="fixed inset-x-0 top-0 z-20 flex items-center justify-end px-6 md:px-12 pt-10 pointer-events-none"
+          className="fixed inset-x-0 top-0 z-40 flex items-center justify-end px-6 md:px-12 pt-8 md:pt-10 pointer-events-none"
         >
           {/* Menu — one component, two shapes. On a phone it is a full-width
               panel hanging off the nav's bottom edge, because a row of four
@@ -281,6 +296,7 @@ const tabs = [
                 <motion.div
                   key="menu-panel"
                   id="primary-menu"
+                  ref={panelRef}
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10, transition: { duration: 0.12 } }}
@@ -289,11 +305,12 @@ const tabs = [
                     md:static md:inset-auto md:top-auto md:mr-1.5 md:border md:px-1.5 md:py-1.5"
                 >
                   <div className="flex flex-col gap-1.5 px-6 pb-6 pt-1 md:flex-row md:items-center md:gap-1 md:p-0">
-                    {tabs.map((tab) => {
+                    {tabs.map((tab, i) => {
                       const isActive = activeTab === tab.id;
                       return (
                         <Buttons
                           key={tab.id}
+                          ref={i === 0 ? firstItemRef : undefined}
                           variant={isActive ? "primary" : "tab"}
                           onClick={() => setActiveTab(tab.id)}
                           aria-current={isActive ? "page" : undefined}
@@ -309,7 +326,9 @@ const tabs = [
             )}
           </AnimatePresence>
 
-          <div className="flex items-stretch gap-1.5 pointer-events-auto">
+          {/* Above the phone scrim (z-10 inside this nav) so the two controls
+              stay crisp and readable while the menu is open. */}
+          <div className="relative z-20 flex items-stretch gap-1.5 pointer-events-auto">
             <Buttons
               ref={menuButtonRef}
               variant="icon"
@@ -318,7 +337,10 @@ const tabs = [
               aria-controls="primary-menu"
               aria-label={menuOpen ? "Close menu" : "Open menu"}
               title={menuOpen ? "Close menu" : "Open menu"}
-              className="p-2"
+              /* 44px on touch — these are the only navigation controls a phone
+                 has. Back to the 32px square from md, where input is a pointer
+                 and the buttons sit inline with the popover. */
+              className="p-3.5 md:p-2"
             >
               {menuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
             </Buttons>
@@ -327,7 +349,7 @@ const tabs = [
               onClick={() => setSettingsOpen(true)}
               aria-label="Open Settings"
               title="Open Settings"
-              className="p-2"
+              className="p-3.5 md:p-2"
             >
               <Settings className="w-4 h-4" />
             </Buttons>
