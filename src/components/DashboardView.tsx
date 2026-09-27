@@ -250,7 +250,7 @@ export const DashboardView: React.FC = React.memo(() => {
             >
               <div className="space-y-4">
                 <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext">
-                  CURRENT_SESSION
+                  CURRENT SESSION
                 </h3>
                 <h2 className="text-3xl sm:text-5xl lg:text-6xl font-black uppercase tracking-tighter leading-none text-session-text font-sans">
                   {game.title}
