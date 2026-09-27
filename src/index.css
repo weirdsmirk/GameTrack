@@ -330,25 +330,16 @@ button {
 }
 
 /* Toast auto-dismiss countdown — drains left-to-right over the toast's
-   lifetime and pauses while hovered so readers have time. */
+   lifetime and pauses while hovered so readers have time. It borrows the
+   toast's own ink at low opacity, so one rule fits every fill colour. */
 .toast-progress {
   height: 2px;
+  background-color: currentColor;
+  opacity: 0.28;
   transform-origin: left;
   animation-name: toast-progress;
   animation-timing-function: linear;
   animation-fill-mode: forwards;
-}
-
-.toast-progress[data-type="success"] {
-  background-color: var(--brand-accent);
-}
-
-.toast-progress[data-type="error"] {
-  background-color: var(--red-500-val, #EF4444);
-}
-
-.toast-progress[data-type="info"] {
-  background-color: rgba(255, 255, 255, 0.25);
 }
 
 *:hover > .toast-progress {

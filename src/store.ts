@@ -10,10 +10,9 @@ import { Platform, slugifyPlatformLabel, mergeCustomPlatforms, igdbGenreNamesFor
 
 export interface ToastItem {
   id: number;
+  /** The one line of text the popup shows — title and detail already joined. */
   message: string;
   type: "success" | "error" | "info";
-  /** Optional secondary line — keeps the title short and scannable. */
-  description?: string;
   duration: number;
 }
 
@@ -1308,7 +1307,10 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   showToast: (message, type = "info", description, duration) => {
     const id = ++toastIdCounter;
     const ms = duration ?? (type === "error" ? 6000 : type === "info" ? 3500 : 4000);
-    set((state) => ({ toasts: [...state.toasts, { id, message, type, description, duration: ms }] }));
+    // Toasts render as a single line of text, so the optional detail is folded
+    // into the message here — once — instead of being a second line of copy.
+    const text = description ? `${message} — ${description}` : message;
+    set((state) => ({ toasts: [...state.toasts, { id, message: text, type, duration: ms }] }));
     scheduleToastDismiss(id, ms, set);
   },
   dismissToast: (id) => {
