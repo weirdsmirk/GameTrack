@@ -208,8 +208,6 @@ interface GameTrackState {
   importLibraryJSON: (jsonData: unknown) => Promise<{ success: boolean; imported?: number; error?: string }>;
   wipeLibrary: () => Promise<boolean>;
   exportLibraryJSON: () => Promise<boolean>;
-  exportDatabase: () => Promise<boolean>;
-  restoreBackupFile: (file: File) => Promise<boolean>;
   toasts: ToastItem[];
   showToast: (message: string, type?: "success" | "error" | "info", description?: string, duration?: number) => void;
   dismissToast: (id: number) => void;
@@ -1251,53 +1249,6 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       return true;
     } catch (err: unknown) {
       get().showToast(getErrorMessage(err) || "Library export failed", "error");
-      return false;
-    }
-  },
-
-  // Download the raw SQLite database file — a byte-exact, consistent snapshot
-  // (server runs a WAL-aware online backup), for full-fidelity backups.
-  exportDatabase: async () => {
-    try {
-      const res = await fetch("/api/export/db");
-      if (!res.ok) throw await getApiError(res, "Database export failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `gametrack-backup-${new Date().toISOString().slice(0, 10)}.db`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      get().showToast("Database downloaded", "success", "Backup saved to downloads");
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Database export failed", "error");
-      return false;
-    }
-  },
-
-  // Restore a raw SQLite database file picked by the user (the counterpart to
-  // exportDatabase). The server swaps it in atomically after taking a safety
-  // backup of the current state.
-  restoreBackupFile: async (file) => {
-    try {
-      const res = await fetch("/api/backups/restore-file", {
-        method: "POST",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: await file.arrayBuffer(),
-      });
-      if (!res.ok) throw await getApiError(res, "Restore failed");
-      // Library identity changed wholesale — refresh everything from scratch.
-      await get().fetchGames(true);
-      await get().fetchAnalytics();
-      await get().fetchWishlist(true);
-      await get().fetchCustomPlatforms();
-      get().showToast("Database restored", "success", file.name);
-      return true;
-    } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Error restoring database", "error");
       return false;
     }
   },

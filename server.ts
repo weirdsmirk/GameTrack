@@ -6,7 +6,7 @@ import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import compression from "compression";
-import { apiRouter, ensureDailyBackup } from "./server/routes";
+import { apiRouter } from "./server/routes";
 import db from "./server/db";
 import { DATA_DIR, DIST_DIR, POSTERS_DIR, ensureDataDir } from "./server/paths";
 
@@ -225,7 +225,6 @@ export async function createApp(production = false) {
   // so a 1mb global parser mounted first would 413 every large import/upload.
   app.use("/api/import", express.json({ limit: "25mb" }));
   app.use("/api/upload-poster", express.json({ limit: "4mb" }));
-  app.use("/api/backups/restore-file", express.raw({ type: () => true, limit: "80mb" }));
 
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ limit: "1mb", extended: true }));
@@ -286,7 +285,7 @@ export async function createApp(production = false) {
         watch: { ignored: ["**/data/**", "**/dist/**", "**/dist-server/**", "**/*.tsbuildinfo"] },
         fs: {
           // Vite's dev server otherwise serves ANY file under the project root
-          // — including the live SQLite database, its backups, and uploaded
+          // — including the live SQLite database and uploaded
           // posters — to any client that can reach the port, unauthenticated,
           // with no Origin gate on GET (DNS-rebinding reachable). Keep Vite's
           // built-in denies (.env, TLS keys) and add the data directory.
@@ -366,9 +365,6 @@ export async function createApp(production = false) {
 async function startServer() {
   const IS_PRODUCTION = process.env.NODE_ENV === "production";
   const app = await createApp(IS_PRODUCTION);
-
-  // One local snapshot per day (keeps 5) — fire-and-forget, never blocks boot.
-  void ensureDailyBackup();
 
   const server = app.listen(PORT, HOST, () => {
     console.log(`GameTrack server running on http://${HOST}:${PORT}${API_TOKEN ? " (API token auth enabled)" : ""}`);

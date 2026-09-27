@@ -59,7 +59,8 @@ const formatStatus = (status: string) => getStatusLabel(status).toUpperCase();
 export const DashboardView: React.FC = React.memo(() => {
   const {
     games, summary, suggestions, recentActivity, loadingAnalytics, fetchAnalytics,
-    fetchSuggestions, setSelectedGame, lastAnalyticsFetch, customPlatforms, customizations
+    fetchSuggestions, setSelectedGame, lastAnalyticsFetch, customPlatforms, customizations,
+    wishlist
   } = useGameTrackStore(useShallow(s => ({
     games: s.games, summary: s.summary,
     suggestions: s.suggestions, recentActivity: s.recentActivity,
@@ -68,7 +69,8 @@ export const DashboardView: React.FC = React.memo(() => {
     setSelectedGame: s.setSelectedGame,
     lastAnalyticsFetch: s.lastAnalyticsFetch,
     customPlatforms: s.customPlatforms,
-    customizations: s.customizations
+    customizations: s.customizations,
+    wishlist: s.wishlist
   })));
 
   const platforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
@@ -102,13 +104,13 @@ export const DashboardView: React.FC = React.memo(() => {
 
       {/* Analytics KPI Block */}
       {loadingAnalytics && !summary ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-pulse">
-          {[...Array(4)].map((_, i) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 animate-pulse">
+          {[...Array(5)].map((_, i) => (
             <div key={i} className="h-40 bg-zinc-900/50 border border-brand-border rounded-none" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <StatCard
             title="Registered Games"
             value={summary?.total_games ?? 0}
@@ -128,6 +130,11 @@ export const DashboardView: React.FC = React.memo(() => {
             title="Total Playtime"
             value={formatPlaytime(summary?.total_playtime_hours)}
             subtext={`avg ${formatPlaytime(summary?.average_playtime_per_game).toLowerCase()} per title`}
+          />
+          <StatCard
+            title="Wishlist"
+            value={wishlist.length}
+            subtext="queued for acquisition"
           />
         </div>
       )}

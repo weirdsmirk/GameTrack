@@ -10,11 +10,10 @@ import { THEMES } from "../themes";
 export const SettingsModal: React.FC = React.memo(() => {
   const { 
     isSettingsOpen, setSettingsOpen,
-    wipeLibrary, showToast, importLibraryJSON, exportLibraryJSON, exportDatabase,
+    wipeLibrary, showToast, importLibraryJSON, exportLibraryJSON,
     steamSettings, fetchSteamSettings, saveSteamSettings, syncSteamLibrary,
     customizations, updateCustomizations,
     customPlatforms, addCustomPlatform, removeCustomPlatform,
-    restoreBackupFile,
   } = useGameTrackStore();
 
   const [customTagInput, setCustomTagInput] = useState("");
@@ -32,9 +31,6 @@ export const SettingsModal: React.FC = React.memo(() => {
   const libraryInputRef = useRef<HTMLInputElement>(null);
   const [importingLibrary, setImportingLibrary] = useState(false);
   const [exportingLibrary, setExportingLibrary] = useState(false);
-  const [exportingDatabase, setExportingDatabase] = useState(false);
-  const [restoringDatabase, setRestoringDatabase] = useState(false);
-  const dbInputRef = useRef<HTMLInputElement>(null);
 
   const [wipeConfirmInput, setWipeConfirmInput] = useState("");
   const [showWipeConfirm, setShowWipeConfirm] = useState(false);
@@ -472,7 +468,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-4">
                   
                   <div className="space-y-2">
-                    <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Library Backup</p>
+                    <p className="text-[11px] font-mono uppercase tracking-widest text-brand-muted font-bold">Library Export</p>
                     <button
                       type="button"
                       onClick={async () => {
@@ -485,20 +481,6 @@ export const SettingsModal: React.FC = React.memo(() => {
                     >
                       {exportingLibrary ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                       Export Library JSON
-                    </button>
-                    <button
-                      type="button"
-                      title="Download the raw SQLite database file — an exact, full-fidelity snapshot"
-                      onClick={async () => {
-                        setExportingDatabase(true);
-                        await exportDatabase();
-                        setExportingDatabase(false);
-                      }}
-                      disabled={exportingDatabase}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 border border-brand-border hover:border-zinc-700 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer"
-                    >
-                      {exportingDatabase ? <Loader2 className="w-4 h-4 animate-spin text-brand-accent" /> : <Download className="w-4 h-4 text-brand-accent" />}
-                      Download Database (.db)
                     </button>
                   </div>
 
@@ -513,16 +495,6 @@ export const SettingsModal: React.FC = React.memo(() => {
                       {importingLibrary ? <Loader2 className="w-4 h-4 animate-spin text-brand-accent" /> : <Upload className="w-4 h-4 text-brand-accent" />}
                       Import Library JSON
                     </button>
-                    <button
-                      type="button"
-                      title="Restore a .db file you downloaded earlier — replaces the current library"
-                      onClick={() => dbInputRef.current?.click()}
-                      disabled={restoringDatabase}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 border border-brand-border hover:border-zinc-700 text-white text-xs font-black uppercase tracking-wider rounded-none transition-all cursor-pointer"
-                    >
-                      {restoringDatabase ? <Loader2 className="w-4 h-4 animate-spin text-brand-accent" /> : <Upload className="w-4 h-4 text-brand-accent" />}
-                      Import Database (.db)
-                    </button>
                   </div>
 
                   <input
@@ -530,23 +502,6 @@ export const SettingsModal: React.FC = React.memo(() => {
                     type="file"
                     accept=".json"
                     onChange={(e) => e.target.files && e.target.files[0] && processImportFile(e.target.files[0])}
-                    className="hidden"
-                  />
-                  <input
-                    ref={dbInputRef}
-                    type="file"
-                    accept=".db,.sqlite,.sqlite3,application/vnd.sqlite3"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      e.target.value = "";
-                      void (async () => {
-                        if (!window.confirm("Restore this database file and replace the current library? A safety backup will be created first.")) return;
-                        setRestoringDatabase(true);
-                        await restoreBackupFile(file);
-                        setRestoringDatabase(false);
-                      })();
-                    }}
                     className="hidden"
                   />
                 </div>

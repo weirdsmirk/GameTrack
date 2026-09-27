@@ -2,7 +2,7 @@
 
 GameTrack is a local game library and backlog tracker. It helps you keep track of the games you own, what you are playing, your playtime, ratings, and completion dates.
 
-It also includes Steam sync, IGDB discovery, library filters, analytics, backups, and Markdown/CSV/JSON exports. Your data is stored locally in SQLite.
+It also includes Steam sync, IGDB discovery, library filters, analytics, and Markdown/CSV/JSON exports. Your data is stored locally in SQLite.
 
 ## Tech stack
 
@@ -90,4 +90,4 @@ npm run clean              # remove build output
 - `tests/` contains API and UI tests.
 - `data/` contains local application data and is not committed.
 
-GameTrack is designed for personal, local use. Keep regular backups of the `data/` directory or use the backup tools in Settings.
+GameTrack is designed for personal, local use. Keep regular copies of the `data/` directory.

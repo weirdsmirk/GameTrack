@@ -2,7 +2,6 @@ import { Router, Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import Database from "better-sqlite3";
 import db from "./db";
 import { z } from "zod";
 import { normalizePlatformIds, AVAILABLE_PLATFORMS } from "../src/constants";
@@ -257,33 +256,6 @@ apiRouter.get("/export", (_req: Request, res: Response) => {
   } catch (err) {
     console.error("GET /api/export error:", err);
     res.status(500).json({ error: "Failed to export library" });
-  }
-});
-
-// GET /api/export/db — raw SQLite database file as a backup. Unlike the JSON
-// export this is a byte-exact snapshot: `db.backup()` runs a WAL-aware online
-// backup, so the download stays consistent even while a sync is writing.
-apiRouter.get("/export/db", async (_req: Request, res: Response) => {
-  const stamp = new Date().toISOString().slice(0, 10);
-  const tmpPath = path.join(DATA_DIR, `.backup-${process.pid}-${Date.now()}-${crypto.randomUUID()}.db`);
-  try {
-    await db.backup(tmpPath);
-    // The snapshot is a full copy of the DB — strip the stored Steam API key
-    // before it leaves the process (see scrubSecretsFromSnapshot).
-    scrubSecretsFromSnapshot(tmpPath);
-    // Read the snapshot into memory and delete the temp file up front — the
-    // library DB is small (local single-user app), and sending a buffer avoids
-    // any temp-file/stream lifecycle races with the response.
-    const snapshot = fs.readFileSync(tmpPath);
-    fs.rmSync(tmpPath, { force: true });
-    res.setHeader("Content-Type", "application/vnd.sqlite3");
-    res.setHeader("Content-Disposition", `attachment; filename="gametrack-backup-${stamp}.db"`);
-    res.setHeader("Content-Length", snapshot.length);
-    res.send(snapshot);
-  } catch (err) {
-    fs.rmSync(tmpPath, { force: true });
-    console.error("GET /api/export/db error:", err);
-    res.status(500).json({ error: "Failed to export database" });
   }
 });
 
@@ -1374,323 +1346,6 @@ apiRouter.post("/wishlist/:id/own", (req: Request, res: Response) => {
   }
 });
 
-// ── BACKUPS ─────────────────────────────────────────────────────────
-// Automatic daily snapshots plus on-demand ones, kept in data/backups.
-// Restores copy tables online inside a transaction — no restart needed.
-
-const BACKUP_DIR = path.join(DATA_DIR, "backups");
-const BACKUP_NAME_RE = /^[a-zA-Z0-9._-]+\.db$/;
-const USER_TABLES = ["games", "wishlist", "settings"] as const;
-
-function ensureBackupDir(): void {
-  if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 });
-}
-
-function getBackupSettings(): { enabled: boolean; keep: number } {
-  const enabledRow = stmts.getSettings.get("auto_backup") as { value: string } | undefined;
-  const keepRow = stmts.getSettings.get("backup_keep") as { value: string } | undefined;
-  const keep = Math.min(30, Math.max(1, Number.parseInt(keepRow?.value || "5", 10) || 5));
-  return { enabled: enabledRow?.value !== "0", keep };
-}
-
-function listBackups() {
-  ensureBackupDir();
-  return fs.readdirSync(BACKUP_DIR)
-    .filter((f) => f.endsWith(".db"))
-    .map((name) => {
-      const st = fs.statSync(path.join(BACKUP_DIR, name));
-      return { name, created_at: Math.round(st.mtimeMs), size: st.size };
-    })
-    .sort((a, b) => b.created_at - a.created_at);
-}
-
-function pruneBackups(keep: number): void {
-  const all = listBackups();
-  for (const extra of all.slice(keep)) {
-    fs.rmSync(path.join(BACKUP_DIR, extra.name), { force: true });
-  }
-}
-
-let backupBusy = false;
-
-/**
- * Snapshots that leave the process (downloads) or outlive it on disk
- * (backups) must never carry the stored Steam Web API key: the REST API
- * deliberately never returns it (GET /settings/steam only exposes `keySet`),
- * so a downloadable/restorable copy must not widen that trust. After a
- * restore the key is simply re-entered, or supplied via STEAM_WEB_API_KEY.
- */
-function scrubSecretsFromSnapshot(file: string): void {
-  let snap: Database.Database | null = null;
-  try {
-    snap = new Database(file);
-    snap.exec(
-      "UPDATE settings SET value = json_remove(value, '$.apiKey') WHERE key = 'steam_sync' AND json_valid(value)"
-    );
-  } catch (err) {
-    console.warn("Could not scrub secrets from snapshot:", err instanceof Error ? err.message : err);
-  } finally {
-    snap?.close();
-  }
-}
-
-async function withBackupLock<T>(fn: () => Promise<T>): Promise<T> {
-  if (backupBusy) {
-    const err = new Error("A backup or restore is already running.");
-    (err as Error & { status: number }).status = 409;
-    throw err;
-  }
-  backupBusy = true;
-  try {
-    return await fn();
-  } finally {
-    backupBusy = false;
-  }
-}
-
-/** Create a snapshot now and prune to the configured retention. Returns the list. */
-export async function createBackupNow(): Promise<{ name: string; created_at: number; size: number }[]> {
-  return withBackupLock(async () => {
-    ensureBackupDir();
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const name = `gametrack-backup-${stamp}.db`;
-    const file = path.join(BACKUP_DIR, name);
-    await db.backup(file);
-    // Backups are downloadable over the API and may be copied off-box — they
-    // must not carry the stored Steam API key, and should not be world-readable.
-    scrubSecretsFromSnapshot(file);
-    try {
-      fs.chmodSync(file, 0o600);
-    } catch { /* best-effort: read-only mounts/volumes may deny chmod */ }
-    pruneBackups(getBackupSettings().keep);
-    return listBackups();
-  });
-}
-
-/** One snapshot per day, called at boot. Never throws. */
-export async function ensureDailyBackup(): Promise<void> {
-  try {
-    if (!getBackupSettings().enabled) return;
-    ensureBackupDir();
-    const today = new Date().toISOString().slice(0, 10);
-    const hasToday = fs.readdirSync(BACKUP_DIR).some((f) => f.endsWith(".db") && f.includes(today));
-    if (!hasToday) await createBackupNow();
-  } catch (err) {
-    console.warn("Automatic backup skipped:", err instanceof Error ? err.message : err);
-  }
-}
-
-function validateBackupFile(file: string): { ok: true } | { ok: false; error: string } {
-  try {
-    const header = Buffer.alloc(16);
-    const fd = fs.openSync(file, "r");
-    try {
-      fs.readSync(fd, header, 0, 16, 0);
-    } finally {
-      fs.closeSync(fd);
-    }
-    if (header.toString("latin1") !== "SQLite format 3\0") {
-      return { ok: false, error: "File is not a SQLite database." };
-    }
-    const probe = new Database(file, { readonly: true });
-    try {
-      const integrity = probe.pragma("integrity_check", { simple: true }) as unknown;
-      if (integrity !== "ok") return { ok: false, error: "Backup failed integrity check and was not restored." };
-      const tables = probe.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[];
-      const names = new Set(tables.map((t) => t.name));
-      if (!names.has("games") || !names.has("settings")) {
-        return { ok: false, error: "Backup is missing expected tables and was not restored." };
-      }
-    } finally {
-      probe.close();
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Could not read backup file." };
-  }
-}
-
-function tableColumns(schema: string, table: string): string[] {
-  try {
-    return (db.prepare(`PRAGMA ${schema}.table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
-  } catch {
-    return [];
-  }
-}
-
-function restoreFromValidatedFile(file: string): void {
-  const esc = file.replace(/'/g, "''");
-  db.exec(`ATTACH DATABASE '${esc}' AS snap`);
-  try {
-    db.pragma("foreign_keys = OFF");
-    const copy = db.transaction(() => {
-      for (const t of USER_TABLES) {
-        db.exec(`DELETE FROM main."${t}"`);
-        const destCols = tableColumns("main", t);
-        const srcCols = tableColumns("snap", t);
-        if (!destCols.length || !srcCols.length) continue;
-        const cols = destCols.filter((c) => srcCols.includes(c));
-        if (!cols.length) continue;
-        const list = cols.map((c) => `"${c}"`).join(", ");
-        db.exec(`INSERT INTO main."${t}" (${list}) SELECT ${list} FROM snap."${t}"`);
-      }
-    });
-    copy();
-  } finally {
-    try { db.exec("DETACH DATABASE snap"); } catch { /* already detached */ }
-    db.pragma("foreign_keys = ON");
-  }
-}
-
-async function restoreBackupFile(file: string): Promise<void> {
-  const valid = validateBackupFile(file);
-  if (!valid.ok) {
-    const err = new Error(valid.error);
-    (err as Error & { status: number }).status = 422;
-    throw err;
-  }
-  await withBackupLock(async () => {
-    ensureBackupDir();
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const safety = `gametrack-backup-pre-restore-${stamp}.db`;
-    const safetyPath = path.join(BACKUP_DIR, safety);
-    await db.backup(safetyPath);
-    scrubSecretsFromSnapshot(safetyPath);
-    try {
-      fs.chmodSync(safetyPath, 0o600);
-    } catch { /* best-effort: read-only mounts/volumes may deny chmod */ }
-    restoreFromValidatedFile(file);
-    pruneBackups(getBackupSettings().keep);
-  });
-}
-
-// GET /api/settings/backups
-apiRouter.get("/settings/backups", (_req: Request, res: Response) => {
-  try {
-    res.json(getBackupSettings());
-  } catch (err) {
-    console.error("GET /api/settings/backups error:", err);
-    res.status(500).json({ error: "Failed to read backup settings" });
-  }
-});
-
-const BackupSettingsSchema = z.object({
-  enabled: z.boolean().optional(),
-  keep: z.number().int().min(1).max(30).optional(),
-});
-
-// PUT /api/settings/backups
-apiRouter.put("/settings/backups", (req: Request, res: Response) => {
-  try {
-    const parsed = BackupSettingsSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Invalid backup settings" });
-    const current = getBackupSettings();
-    const next = {
-      enabled: parsed.data.enabled ?? current.enabled,
-      keep: parsed.data.keep ?? current.keep,
-    };
-    stmts.upsertSettings.run("auto_backup", next.enabled ? "1" : "0");
-    stmts.upsertSettings.run("backup_keep", String(next.keep));
-    pruneBackups(next.keep);
-    res.json(next);
-  } catch (err) {
-    console.error("PUT /api/settings/backups error:", err);
-    res.status(500).json({ error: "Failed to save backup settings" });
-  }
-});
-
-// GET /api/backups
-apiRouter.get("/backups", (_req: Request, res: Response) => {
-  try {
-    res.json(listBackups());
-  } catch (err) {
-    console.error("GET /api/backups error:", err);
-    res.status(500).json({ error: "Failed to list backups" });
-  }
-});
-
-// POST /api/backups — snapshot now
-apiRouter.post("/backups", async (_req: Request, res: Response) => {
-  try {
-    res.status(201).json(await createBackupNow());
-  } catch (err) {
-    const status = (err as { status?: number }).status;
-    if (status === 409) return res.status(409).json({ error: (err as Error).message });
-    console.error("POST /api/backups error:", err);
-    res.status(500).json({ error: "Failed to create backup" });
-  }
-});
-
-// GET /api/backups/:name/download
-apiRouter.get("/backups/:name/download", (req: Request, res: Response) => {
-  try {
-    const name = String(req.params.name || "");
-    if (!BACKUP_NAME_RE.test(name)) return res.status(400).json({ error: "Invalid backup name" });
-    const file = path.join(BACKUP_DIR, path.basename(name));
-    if (!fs.existsSync(file)) return res.status(404).json({ error: "Backup not found" });
-    res.setHeader("Content-Type", "application/vnd.sqlite3");
-    res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
-    res.sendFile(file);
-  } catch (err) {
-    console.error("GET /api/backups/:name/download error:", err);
-    res.status(500).json({ error: "Failed to download backup" });
-  }
-});
-
-// DELETE /api/backups/:name
-apiRouter.delete("/backups/:name", (req: Request, res: Response) => {
-  try {
-    const name = String(req.params.name || "");
-    if (!BACKUP_NAME_RE.test(name)) return res.status(400).json({ error: "Invalid backup name" });
-    const file = path.join(BACKUP_DIR, path.basename(name));
-    if (!fs.existsSync(file)) return res.status(404).json({ error: "Backup not found" });
-    fs.rmSync(file, { force: true });
-    res.json({ success: true });
-  } catch (err) {
-    console.error("DELETE /api/backups/:name error:", err);
-    res.status(500).json({ error: "Failed to delete backup" });
-  }
-});
-
-// POST /api/backups/:name/restore — validate, safety-snapshot, copy tables online.
-apiRouter.post("/backups/:name/restore", async (req: Request, res: Response) => {
-  try {
-    const name = String(req.params.name || "");
-    if (!BACKUP_NAME_RE.test(name)) return res.status(400).json({ error: "Invalid backup name" });
-    const file = path.join(BACKUP_DIR, path.basename(name));
-    if (!fs.existsSync(file)) return res.status(404).json({ error: "Backup not found" });
-    await restoreBackupFile(file);
-    res.json({ success: true, games: stmts.getAllGames.all().map(parseGame) });
-  } catch (err) {
-    const status = (err as { status?: number }).status;
-    if (status === 409 || status === 422) return res.status(status).json({ error: (err as Error).message });
-    console.error("POST /api/backups/:name/restore error:", err);
-    res.status(500).json({ error: "Restore failed — your current library is untouched." });
-  }
-});
-
-/** Restore from an uploaded SQLite file (raw body). Mounted with express.raw in server.ts. */
-apiRouter.post("/backups/restore-file", async (req: Request, res: Response) => {
-  // Random suffix: pid+timestamp alone is guessable/predictable.
-  const tmp = path.join(DATA_DIR, `.restore-${process.pid}-${Date.now()}-${crypto.randomUUID()}.db`);
-  try {
-    const body = req.body as Buffer | undefined;
-    if (!body || !Buffer.isBuffer(body) || body.length < 100) {
-      return res.status(400).json({ error: "Upload a valid GameTrack database file." });
-    }
-    fs.writeFileSync(tmp, body, { mode: 0o600 });
-    await restoreBackupFile(tmp);
-    res.json({ success: true, games: stmts.getAllGames.all().map(parseGame) });
-  } catch (err) {
-    const status = (err as { status?: number }).status;
-    if (status === 409 || status === 422) return res.status(status).json({ error: (err as Error).message });
-    console.error("POST /api/backups/restore-file error:", err);
-    res.status(500).json({ error: "Restore failed — your current library is untouched." });
-  } finally {
-    fs.rmSync(tmp, { force: true });
-  }
-});
-
 // ── DUPLICATES ──────────────────────────────────────────────────────
 // Suspected duplicate library rows (same external id or same normalized
 // title) with a merge action that folds the loser into the keeper.
@@ -1804,7 +1459,7 @@ apiRouter.post("/duplicates/merge", (req: Request, res: Response) => {
 });
 
 // ── STORAGE ─────────────────────────────────────────────────────────
-// Local footprint: database, posters, backups — plus maintenance actions.
+// Local footprint: database and posters — plus maintenance actions.
 
 function dirSize(dir: string): { files: number; bytes: number } {
   let files = 0;
@@ -1827,15 +1482,12 @@ apiRouter.get("/storage", (_req: Request, res: Response) => {
   try {
     const sizeOf = (p: string) => { try { return fs.statSync(p).size; } catch { return 0; } };
     const posters = dirSize(POSTERS_DIR);
-    const backups = dirSize(BACKUP_DIR);
     res.json({
       dbSize: sizeOf(path.join(DATA_DIR, "gametrack.db")),
       walSize: sizeOf(path.join(DATA_DIR, "gametrack.db-wal")),
       gameCount: (db.prepare("SELECT COUNT(*) AS n FROM games").get() as { n: number }).n,
       posterCount: posters.files,
       posterSize: posters.bytes,
-      backupCount: backups.files,
-      backupSize: backups.bytes,
     });
   } catch (err) {
     console.error("GET /api/storage error:", err);

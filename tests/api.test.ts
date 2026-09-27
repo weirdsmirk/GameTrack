@@ -509,26 +509,6 @@ describe("API smoke tests", () => {
     expect(res.body.error).toContain("IGDB");
   });
 
-  it("GET /api/export/db downloads a valid SQLite database snapshot", async () => {
-    const res = await request(app).get("/api/export/db").buffer(true).parse((r, cb) => {
-      const chunks: Buffer[] = [];
-      r.on("data", (c: Buffer) => chunks.push(c));
-      r.on("end", () => cb(null, Buffer.concat(chunks)));
-    });
-    expect(res.status).toBe(200);
-    expect(res.headers["content-type"]).toContain("application/vnd.sqlite3");
-    expect(res.headers["content-disposition"]).toContain("gametrack-backup-");
-    expect(res.headers["content-disposition"]).toContain(".db");
-    // SQLite files start with the magic header "SQLite format 3\0".
-    const body = res.body as Buffer;
-    expect(body.length).toBeGreaterThan(100);
-    expect(body.subarray(0, 16).toString("latin1")).toBe("SQLite format 3\0");
-    // The temp snapshot is removed once the transfer completes.
-    await new Promise((r) => setTimeout(r, 100));
-    const leftovers = fs.readdirSync(TMP).filter((f) => f.startsWith(".backup-"));
-    expect(leftovers).toEqual([]);
-  });
-
   it("GET and PUT /api/settings/platforms manages custom platform tags", async () => {
     const putRes = await request(app)
       .put("/api/settings/platforms")

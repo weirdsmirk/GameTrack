@@ -103,31 +103,10 @@ export interface CustomizationSettings {
   showRatingBadge: boolean;
 }
 
-export interface BackupInfo {
-  name: string;
-  created_at: number;
-  size: number;
-}
-
 export interface DuplicateGroup {
   key: string;
   reason: string;
   games: { id: number; title: string; year: number | null; status: string; playtime: number }[];
-}
-
-export interface StorageStats {
-  dbSize: number;
-  walSize: number;
-  gameCount: number;
-  posterCount: number;
-  posterSize: number;
-  backupCount: number;
-  backupSize: number;
-}
-
-export interface BackupSettings {
-  enabled: boolean;
-  keep: number;
 }
 
 export interface PlayingConflict {
