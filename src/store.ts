@@ -131,8 +131,8 @@ async function syncGameField(id: number, igdbId: number, field: "synopsis" | "po
 }
 
 interface GameTrackState {
-  activeTab: "dashboard" | "library" | "discover" | "wishlist";
-  setActiveTab: (tab: "dashboard" | "library" | "discover" | "wishlist") => void;
+  activeTab: "dashboard" | "library" | "discover" | "analytics" | "wishlist";
+  setActiveTab: (tab: "dashboard" | "library" | "discover" | "analytics" | "wishlist") => void;
   selectedGame: Game | null;
   setSelectedGame: (game: Game | null) => void;
   isAddGameOpen: boolean;
@@ -239,7 +239,7 @@ interface GameTrackState {
 const TAB_KEY = "gametrack_active_tab";
 // Wishlist is a full page but has no sidebar entry (it's opened from the
 // Library header), so it must never be restored on reload.
-const VALID_TABS = ["dashboard", "library", "discover"] as const;
+const VALID_TABS = ["dashboard", "library", "discover", "analytics"] as const;
 
 function getInitialTab(): GameTrackState["activeTab"] {
   const stored = typeof window !== "undefined" && window.localStorage ? localStorage.getItem(TAB_KEY) : null;
@@ -1169,7 +1169,8 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         shuffled[j] = temp;
       }
       // Three at a time: the dashboard renders them as a poster row, so the
-      // row is filled rather than padded with placeholders.
+      // row is filled rather than padded with placeholders. It seats only two
+      // of them in the two-column band, so the shuffle always keeps a spare.
       const selected = shuffled.slice(0, 3);
 
       set({ suggestions: selected });
@@ -1319,6 +1320,13 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   },
 
   syncSteamLibrary: async () => {
+    // Progress notice before the request, not after: the sync takes seconds, and
+    // until it resolves the only other signal is the button's own spinner inside
+    // the settings panel. Lives here rather than in the caller so the notice and
+    // the completion toast below are raised from the same place. Short-lived on
+    // purpose — it is a "this is happening" note, and the completion toast is
+    // the one worth reading.
+    get().showToast("Steam sync in progress", "info", undefined, 5000);
     try {
       const res = await fetch("/api/sync/steam", { method: "POST" });
       const data = await res.json().catch(() => null);

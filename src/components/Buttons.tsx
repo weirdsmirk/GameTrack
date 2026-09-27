@@ -2,6 +2,12 @@ import React from "react";
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "tab" | "icon";
+  /**
+   * Declared so callers can hold the node. React 19 passes `ref` as an ordinary
+   * prop to function components, and the spread below forwards it to the
+   * <button>, so no forwardRef wrapper is needed.
+   */
+  ref?: React.Ref<HTMLButtonElement>;
 };
 
 /**

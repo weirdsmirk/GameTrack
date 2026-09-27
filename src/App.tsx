@@ -4,6 +4,7 @@ import { useGameTrackStore } from "./store";
 import Toast from "./components/Toast";
 import NotFoundView from "./components/NotFoundView";
 import DashboardView from "./components/DashboardView";
+import AnalyticsView from "./components/AnalyticsView";
 import LibraryView from "./components/LibraryView";
 import DiscoverView from "./components/DiscoverView";
 import WishlistView from "./components/WishlistView";
@@ -12,7 +13,7 @@ import AuthModal from "./components/AuthModal";
 import GameDetailsModal from "./components/GameDetailsModal";
 import AddGameModal from "./components/AddGameModal";
 import { ActivePlayingConflictModal } from "./components/ActivePlayingConflictModal";
-import { Settings } from "lucide-react";
+import { Settings, Menu, X } from "lucide-react";
 import PageLoader from "./components/PageLoader";
 import { Buttons } from "./components/Buttons";
 import AppFooter from "./components/AppFooter";
@@ -36,104 +37,39 @@ export default function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
   const [booted, setBooted] = useState(false);
-  // The floating tab row (and settings gear) is always on screen; only the
-  // bar behind it — backdrop plus GAMETRACK wordmark — waits until the hero
-  // has scrolled past. Listens on <main> — the real scroller — because the
-  // shell is h-screen with an inner overflow container, so window never scrolls.
-  const [navVisible, setNavVisible] = useState(false);
-  // Suppresses the bar's fade for a single update, so a tab switch can drop it
-  // as a hard cut instead of animating it out across the view swap.
-  const [navNoTransition, setNavNoTransition] = useState(false);
+  // Navigation is a drawer at every width: there is no horizontal tab row and
+  // no wordmark bar, so the hamburger and the settings gear float over the hero
+  // as two accent squares and the page title owns the top of the screen.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
-  // Set for exactly one scroll event: the one caused by the tab-switch reset
-  // below. See the reset effect for why.
-  const navResetRef = useRef(false);
 
-  // Reset scroll position to top instantly when switching tabs.
+  // Reset scroll position to top instantly when switching views.
   useEffect(() => {
     const el = mainRef.current;
     if (!el) return;
-    // This programmatic scroll emits a real scroll event, which the reveal
-    // handler would otherwise process as an ordinary "scrolled home" — fading
-    // the bar out over 420ms in the middle of the page swap. Two animated
-    // things crossing at once is what read as a flash.
-    //
-    // The bar still has to go: the new view opens at scrollTop 0, and "bar
-    // down" only looks right once the h1 has scrolled up and cleared the
-    // wordmark. Holding it down here would drop the GAMETRACK wordmark behind
-    // the title. So the reset is flagged, and the handler responds to it with
-    // an instant hide instead of a fade.
-    //
-    // Bail when already at the top: there is no reset to absorb, and the flag
-    // is consumed by the next event — which on a fresh load would otherwise be
-    // the user's very first scroll, turning their normal reveal into a cut.
     if (el.scrollTop === 0) return;
-    navResetRef.current = true;
     el.scrollTo({ top: 0, behavior: "instant" });
   }, [activeTab]);
 
-  // Reveal the nav bar backdrop only after the hero has scrolled past. <main>
-  // is mounted unconditionally now that the landing gate is gone, so this runs
-  // once on mount with no gating.
+  // A drawer is only ever open over the view it was opened from, so any tab
+  // change (a tap, a keyboard shortcut, a wishlist jump) closes it and hands
+  // focus back to the trigger.
   useEffect(() => {
-    const el = mainRef.current;
-    if (!el) return;
-    // Reveal the nav bar backdrop as soon as the user starts scrolling the
-    // hero away, rather than waiting for the hero to fully clear it.
-    const HERO_SCROLL_END = 48;
-    // Crossing the threshold only *arms* the reveal. The bar drops in after a
-    // beat, so a flick of the wheel (or a rubber-band that snaps back) doesn't
-    // flash it. Hiding is deliberately not delayed — scrolling back up should
-    // clear the bar at once, never leave it hanging over the hero.
-    const HERO_REVEAL_DELAY = 300;
-    let revealTimer: ReturnType<typeof setTimeout> | null = null;
+    setMenuOpen(false);
+  }, [activeTab]);
 
-    const onScroll = () => {
-      // Any real scroll re-arms the fade for subsequent reveals/hides.
-      setNavNoTransition(false);
-      const past = el.scrollTop > HERO_SCROLL_END;
-      if (past) {
-        if (revealTimer === null) {
-          revealTimer = setTimeout(() => {
-            revealTimer = null;
-            setNavVisible(true);
-          }, HERO_REVEAL_DELAY);
-        }
-      } else {
-        if (revealTimer !== null) {
-          clearTimeout(revealTimer);
-          revealTimer = null;
-        }
-        setNavVisible(false);
-      }
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setMenuOpen(false);
+      menuButtonRef.current?.focus();
     };
-    // A tab switch is not a scroll gesture. Consume its event and drop the bar
-    // without a transition, so the cut lands in a single frame instead of
-    // animating out underneath the incoming view. One-shot: scrollTo with an
-    // explicit position emits exactly one event.
-    const onScrollEvent = () => {
-      if (navResetRef.current) {
-        navResetRef.current = false;
-        if (revealTimer !== null) {
-          clearTimeout(revealTimer);
-          revealTimer = null;
-        }
-        setNavNoTransition(true);
-        setNavVisible(false);
-        return;
-      }
-      onScroll();
-    };
-    // Called directly, not through the wrapper, so the initial state read can
-    // never consume a pending flag.
-    onScroll();
-    el.addEventListener("scroll", onScrollEvent, { passive: true });
-    return () => {
-      el.removeEventListener("scroll", onScrollEvent);
-      if (revealTimer !== null) clearTimeout(revealTimer);
-    };
-  }, []);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
 
   // Preload everything once at boot — games, Steam identity, analytics,
   // wishlist and custom platforms — so every tab is instant afterwards.
@@ -206,7 +142,8 @@ export default function App() {
 const tabs = [
     { id: "dashboard", label: "CENTRAL" },
     { id: "discover", label: "DISCOVER" },
-    { id: "library", label: "LIBRARY" }
+    { id: "library", label: "LIBRARY" },
+    { id: "analytics", label: "ANALYTICS" }
   ] as const;
 
   const renderActiveView = () => {
@@ -215,6 +152,8 @@ const tabs = [
         return <LibraryView />;
       case "discover":
         return <DiscoverView />;
+      case "analytics":
+        return <AnalyticsView />;
       case "wishlist":
         return <WishlistView />;
       case "dashboard":
@@ -279,72 +218,42 @@ const tabs = [
         </main>
 
         {/* Global Overlays & Portals */}
-        {/* Primary nav — one element, two visual states. The tab row and
-            settings gear are always mounted and always visible, floating over
-            the hero; only the bar behind them (opaque fill + GAMETRACK
-            wordmark) fades in once the user scrolls past the hero.
+        {/* Primary nav — a floating control cluster, not a bar. The horizontal
+            tab row and the wordmark are gone: every destination now lives in the
+            drawer, at every viewport width, so navigation is the same gesture
+            everywhere and the hero title owns the top of the page outright.
 
-            Both states cross-fade on opacity/background-color only — no
-            transform, so nothing pops or slides. The fill runs 420ms and the
-            wordmark 520ms on the same expo-out curve, so the backdrop
-            resolves just ahead of the wordmark and the reveal cascades
-            instead of snapping as one block.
+            Both controls are accent-filled squares in the app's `Buttons` icon
+            language, which is what lets them float over the 110px hero title
+            without a backdrop to hide behind — there is no opaque fill behind
+            them at any scroll position, and no reveal to animate.
 
-            This bar sits at z-20, deliberately below the page titles, which
-            carry `relative z-30` so a 110px title scrolls up and over the
-            bar rather than being sliced by it. That only works because the
-            view's motion.div has no residual transform/opacity/will-change
-            once its enter animation completes and the inline transform is
-            cleared — any of those would re-create a stacking context and
-            trap the title's z-index below this bar. The titles are also
-            pointer-events-none so their boxes cannot swallow clicks meant
-            for the tab row.
+            Sits at z-20, below the page titles, which carry `relative z-30` so a
+            110px title scrolls up and over the controls rather than being
+            sliced by them. The titles are pointer-events-none, so their boxes
+            cannot swallow clicks meant for the buttons. `pointer-events-none` on
+            the nav keeps its full-bleed box from eating clicks across the top of
+            the page; the button row re-enables them.
 
-            Single element on purpose: the bar's height is driven by the 34px
-            button row, so the row stays perfectly centred inside it instead of
-            overflowing a fixed-height backdrop. py-10 puts that row's top edge
-            at 40px, level with the view's <h1> box, so the tabs sit on the
-            title's line rather than floating above it. The nav spans the full width
-            in both states, so it carries pointer-events-none and re-enables
-            them on the wordmark and buttons — otherwise the transparent
-            over-hero state would swallow clicks across the top of the page.
-            No border: the fill and height alone separate it from content. */}
+            pt-10 puts the row's top edge on the view's <h1> line rather than
+            floating it above the title. */}
         <nav
           aria-label="Primary"
-          className={`fixed inset-x-0 top-0 z-20 flex items-center gap-4 px-6 md:px-12 py-10 pointer-events-none ${
-            navNoTransition
-              ? "transition-none"
-              : "transition-colors duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
-          } ${navVisible ? "bg-brand-bg" : "bg-transparent"}`}
+          className="fixed inset-x-0 top-0 z-20 flex items-center justify-end px-6 md:px-12 pt-10 pointer-events-none"
         >
-          <div
-            className={`flex items-center gap-2 select-none ${
-              navNoTransition
-                ? "transition-none"
-                : "transition-opacity duration-[520ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
-            } ${navVisible ? "opacity-100 pointer-events-auto" : "opacity-0"}`}
-          >
-            <span className="text-base font-black tracking-tighter leading-none">
-              <span className="text-white">GAME</span>
-              <span className="text-brand-accent">TRACK</span>
-              <span className="text-brand-accent">_</span>
-            </span>
-          </div>
-          <div className="ml-auto flex items-stretch gap-1.5 pointer-events-auto">
-            {tabs.map((tab) => {
-              const isActive = activeTab === tab.id;
-              return (
-                <Buttons
-                  key={tab.id}
-                  variant={isActive ? "primary" : "tab"}
-                  onClick={() => setActiveTab(tab.id)}
-                  aria-current={isActive ? "page" : undefined}
-                  className="px-4 py-2"
-                >
-                  {tab.label}
-                </Buttons>
-              );
-            })}
+          <div className="flex items-stretch gap-1.5 pointer-events-auto">
+            <Buttons
+              ref={menuButtonRef}
+              variant="icon"
+              onClick={() => setMenuOpen((open) => !open)}
+              aria-expanded={menuOpen}
+              aria-controls="primary-menu"
+              aria-label={menuOpen ? "Close menu" : "Open menu"}
+              title={menuOpen ? "Close menu" : "Open menu"}
+              className="p-2"
+            >
+              {menuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+            </Buttons>
             <Buttons
               variant="icon"
               onClick={() => setSettingsOpen(true)}
@@ -355,6 +264,52 @@ const tabs = [
               <Settings className="w-4 h-4" />
             </Buttons>
           </div>
+
+          {/* Drawer — every viewport width. It shares the cluster's solid accent
+              square as its anchor and hangs off the nav's bottom edge, so the
+              two read as one block with no seam. */}
+          <AnimatePresence>
+            {menuOpen && (
+              <>
+                <motion.div
+                  key="menu-scrim"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  onClick={() => setMenuOpen(false)}
+                  className="fixed inset-0 z-10 bg-black/70 pointer-events-auto"
+                  aria-hidden="true"
+                />
+                <motion.div
+                  key="menu-panel"
+                  id="primary-menu"
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10, transition: { duration: 0.12 } }}
+                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                  className="absolute inset-x-0 top-full z-20 bg-brand-bg border-b border-brand-border pointer-events-auto"
+                >
+                  <div className="flex flex-col gap-1.5 px-6 pb-6 pt-1">
+                    {tabs.map((tab) => {
+                      const isActive = activeTab === tab.id;
+                      return (
+                        <Buttons
+                          key={tab.id}
+                          variant={isActive ? "primary" : "tab"}
+                          onClick={() => setActiveTab(tab.id)}
+                          aria-current={isActive ? "page" : undefined}
+                          className="w-full py-3 border border-brand-border"
+                        >
+                          {tab.label}
+                        </Buttons>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
         </nav>
         <GameDetailsModal />
         <AddGameModal />

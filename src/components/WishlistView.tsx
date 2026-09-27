@@ -162,6 +162,7 @@ export const WishlistView: React.FC = () => {
               {wishlist.length} {wishlist.length === 1 ? "item" : "items"} tracked
             </span>
           </p>
+          <div aria-hidden="true" className="mt-8 h-px w-full bg-brand-border/60" />
         </div>
 
         <div className="flex items-center gap-3 shrink-0">

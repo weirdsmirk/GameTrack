@@ -121,8 +121,8 @@ export const SettingsModal: React.FC = React.memo(() => {
 
   const handleSyncSteam = async () => {
     setSyncingSteam(true);
-    // No progress toast here — syncSteamLibrary already surfaces a completion
-    // or failure toast; stacking both looks like a duplicate.
+    // The in-progress and completion toasts are raised inside
+    // syncSteamLibrary, so the notice cannot be skipped by a second caller.
     const result = await syncSteamLibrary();
     setSyncingSteam(false);
     if (result?.ok) fetchSteamSettings();

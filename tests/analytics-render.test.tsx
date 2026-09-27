@@ -27,8 +27,11 @@ describe("AnalyticsView runtime", () => {
   it("renders cards, charts and lists without crashing", async () => {
     render(<AnalyticsView />);
     expect(await screen.findByRole("heading", { name: "System Analytics" })).toBeTruthy();
-    expect(screen.getByText("REGISTRY TITLES")).toBeTruthy();
-    expect(screen.getByText("TOTAL TELEMETRY HOURS")).toBeTruthy();
+    // The telemetry labels are title case in the DOM and uppercased by CSS, so
+    // assistive tech is not handed a shouted label. Matched case-insensitively
+    // so a casing decision does not break this test.
+    expect(screen.getByText(/registry titles/i)).toBeTruthy();
+    expect(screen.getByText(/total telemetry hours/i)).toBeTruthy();
     expect(screen.getByText("Genre Telemetry Share")).toBeTruthy();
     expect(screen.getByText("Status Distribution")).toBeTruthy();
     expect(screen.getByText("Most Played Titles")).toBeTruthy();

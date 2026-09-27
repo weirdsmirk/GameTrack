@@ -298,6 +298,7 @@ export const LibraryView: React.FC = () => {
           <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
             Review, manage, and log your game library.
           </p>
+          <div aria-hidden="true" className="mt-8 h-px w-full bg-brand-border/60" />
         </div>
         
         <div className="flex gap-3 shrink-0">

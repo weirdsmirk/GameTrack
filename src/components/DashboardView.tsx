@@ -8,49 +8,91 @@ import { motion } from "motion/react";
 import { formatPlaytime, formatPlaytimeLong, formatPlaytimePrecise } from "../utils/time";
 import { getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms } from "../constants";
 import { PosterImage } from "./PosterImage";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import { Buttons } from "./Buttons";
-import AnalyticsView from "./AnalyticsView";
 
-// Render a single stat card in bold brutalist style
+/**
+ * One cell of the registry strip.
+ *
+ * The strip is a single ruled band rather than five boxed cards — the same
+ * instrument the System Analytics readout below it is built from, so the two
+ * telemetry rows on this page read as one system. The band supplies the outer
+ * border and the hairlines (a `gap-px` over a border-coloured ground), so a
+ * cell carries no border of its own and its hover is a background wash, never
+ * an outline: drawing a box around one cell would break the illusion of a
+ * single continuous readout.
+ *
+ * Every cell is a real control — the counts open the library already filtered
+ * to what they count, playtime opens it ordered by most played, and the
+ * wishlist opens the wishlist — so the strip doubles as the fastest way into
+ * the part of the registry you were just reading about.
+ *
+ * The cells carry a figure and nothing else. The subtext lines are gone and
+ * the figures have taken over the space they used to hold, so the strip keeps
+ * the height it had while the prose was still there: at sm and up the content
+ * is label (two reserved lines) + gap + figure + the cell's own padding, which
+ * lands within a few pixels of the old box at every size. Below sm the figure
+ * is capped by the cell's width instead — "187" plus its unit has to fit a
+ * 130px column — so the two-column phone cells end up shorter than they were.
+ */
 interface StatCardProps {
   title: string;
   value: string | number;
-  subtext: string;
+  /** Names the destination for assistive tech; must contain `title`. */
+  action: string;
+  /** Grid span, so each row of the strip adds up to a full width. */
+  className?: string;
+  onSelect: () => void;
 }
 
-const StatCard = React.memo(({ title, value, subtext }: StatCardProps) => {
+const StatCard = React.memo(({ title, value, action, className = "", onSelect }: StatCardProps) => {
   // Check if the value is a string with a space or ends with H (e.g. "13H 34M" or "38H")
   const isPlaytime = typeof value === "string" && (value.includes(" ") || value.endsWith("H"));
   
   return (
-    <div
-      className="bg-transparent border border-brand-border px-6 py-6 rounded-none relative overflow-hidden h-full flex flex-col justify-between">
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-label={action}
+      className={`group bg-brand-bg p-5 sm:p-6 text-left cursor-pointer transition-colors duration-150
+        hover:bg-brand-accent/[0.05] active:bg-brand-accent/[0.1]
+        focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-[-3px]
+        ${className}`}
+    >
       <div className="space-y-2">
-        <p className="text-xs font-bold uppercase tracking-widest text-brand-muted">{title}</p>
+        {/* Two lines reserved so every figure in the row starts on the same
+            baseline however its label wraps at a given width. */}
+        <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted group-hover:text-brand-accent transition-colors duration-150 min-h-[2lh]">{title}</p>
         
         {isPlaytime ? (
-          <div className="flex flex-wrap items-baseline gap-x-1.5 mt-2 font-sans tracking-tighter leading-none">
+          <div className="flex flex-wrap items-baseline gap-x-1.5 font-sans tracking-tighter leading-none">
             {value.split(" ").map((part: string, idx: number) => {
               const numberVal = part.slice(0, -1);
               const unitVal = part.slice(-1);
               return (
                 <React.Fragment key={idx}>
                   {idx > 0 && <span className="w-1" />}
-                  <span className="text-5xl sm:text-6xl font-black text-white leading-none">{numberVal}</span>
-                  <span className="text-xl sm:text-2xl font-black text-brand-accent uppercase leading-none self-baseline align-baseline">{unitVal}</span>
+                  {/* Number and unit never split: a wrapping flex row used to
+                      strand the accent unit on its own line under the figure. */}
+                  {/* The figure size lives on the wrapper, not the number, so the
+                      unit's `em` resolves against the figure. Put it on the
+                      number and the unit inherits the row's 16px instead — which
+                      rendered "H" at 6px. */}
+                  <span className="inline-flex items-baseline whitespace-nowrap shrink-0 text-[3.25rem] sm:text-[5.5rem] xl:text-6rem font-black tracking-tighter leading-none">
+                    <span className="text-white">{numberVal}</span>
+                    <span className="text-brand-accent text-[0.22em] uppercase leading-none self-baseline">{unitVal}</span>
+                  </span>
                 </React.Fragment>
               );
             })}
           </div>
         ) : (
-          <h3 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white mt-2 font-sans tracking-tighter leading-none flex flex-wrap">
+          <h3 className="text-[3.25rem] sm:text-[5.5rem] xl:text-6rem font-black text-white font-sans tracking-tighter leading-none">
             {value}
           </h3>
         )}
       </div>
-      
-      <p className="text-xs text-brand-muted mt-3 font-medium uppercase tracking-wider">{subtext}</p>
-    </div>
+    </button>
   );
 });
 
@@ -60,7 +102,7 @@ export const DashboardView: React.FC = React.memo(() => {
   const {
     games, summary, suggestions, recentActivity, loadingAnalytics, fetchAnalytics,
     fetchSuggestions, setSelectedGame, lastAnalyticsFetch, customPlatforms, customizations,
-    wishlist
+    wishlist, setActiveTab, setFilter, resetFilters
   } = useGameTrackStore(useShallow(s => ({
     games: s.games, summary: s.summary,
     suggestions: s.suggestions, recentActivity: s.recentActivity,
@@ -70,7 +112,10 @@ export const DashboardView: React.FC = React.memo(() => {
     lastAnalyticsFetch: s.lastAnalyticsFetch,
     customPlatforms: s.customPlatforms,
     customizations: s.customizations,
-    wishlist: s.wishlist
+    wishlist: s.wishlist,
+    setActiveTab: s.setActiveTab,
+    setFilter: s.setFilter,
+    resetFilters: s.resetFilters
   })));
 
   const platforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
@@ -87,6 +132,36 @@ export const DashboardView: React.FC = React.memo(() => {
 
   const activeGames = React.useMemo(() => games.filter(g => g.status === "playing"), [games]);
 
+  /**
+   * A strip cell is a shortcut, so it has to land somewhere true. Clearing the
+   * filters first matters: a persisted "hide completed", a leftover search
+   * term or a platform tag would otherwise show an empty list behind a cell
+   * that says there are six. Pass a status to scope the library, a sort to
+   * order it, or neither for the whole registry.
+   */
+  const openLibrary = React.useCallback(
+    (status?: string, sort?: string) => {
+      resetFilters();
+      if (status) setFilter("status", status);
+      if (sort) setFilter("sort", sort);
+      setActiveTab("library");
+    },
+    [resetFilters, setFilter, setActiveTab]
+  );
+
+  /**
+   * The poster row has to fill whichever track it lands in. A phone gets one
+   * column and stacks all three; the two-column band in between (sm up to lg)
+   * can only seat two before the third becomes an orphan on its own row; the
+   * three-column desktop row takes all three again. Shuffle still reorders the
+   * full pool of three — the middle band just shows the top two of it.
+   */
+  const suggestionsAreTwoUp = useMediaQuery("(min-width: 640px) and (max-width: 1023px)");
+  const visibleSuggestions = React.useMemo(
+    () => suggestions.slice(0, suggestionsAreTwoUp ? 2 : 3),
+    [suggestions, suggestionsAreTwoUp]
+  );
+
   return (
     <div className="space-y-10">
       {/* Top Welcome / Action Area */}
@@ -99,42 +174,68 @@ export const DashboardView: React.FC = React.memo(() => {
           <p className="max-w-none text-brand-muted text-sm sm:text-base font-medium leading-relaxed lg:whitespace-nowrap">
             Your personal gaming registry. Track, organize, and analyze your library.
           </p>
+          {/* Hairline rule closing the header block, shared by every view so the
+              title, its subtext and the rule read the same everywhere. Decorative. */}
+          <div aria-hidden="true" className="mt-8 h-px w-full bg-brand-border/60" />
         </div>
       </div>
 
-      {/* Analytics KPI Block */}
+      {/* Registry strip — one ruled band, five cells, matching the System
+          Analytics readout further down. The spans exist so every row still
+          adds up to a full width: `lg` runs a 6-column track with the first
+          three taking 2 each and the last two 3 each, `xl` drops to 5 equal
+          columns, and below `lg` the fifth cell spans the full row. The
+          skeleton repeats those exact spans so nothing jumps on load. */}
       {loadingAnalytics && !summary ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 animate-pulse">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-40 bg-zinc-900/50 border border-brand-border rounded-none" />
+        <div className="grid grid-cols-2 lg:grid-cols-6 xl:grid-cols-5 auto-rows-fr gap-px bg-brand-border border border-brand-border animate-pulse">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="lg:col-span-2 xl:col-span-1 h-40 sm:h-48 bg-brand-bg p-1">
+              <div className="h-full w-full bg-zinc-900/50" />
+            </div>
           ))}
+          <div className="lg:col-span-3 xl:col-span-1 h-40 sm:h-48 bg-brand-bg p-1">
+            <div className="h-full w-full bg-zinc-900/50" />
+          </div>
+          <div className="col-span-2 lg:col-span-3 xl:col-span-1 h-40 sm:h-48 bg-brand-bg p-1">
+            <div className="h-full w-full bg-zinc-900/50" />
+          </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-6 xl:grid-cols-5 auto-rows-fr gap-px bg-brand-border border border-brand-border">
           <StatCard
+            className="lg:col-span-2 xl:col-span-1"
             title="Registered Games"
             value={summary?.total_games ?? 0}
-            subtext="tracked in local database"
+            action={`Registered Games — ${summary?.total_games ?? 0} titles in the registry. Open the whole library.`}
+            onSelect={() => openLibrary()}
           />
           <StatCard
+            className="lg:col-span-2 xl:col-span-1"
             title="Active Backlog"
             value={summary?.active_games ?? 0}
-            subtext="currently in active play"
+            action={`Active Backlog — ${summary?.active_games ?? 0} titles in active play. Open the library filtered to playing.`}
+            onSelect={() => openLibrary("playing")}
           />
           <StatCard
+            className="lg:col-span-2 xl:col-span-1"
             title="Completed"
             value={summary?.completed_games ?? 0}
-            subtext={`${summary?.total_games ? Math.round(((summary.completed_games) / summary.total_games) * 100) : 0}% aggregate rate`}
+            action={`Completed — ${summary?.completed_games ?? 0} titles finished. Open the library filtered to completed.`}
+            onSelect={() => openLibrary("completed")}
           />
           <StatCard
+            className="lg:col-span-3 xl:col-span-1"
             title="Total Playtime"
             value={formatPlaytime(summary?.total_playtime_hours)}
-            subtext={`avg ${formatPlaytime(summary?.average_playtime_per_game).toLowerCase()} per title`}
+            action={`Total Playtime — ${formatPlaytime(summary?.total_playtime_hours)} logged. Open the library ordered by most played.`}
+            onSelect={() => openLibrary(undefined, "playtime")}
           />
           <StatCard
+            className="col-span-2 lg:col-span-3 xl:col-span-1"
             title="Wishlist"
             value={wishlist.length}
-            subtext="queued for acquisition"
+            action={`Wishlist — ${wishlist.length} titles queued. Open the wishlist.`}
+            onSelect={() => setActiveTab("wishlist")}
           />
         </div>
       )}
@@ -233,8 +334,8 @@ export const DashboardView: React.FC = React.memo(() => {
           </div>
 
           {loadingAnalytics ? (
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-5">
-              {[...Array(3)].map((_, i) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {[...Array(suggestionsAreTwoUp ? 2 : 3)].map((_, i) => (
                 <div key={i} className="aspect-[2/3] bg-zinc-900/50 border border-brand-border animate-pulse" />
               ))}
             </div>
@@ -259,8 +360,8 @@ export const DashboardView: React.FC = React.memo(() => {
                artwork — no caption strip, and no text sitting on the art
                until it is asked for. The scrim exists only for that hover
                state, where type has to hold up over arbitrary artwork. */
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-5">
-              {suggestions.map((game, index) => {
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {visibleSuggestions.map((game, index) => {
                 const ownedPlatforms = (game.owned_platforms || [])
                   .filter(p => platforms.some(ap => platformIdMatches(ap.id, p)))
                   .map(p => platforms.find(ap => platformIdMatches(ap.id, p))?.label || p);
@@ -426,14 +527,6 @@ export const DashboardView: React.FC = React.memo(() => {
           )}
         </div>
 
-      </div>
-
-      {/* Full analytics telemetry — moved here from the former standalone tab.
-          The border-t and its pt-10 are gone; the root's space-y-10 already
-          spaces the sections, so the rule only added a hard line across the
-          page. */}
-      <div>
-        <AnalyticsView />
       </div>
 
     </div>

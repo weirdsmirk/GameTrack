@@ -40,8 +40,6 @@ export const AnalyticsView: React.FC = React.memo(() => {
 
   const totalGames = games.length;
   const completedGames = games.filter(g => g.status === "completed").length;
-  const backlogGames = games.filter(g => g.status === "backlog").length;
-  const playingGames = games.filter(g => g.status === "playing").length;
   const completionRate = totalGames > 0 ? Math.round((completedGames / totalGames) * 100) : 0;
   
   const totalPlaytime = React.useMemo(() => {
@@ -81,12 +79,9 @@ export const AnalyticsView: React.FC = React.memo(() => {
 
   return (
     <div className="space-y-10">
-      {/* Section header — analytics lives on the home (dashboard) page, so it
-          takes the same display treatment as the other views' titles rather
-          than the small ruled label bar it used to use. Stays an <h2>: it is a
-          section on the dashboard, not a page of its own, and the page already
-          has an <h1>. The ruled divider above it lives on the wrapper in
-          DashboardView. */}
+      {/* Page header — the same title / subtext / hairline treatment as every
+          other view, and the only <h1> on the page now that analytics has its
+          own route out of the dashboard. */}
       <div>
         {/* Text stays title case in the DOM and is uppercased by the class, so
             the rendered result matches the other views' titles pixel for pixel
@@ -94,66 +89,67 @@ export const AnalyticsView: React.FC = React.memo(() => {
             rather than shouted in caps. The <br /> would otherwise splice a
             line break into that name, so it is set explicitly — the visible
             text is the same words, so label-in-name still holds. */}
-        <h2
+        <h1
           aria-label="System Analytics"
           className="text-6xl sm:text-8xl lg:text-[110px] font-black tracking-tighter leading-[0.85] uppercase text-white font-sans select-none"
         >
           System<br />Analytics
-        </h2>
+        </h1>
         <p className="mt-3 max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
           Personal gameplay telemetry &amp; system analytics
         </p>
+        <div aria-hidden="true" className="mt-8 h-px w-full bg-brand-border/60" />
       </div>
 
-      {/* Global telemetry cards — equal, perfectly sized columns */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-transparent border border-brand-border p-6 rounded-none relative overflow-hidden group hover:border-brand-accent/50 transition-colors flex flex-col justify-between">
-          <div className="space-y-2">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-brand-muted">REGISTRY TITLES</p>
-            <h3 className="text-4xl sm:text-5xl font-black text-white font-sans tracking-tight leading-none mt-2">{totalGames}</h3>
-          </div>
-          <div className="flex items-center gap-4 text-[11px] text-brand-muted uppercase mt-4 pt-3 border-t border-brand-border/40">
-            <span>PLAYING: <span className="text-white font-bold">{playingGames}</span></span>
-            <span>BACKLOG: <span className="text-white font-bold">{backlogGames}</span></span>
+      {/* Telemetry readout — one instrument, not four cards.
+          The dashboard's strip directly above this is five separately-bordered
+          boxes with air between them. This is a single band divided by
+          hairlines: `gap-px` over a border-coloured ground with opaque cells
+          paints the rules at any column count, so there are never double
+          borders to misalign and never a stray cell outline to mistake for the
+          other section. `auto-rows-fr` keeps the rows equal height at the
+          two-column sizes, where the one cell carrying a bar would otherwise
+          stretch its row and knock the meta lines out of line. Every label
+          reserves two lines (`min-h-[2lh]`) so the four figures share one
+          baseline however their labels wrap: at the narrowest four-column width
+          "Total Telemetry Hours" is the longest string in the row, and without
+          the reservation its figure drops a line below its neighbours. Same
+          vocabulary as the app — square corners, 1px brand-border, tracked
+          caps, black Inter figures, accent reserved for the one figure that is
+          a ratio. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr gap-px bg-brand-border border border-brand-border">
+        <div className="bg-brand-bg p-5 sm:p-6">
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted">Registry Titles</p>
+          <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none mt-4">{totalGames}</h3>
+        </div>
+
+        <div className="bg-brand-bg p-5 sm:p-6">
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted">Total Telemetry Hours</p>
+          <div className="flex items-baseline gap-2 mt-4">
+            <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none">{Math.round(totalPlaytime)}</h3>
+            <span className="text-sm sm:text-base font-black uppercase text-brand-muted">HRS</span>
           </div>
         </div>
 
-        <div className="bg-transparent border border-brand-border p-6 rounded-none relative overflow-hidden group hover:border-brand-accent/50 transition-colors flex flex-col justify-between">
-          <div className="space-y-2">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-brand-muted">TOTAL TELEMETRY HOURS</p>
-            <div className="flex items-baseline mt-2">
-              <h3 className="text-4xl sm:text-5xl font-black text-white font-sans tracking-tight leading-none">{Math.round(totalPlaytime)}</h3>
-              <span className="text-brand-accent text-xs font-black ml-1.5 uppercase">HRS</span>
-            </div>
+        <div className="bg-brand-bg p-5 sm:p-6">
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted">Avg Unit Duration</p>
+          <div className="flex items-baseline gap-2 mt-4">
+            <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none">{avgPlaytime}</h3>
+            <span className="text-sm sm:text-base font-black uppercase text-brand-muted">HRS/GAME</span>
           </div>
-          <p className="text-[11px] text-brand-muted uppercase mt-4 pt-3 border-t border-brand-border/40">
-            AGGREGATE TRACKED HOURS
-          </p>
         </div>
 
-        <div className="bg-transparent border border-brand-border p-6 rounded-none relative overflow-hidden group hover:border-brand-accent/50 transition-colors flex flex-col justify-between">
-          <div className="space-y-2">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-brand-muted">AVG UNIT DURATION</p>
-            <div className="flex items-baseline mt-2">
-              <h3 className="text-4xl sm:text-5xl font-black text-white font-sans tracking-tight leading-none">{avgPlaytime}</h3>
-              <span className="text-brand-accent text-xs font-black ml-1.5 uppercase">HRS/GAME</span>
-            </div>
+        <div className="bg-brand-bg p-5 sm:p-6">
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted">Completion Rate</p>
+          <div className="flex items-baseline justify-between gap-3 mt-4">
+            <h3 className="text-4xl sm:text-5xl font-black text-brand-accent font-sans tracking-tighter leading-none">{completionRate}%</h3>
+            <span className="text-xs sm:text-sm text-brand-muted uppercase shrink-0">
+              <span className="text-white font-bold">{completedGames}</span> / {totalGames}
+            </span>
           </div>
-          <p className="text-[11px] text-brand-muted uppercase mt-4 pt-3 border-t border-brand-border/40">
-            AVERAGE RUN TIME PER GAME
-          </p>
-        </div>
-
-        <div className="bg-transparent border border-brand-border p-6 rounded-none relative overflow-hidden group hover:border-brand-accent/50 transition-colors flex flex-col justify-between">
-          <div className="space-y-2">
-            <p className="text-[11px] font-bold uppercase tracking-widest text-brand-muted">REGISTRY COMPLETION RATE</p>
-            <div className="flex items-baseline mt-2">
-              <h3 className="text-4xl sm:text-5xl font-black text-brand-accent font-sans tracking-tight leading-none">{completionRate}%</h3>
-            </div>
+          <div className="h-1 bg-zinc-900 mt-4">
+            <div className="h-full bg-brand-accent" style={{ width: `${completionRate}%` }} />
           </div>
-          <p className="text-[11px] text-brand-muted uppercase mt-4 pt-3 border-t border-brand-border/40">
-            COMPLETED: <span className="text-white font-bold">{completedGames}</span> / {totalGames} TITLES
-          </p>
         </div>
       </div>
 

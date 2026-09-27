@@ -276,6 +276,7 @@ export const DiscoverView: React.FC = () => {
           <p className="max-w-xl text-brand-muted text-sm sm:text-base font-medium leading-relaxed">
             Search the IGDB database to find and add new games.
           </p>
+          <div aria-hidden="true" className="mt-8 h-px w-full bg-brand-border/60" />
         </div>
       </div>
 
