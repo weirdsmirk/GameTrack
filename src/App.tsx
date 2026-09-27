@@ -42,6 +42,7 @@ export default function App() {
   // as two accent squares and the page title owns the top of the screen.
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const navRef = useRef<HTMLElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
 
@@ -67,8 +68,20 @@ export default function App() {
       setMenuOpen(false);
       menuButtonRef.current?.focus();
     };
+    // Outside clicks dismiss too. The phone scrim covers the viewport, but the
+    // desktop popover deliberately has no scrim, so without this there is no
+    // way to close it by clicking away. Capture phase so it fires before the
+    // click lands on whatever is underneath.
+    const onPointerDown = (e: PointerEvent) => {
+      if (navRef.current?.contains(e.target as Node)) return;
+      setMenuOpen(false);
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+    };
   }, [menuOpen]);
 
   // Preload everything once at boot — games, Steam identity, analytics,
@@ -238,9 +251,64 @@ const tabs = [
             pt-10 puts the row's top edge on the view's <h1> line rather than
             floating it above the title. */}
         <nav
+          ref={navRef}
           aria-label="Primary"
           className="fixed inset-x-0 top-0 z-20 flex items-center justify-end px-6 md:px-12 pt-10 pointer-events-none"
         >
+          {/* Menu — one component, two shapes. On a phone it is a full-width
+              panel hanging off the nav's bottom edge, because a row of four
+              labels has nowhere to go at 390px. From md up it becomes a compact
+              popover laid out as a horizontal row, placed before the control
+              cluster in the DOM so flex order puts it to the LEFT of the
+              trigger, anchored to the same top line. */}
+          <AnimatePresence>
+            {menuOpen && (
+              <>
+                {/* Phone only: on a large screen the popover is small and
+                    pointer-precise, so dimming the page behind it would be
+                    heavy-handed. Outside clicks are caught by the nav-level
+                    pointerdown handler below instead. */}
+                <motion.div
+                  key="menu-scrim"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  onClick={() => setMenuOpen(false)}
+                  className="md:hidden fixed inset-0 z-10 bg-black/70 pointer-events-auto"
+                  aria-hidden="true"
+                />
+                <motion.div
+                  key="menu-panel"
+                  id="primary-menu"
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10, transition: { duration: 0.12 } }}
+                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                  className="absolute inset-x-0 top-full z-20 bg-brand-bg border-b border-brand-border pointer-events-auto
+                    md:static md:inset-auto md:top-auto md:mr-1.5 md:border md:px-1.5 md:py-1.5"
+                >
+                  <div className="flex flex-col gap-1.5 px-6 pb-6 pt-1 md:flex-row md:items-center md:gap-1 md:p-0">
+                    {tabs.map((tab) => {
+                      const isActive = activeTab === tab.id;
+                      return (
+                        <Buttons
+                          key={tab.id}
+                          variant={isActive ? "primary" : "tab"}
+                          onClick={() => setActiveTab(tab.id)}
+                          aria-current={isActive ? "page" : undefined}
+                          className="w-full py-3 border border-brand-border md:w-auto md:px-4 md:py-2 md:border-transparent"
+                        >
+                          {tab.label}
+                        </Buttons>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+
           <div className="flex items-stretch gap-1.5 pointer-events-auto">
             <Buttons
               ref={menuButtonRef}
@@ -264,52 +332,6 @@ const tabs = [
               <Settings className="w-4 h-4" />
             </Buttons>
           </div>
-
-          {/* Drawer — every viewport width. It shares the cluster's solid accent
-              square as its anchor and hangs off the nav's bottom edge, so the
-              two read as one block with no seam. */}
-          <AnimatePresence>
-            {menuOpen && (
-              <>
-                <motion.div
-                  key="menu-scrim"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                  onClick={() => setMenuOpen(false)}
-                  className="fixed inset-0 z-10 bg-black/70 pointer-events-auto"
-                  aria-hidden="true"
-                />
-                <motion.div
-                  key="menu-panel"
-                  id="primary-menu"
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10, transition: { duration: 0.12 } }}
-                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                  className="absolute inset-x-0 top-full z-20 bg-brand-bg border-b border-brand-border pointer-events-auto"
-                >
-                  <div className="flex flex-col gap-1.5 px-6 pb-6 pt-1">
-                    {tabs.map((tab) => {
-                      const isActive = activeTab === tab.id;
-                      return (
-                        <Buttons
-                          key={tab.id}
-                          variant={isActive ? "primary" : "tab"}
-                          onClick={() => setActiveTab(tab.id)}
-                          aria-current={isActive ? "page" : undefined}
-                          className="w-full py-3 border border-brand-border"
-                        >
-                          {tab.label}
-                        </Buttons>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>
         </nav>
         <GameDetailsModal />
         <AddGameModal />
