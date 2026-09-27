@@ -26,7 +26,12 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
  *               page ground, the icon stays legible over that card instead of
  *               disappearing into it. It keeps the same 46/38px box as `icon`
  *               so the control group stays even, and hover is the icon turning
- *               accent — there is no box to light up.
+ *               full accent — there is no box to light up.
+ *
+ *               The icon sits at 75%, one step under the toggle's solid yellow.
+ *               Beside a filled control a full-white glyph reads as a peer
+ *               rather than a footnote; 40% (where this started) was too far the
+ *               other way and had to be hunted for.
  *
  * The transparent borders are deliberate: they keep every tab exactly the
  * same width whether or not it is selected, so switching tabs does not make
@@ -48,7 +53,7 @@ export const Buttons: React.FC<ButtonProps> = ({
     icon:
       "bg-brand-accent text-black border-transparent hover:bg-brand-accent-hover",
     "icon-bare":
-      "bg-brand-bg text-white border-transparent hover:text-brand-accent",
+      "bg-brand-bg text-white/75 border-transparent hover:text-brand-accent",
   };
   return (
     <button type={type} className={`${base} ${variants[variant]} ${className}`} {...props} />

@@ -248,15 +248,24 @@ export const DashboardView: React.FC = React.memo(() => {
         </div>
       )}
 
-      {/* Current Session — the game you're actively playing right now */}
+      {/* Current Session — the game you're actively playing right now.
+          The card carries real height, so the two columns distribute rather
+          than stack against a bottom edge: `items-stretch` lets both fill the
+          box, the left spreads label / title / meta across it, and the right
+          stays a bottom-aligned cluster so the CTA baseline still lands on the
+          meta line. Height comes from `lg:min-h` rather than padding alone —
+          padding only ever adds air around the tallest child, and the left
+          column (a 60px title plus two lines) is always the tallest, so
+          without a floor the right column has nothing to distribute into and
+          the extra space collects in one gap. */}
       {activeGames.length > 0 ? (
         <div className="space-y-4">
           {activeGames.map((game) => (
             <div
               key={game.id}
-              className="bg-session-bg text-session-text p-8 sm:p-10 rounded-none flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 transition-all border-l-8 border-brand-accent select-none"
+              className="bg-session-bg text-session-text px-8 sm:px-10 py-12 sm:py-14 lg:min-h-[280px] rounded-none flex flex-col sm:flex-row justify-between items-stretch gap-6 transition-all border-l-8 border-brand-accent select-none"
             >
-              <div className="space-y-4">
+              <div className="flex flex-col justify-between gap-4">
                 <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext">
                   CURRENT SESSION
                 </h3>
@@ -267,17 +276,19 @@ export const DashboardView: React.FC = React.memo(() => {
                   {game.genres?.slice(0, 3).join("  •  ") ?? ""}
                 </p>
               </div>
-              
-              <div className="text-left sm:text-right shrink-0">
-                <p className="text-[11px] tracking-widest text-session-subtext uppercase font-bold">
-                  Accumulated
-                </p>
-                <div className="text-3xl sm:text-4xl font-black text-session-text tracking-tight mt-1">
-                  {game.hide_playtime === 1 ? "—" : formatPlaytimePrecise(game.playtime)}
+
+              <div className="flex flex-col justify-end gap-3 text-left sm:text-right shrink-0">
+                <div>
+                  <p className="text-[11px] tracking-widest text-session-subtext uppercase font-bold">
+                    Accumulated
+                  </p>
+                  <div className="text-3xl sm:text-4xl font-black text-session-text tracking-tight mt-1">
+                    {game.hide_playtime === 1 ? "—" : formatPlaytimePrecise(game.playtime)}
+                  </div>
                 </div>
                 <button
                   onClick={() => setSelectedGame(game)}
-                  className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider bg-session-text text-session-bg hover:opacity-90 px-3.5 py-1.5 rounded-none transition-all cursor-pointer"
+                  className="self-start sm:self-end inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider bg-session-text text-session-bg hover:opacity-90 px-3.5 py-1.5 rounded-none transition-all cursor-pointer"
                 >
                   View Details
                 </button>
@@ -286,8 +297,8 @@ export const DashboardView: React.FC = React.memo(() => {
           ))}
         </div>
       ) : (
-        <div className="bg-session-bg text-session-text p-8 sm:p-10 rounded-none flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6 transition-all border-l-8 border-brand-accent select-none">
-          <div className="space-y-4">
+        <div className="bg-session-bg text-session-text px-8 sm:px-10 py-12 sm:py-14 lg:min-h-[280px] rounded-none flex flex-col sm:flex-row justify-between items-stretch gap-6 transition-all border-l-8 border-brand-accent select-none">
+          <div className="flex flex-col justify-between gap-4">
             <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext">
               NO_ACTIVE_SESSION
             </h3>

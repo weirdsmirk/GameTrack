@@ -14,6 +14,14 @@ export interface ToastItem {
   message: string;
   type: "success" | "error" | "info";
   duration: number;
+  /**
+   * Optional link under the message. A toast that only reports something is
+   * most of them; the few that offer a follow-up (the keyboard-shortcut hint)
+   * pass an action, and the toast renders the label as a button that runs it.
+   * Lives in the store rather than being passed to the component because the
+   * queue is state, not props.
+   */
+  action?: { label: string; onClick: () => void };
 }
 
 // One auto-dismiss timer per toast, so the queue can pause/resume/dismiss
@@ -211,7 +219,13 @@ interface GameTrackState {
   wipeLibrary: () => Promise<boolean>;
   exportLibraryJSON: () => Promise<boolean>;
   toasts: ToastItem[];
-  showToast: (message: string, type?: "success" | "error" | "info", description?: string, duration?: number) => void;
+  showToast: (
+    message: string,
+    type?: "success" | "error" | "info",
+    description?: string,
+    duration?: number,
+    action?: { label: string; onClick: () => void }
+  ) => void;
   dismissToast: (id: number) => void;
   pauseToast: (id: number) => void;
   resumeToast: (id: number) => void;
@@ -1260,13 +1274,13 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
 
   // ── Toasts (queue) ─────────────────────────────────────────────
   toasts: [],
-  showToast: (message, type = "info", description, duration) => {
+  showToast: (message, type = "info", description, duration, action) => {
     const id = ++toastIdCounter;
     const ms = duration ?? (type === "error" ? 6000 : type === "info" ? 3500 : 4000);
     // Toasts render as a single line of text, so the optional detail is folded
     // into the message here — once — instead of being a second line of copy.
     const text = description ? `${message} — ${description}` : message;
-    set((state) => ({ toasts: [...state.toasts, { id, message: text, type, duration: ms }] }));
+    set((state) => ({ toasts: [...state.toasts, { id, message: text, type, duration: ms, action }] }));
     scheduleToastDismiss(id, ms, set);
   },
   dismissToast: (id) => {

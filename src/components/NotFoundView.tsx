@@ -12,7 +12,9 @@ export default function NotFoundView({ path }: NotFoundViewProps) {
   return (
     <div className="min-h-dvh w-full bg-brand-bg text-zinc-300 font-sans flex items-center justify-center relative overflow-hidden">
       <div style={gridBg} className="absolute inset-0 pointer-events-none" />
-      <div className="absolute top-[-120px] left-1/3 w-[600px] h-[300px] bg-brand-accent/[0.05] blur-[120px] rounded-full pointer-events-none" />
+      {/* The blurred accent blob that used to sit under the grid went with the
+          app-wide ones in `App` — same effect, same reason. The grid stays: it
+          is a drawn pattern, not a wash. */}
 
       <div className="relative w-full max-w-lg mx-6">
         <div className="border border-brand-border bg-zinc-950/60">

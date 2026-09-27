@@ -19,6 +19,7 @@ import { Menu, X, ArrowRight } from "lucide-react";
 import PageLoader from "./components/PageLoader";
 import { Buttons } from "./components/Buttons";
 import { KeyRow } from "./components/KeyRow";
+import { useMediaQuery } from "./hooks/useMediaQuery";
 import AppFooter from "./components/AppFooter";
 import { getLegalDoc, LegalView } from "./components/LegalView";
 
@@ -44,6 +45,7 @@ export default function App() {
     fetchWishlist, fetchCustomPlatforms,
     loadingGames,
     fetchCustomizations,
+    showToast,
   } = useGameTrackStore();
   const [pathname, setPathname] = useState(() => window.location.pathname);
   // The app has no router; Link pushes history state and fires popstate, so
@@ -54,6 +56,9 @@ export default function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
   const [booted, setBooted] = useState(false);
+  // Matches the `md` breakpoint the shortcut button and the menu hints switch
+  // on, so keyboard-only affordances are never offered where they cannot work.
+  const hasKeyboard = useMediaQuery("(min-width: 768px)");
   // Navigation is a drawer at every width: there is no horizontal tab row and
   // no wordmark bar, so the hamburger and the settings gear float over the hero
   // as two accent squares and the page title owns the top of the screen.
@@ -79,6 +84,26 @@ export default function App() {
   useEffect(() => {
     setMenuOpen(false);
   }, [activeTab]);
+
+  // Ten seconds after the app is up — not after mount, which would put the
+  // toast on screen while the boot loader was still up — point at the
+  // keyboard. md and up only: the shortcut button is hidden below it, and a
+  // phone has no Alt key, so there is nothing to point at. The timer is keyed
+  // on `booted`, so a slow first load waits for the app rather than counting
+  // from the document.
+  useEffect(() => {
+    if (!booted || !hasKeyboard) return;
+    const timer = setTimeout(() => {
+      showToast(
+        "Most of this app is one keystroke away — the keyboard is quicker.",
+        "info",
+        undefined,
+        12000,
+        { label: "View shortcuts", onClick: () => setShortcutsOpen(true) }
+      );
+    }, 10000);
+    return () => clearTimeout(timer);
+  }, [booted, hasKeyboard, showToast, setShortcutsOpen]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -233,9 +258,12 @@ export default function App() {
     <>
       <div className="flex h-screen w-full bg-brand-bg overflow-hidden text-zinc-300 font-sans selection:bg-brand-accent/30 selection:text-brand-accent relative">
 
-        {/* Subtle Ambient Glow accents across the entire app */}
-        <div className="fixed top-[-150px] left-1/3 w-[800px] h-[400px] bg-brand-accent/[0.04] blur-[150px] rounded-full pointer-events-none z-0" />
-        <div className="fixed bottom-[-200px] right-1/4 w-[600px] h-[500px] bg-brand-accent/[0.02] blur-[150px] rounded-full pointer-events-none z-0" />
+        {/* No ambient glow behind the app. Two 150px-blurred accent blobs at 4%
+            and 2% used to sit here, `fixed` and behind everything; at that
+            radius they are not decoration but a wash over the whole page, and
+            the background is meant to be one flat `brand-bg` like the rest of
+            the language. The page now has one background colour, not a
+            gradient that happens to average out to it. */}
 
         {/* Main workspace — full width, top navigation. The nav bar is hidden
             over the hero, so content keeps its original top offset and the

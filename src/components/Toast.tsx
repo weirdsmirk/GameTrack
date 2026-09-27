@@ -37,9 +37,32 @@ export const Toast: React.FC = () => {
             aria-live={toast.type === "error" ? "assertive" : "polite"}
             className={`pointer-events-auto will-change-transform overflow-hidden cursor-pointer select-none w-[calc(100vw-3rem)] sm:w-auto sm:max-w-[340px] ${TYPE_STYLES[toast.type]}`}
           >
-            <p className="px-4 py-3 text-[13px] font-sans font-semibold leading-snug">
-              {toast.message}
-            </p>
+            <div className="px-4 py-3">
+              <p className="text-[13px] font-sans font-semibold leading-snug">
+                {toast.message}
+              </p>
+
+              {/* The action inherits the fill's ink rather than picking a colour,
+                  so the same markup works on the accent, red and zinc slabs
+                  without a variant per type. Underlined rather than boxed: the
+                  toast is already a box. It dismisses itself on click — the
+                  toast sits above the modals at z-100, so leaving it up would
+                  park it on top of whatever it just opened. */}
+              {toast.action && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const action = toast.action;
+                    dismissToast(toast.id);
+                    action?.onClick();
+                  }}
+                  className="mt-2 text-left text-[11px] font-black uppercase tracking-wider underline underline-offset-4 hover:opacity-75 focus-visible:outline-2 focus-visible:outline-current focus-visible:outline-offset-2"
+                >
+                  {toast.action.label}
+                </button>
+              )}
+            </div>
 
             <div className="toast-progress" style={{ animationDuration: `${toast.duration}ms` }} />
           </motion.div>
