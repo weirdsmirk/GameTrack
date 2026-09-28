@@ -678,31 +678,35 @@ export const GameDetailsModal: React.FC = React.memo(() => {
           <div className={`flex-1 overflow-y-auto overscroll-contain space-y-6 ${isEditing ? "p-6 md:p-8" : "pt-4 px-6 pb-6 md:px-8 md:pb-8"}`}>
             {isEditing ? (
               <div className="space-y-4">
-                {/* Editable Title */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1 sm:col-span-2">
-                  <label htmlFor="edit-game-title" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Game Title</label>
-                  <input
-                    id="edit-game-title"
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    className="w-full px-4 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
-                  />
+                {/* Title and release year share a row. They are the two facts
+                    read together when recognising a game, and four digits were
+                    taking a full third of a row to themselves. The title keeps
+                    two thirds because it is the only field here that has to
+                    hold a sentence. */}
+                <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr] gap-4">
+                  <div className="space-y-1">
+                    <label htmlFor="edit-game-title" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Game Title</label>
+                    <input
+                      id="edit-game-title"
+                      type="text"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      className="w-full px-4 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label htmlFor="edit-game-year" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Release Year</label>
+                    <input
+                      id="edit-game-year"
+                      type="number"
+                      value={year}
+                      onChange={(e) => setYear(e.target.value)}
+                      className="w-full px-4 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
+                    />
+                  </div>
                 </div>
-              </div>
 
-<div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="space-y-1">
-                  <label htmlFor="edit-game-year" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Release Year</label>
-                  <input
-                    id="edit-game-year"
-                    type="number"
-                    value={year}
-                    onChange={(e) => setYear(e.target.value)}
-                    className="w-full px-4 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
-                  />
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label htmlFor="edit-game-completed" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Completion Date</label>
                   <input
@@ -934,10 +938,24 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     </h5>
                   </div>
 
+                  {/* The completion date, not the entry date. It is the one date a
+                      reader actually asks about — "when did I finish this?" —
+                      and the entry date survives as the library's default sort
+                      key.
+
+                      Gated on the status as well as the date, for the same
+                      reason the analytics chart is: the server stamps
+                      `date_completed` when a title enters completed and never
+                      clears it on the way out, so a title moved back to backlog
+                      keeps a stale date. Showing it raw would put a completion
+                      date under a game with zero hours and no grade. An em dash
+                      matches the grade box above for "not recorded". */}
                   <div className="bg-zinc-900/60 border border-brand-border/50 p-3.5 flex flex-col justify-between h-[76px]">
-                    <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">Entry Date</p>
+                    <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">Completed</p>
                     <h5 className="text-sm sm:text-lg font-black text-white mt-2 leading-none uppercase">
-                      {new Date(selectedGame.date_added).toLocaleDateString()}
+                      {selectedGame.status === "completed" && selectedGame.date_completed
+                        ? new Date(selectedGame.date_completed).toLocaleDateString()
+                        : "—"}
                     </h5>
                   </div>
                 </div>
