@@ -575,36 +575,13 @@ export default function App() {
 
           {/* Above the phone scrim (z-10 inside this nav) so the toggle stays
               crisp and readable while the menu is open. The filled accent
-              square is the only control a phone gets; from md up the ghost
-              shortcut button sits beside it, same box and baseline, so the
-              pair reads as one control and one footnote. */}
+              square is the only control here: the keyboard cheat sheet used to
+              sit beside it as a keycap, but a nav slot is the wrong home for a
+              reference list — it reads as decoration and it is invisible on
+              phones, which is the one size with the least room for it. It now
+              lives in Settings, next to the shortcut-hint switch it belongs
+              with. */}
           <div className="relative z-20 flex items-center gap-1.5 pointer-events-auto">
-            {/* The keyboard cheat sheet, left of the toggle. Pointer-driven
-                layouts only — a phone has no Alt key to bind anything to, so
-                offering the list there would be a button that opens an empty
-                promise. Same 38px box as the toggle (p-2.5, not p-3) so the
-                pair reads as one row, and the icon alone on the page ground —
-                no stroke, no fill of its own — so it stays a footnote beside
-                the filled one. */}
-            <Buttons
-              variant="icon-bare"
-              onClick={() => setShortcutsOpen(true)}
-              aria-label="Keyboard shortcuts"
-              title="Keyboard shortcuts"
-              className="hidden md:block p-2.5"
-            >
-              {/* A keycap, drawn rather than imported. Lucide's `keyboard` is a
-                  rounded rect with seven dots, which is mush at 16px, and
-                  rounded corners are the one thing this app never draws.
-                  `command` was the other candidate and is prettier still, but
-                  it advertises a modifier the app does not bind — the real
-                  shortcuts are Alt, so a ⌘ on the button would send people
-                  pressing the wrong key. Two shapes say "key" and promise
-                  nothing. */}
-              <span aria-hidden="true" className="flex h-4 w-4 items-center justify-center border border-current">
-                <span className="block h-px w-2 bg-current" />
-              </span>
-            </Buttons>
             <Buttons
               ref={menuButtonRef}
               variant="icon"

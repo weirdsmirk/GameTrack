@@ -6,6 +6,7 @@ import {
   Upload, Download, Trash2, Loader2, Settings, Joystick, RefreshCw, Link2, Unlink, ExternalLink, X, Check, Info
 } from "lucide-react";
 import { THEMES } from "../themes";
+import { Buttons } from "./Buttons";
 
 export const SettingsModal: React.FC = React.memo(() => {
   const { 
@@ -436,6 +437,34 @@ export const SettingsModal: React.FC = React.memo(() => {
                         }`}
                       />
                     </button>
+                  </div>
+
+                  {/* The cheat sheet. It was a keycap button in the nav, which
+                      is the wrong home for it: a nav slot reads as decoration,
+                      and `hidden md:block` meant a phone — the size with least
+                      room for it — could not open it at all. Here it sits beside
+                      the hint switch that introduces it, and the label is
+                      spelled out because the row no longer has a glyph to
+                      carry the meaning.
+
+                      Settings closes on the way in, because the two dialogs
+                      cannot safely stack: each listens for Escape on `window`,
+                      so one press would close both, and each sets
+                      `body.style.overflow` on open and clears it on close, so
+                      dismissing the sheet would hand back a scrollable page
+                      behind a Settings panel that is still open. */}
+                  <div className="border-t border-brand-border/60 pt-3.5">
+                    <Buttons
+                      variant="tab"
+                      onClick={() => {
+                        setSettingsOpen(false);
+                        setShortcutsOpen(true);
+                      }}
+                      className="w-full p-3.5 text-left flex items-center justify-between gap-4"
+                    >
+                      <span className="truncate min-w-0">Keyboard Shortcuts</span>
+                      <span className="shrink-0 text-brand-accent text-[10px] tracking-widest">View All</span>
+                    </Buttons>
                   </div>
                 </div>
               </div>
