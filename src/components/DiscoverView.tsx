@@ -887,10 +887,16 @@ const DiscoverGameCard = React.memo<{
           </div>
         )}
       </div>
-      <h5 className="font-bold text-white text-xs uppercase tracking-tight mt-2 line-clamp-1">{game.title}</h5>
-      <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted mt-0.5">
-        {game.year || "TBA"}
-      </p>
+      {/* Title and year share one line, year pinned right on the title's
+          baseline. The year is short and fixed-width, so it has no reason to
+          push the text block onto a second row and make every card taller for
+          no extra information — the title truncates instead. */}
+      <div className="mt-2 flex items-baseline gap-2">
+        <h5 className="min-w-0 flex-1 font-bold text-white text-xs uppercase tracking-tight truncate">{game.title}</h5>
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-brand-muted">
+          {game.year || "TBA"}
+        </span>
+      </div>
     </div>
   );
 });
