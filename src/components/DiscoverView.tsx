@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
-import { Search, Compass, Plus, CheckCircle2, Loader2, ChevronDown, ChevronLeft, ChevronRight, X, RefreshCw, Trash2, Heart } from "lucide-react";
+import { Search, Compass, Plus, CheckCircle2, Loader2, ChevronDown, X, RefreshCw, Trash2, Heart } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { IGDBGame, Game } from "../types";
 import { PosterImage } from "./PosterImage";
 import { preloadImages } from "../utils/image";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { DISCOVER_GENRES, gameMatchesDiscoverGenre, libraryGridClass } from "../constants";
 
@@ -342,25 +343,6 @@ export const DiscoverView: React.FC = () => {
           )}
           Search
         </button>
-
-        {/* Genre Selector */}
-        <div className="relative w-full md:w-56">
-          <label htmlFor="discover-genre" className="sr-only">Filter by genre</label>
-          <select
-            id="discover-genre"
-            value={discoverGenre}
-            onChange={(e) => setDiscoverGenre(e.target.value)}
-            className="w-full pl-4 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none"
-          >
-            <option value="">All Genres</option>
-            {DISCOVER_GENRES.map((genre) => (
-              <option key={genre} value={genre}>{genre}</option>
-            ))}
-          </select>
-          <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-brand-muted">
-            <ChevronDown className="w-4 h-4" />
-          </div>
-        </div>
       </form>
       {/* Curated Sections — editorial lists from IGDB, above the infinite feed.
           While a genre filter is active these lists are narrowed to it, so the
@@ -376,6 +358,8 @@ export const DiscoverView: React.FC = () => {
             isWishlisted={isWishlisted}
             getLibraryGame={getLibraryGame}
             genreLabel={discoverGenre}
+            discoverGenre={discoverGenre}
+            onGenreChange={setDiscoverGenre}
             topThisMonth={curatedForGenre?.topThisMonth}
             bestAllTime={curatedForGenre?.bestAllTime}
             newReleases={curatedForGenre?.newReleases}
@@ -417,20 +401,21 @@ export const DiscoverView: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Feed Divider */}
-          {query.trim() && (
-            <div className="pt-8 border-t border-brand-border/60">
-              <div className="flex items-end justify-between gap-4">
-                <div>
-                  <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-white">
-                    Search Results
-                  </h3>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!query.trim() && <div className="pt-8 border-t border-brand-border/60" />}
+          {/* Feed heading. This was a rule with a "Search Results" title only
+              when a query was active, and an empty band above the grid when one
+              wasn't — the feed had no name of its own. It names itself by what
+              it is showing: a search, the active genre, or the ranked pool.
+              The genre case matters because the filter now sits in the tab row
+              directly above, so the feed below inherits it silently. */}
+          <div className="pt-8 border-t border-brand-border/60">
+            <h3 className="text-2xl sm:text-3xl font-black uppercase tracking-tight text-white">
+              {query.trim()
+                ? "Search Results."
+                : discoverGenre
+                  ? `${discoverGenre} Titles.`
+                  : "Trending Now."}
+            </h3>
+          </div>
 
           <div className={`grid ${libraryGridClass(customizations.discoverColumns)} gap-4`}>
             {gamesToDisplay.map((game) => {
@@ -439,8 +424,9 @@ export const DiscoverView: React.FC = () => {
                 <DiscoverGameCard
                   key={game.igdb_id || game.title}
                   game={game}
-                  libGame={libGame}
+                  inLibrary={Boolean(libGame)}
                   wishlisted={isWishlisted(game.igdb_id)}
+                  showRating={customizations.showRatingBadge}
                   onClick={handleCardClick}
                   onAddGame={handleAddGame}
                   onAddWishlist={handleToggleWishlist}
@@ -642,100 +628,13 @@ export const DiscoverView: React.FC = () => {
   );
 };
 
-interface DiscoverGameCardProps {
-  game: IGDBGame;
-  libGame: Game | null;
-  wishlisted: boolean;
-  onClick: (game: IGDBGame) => void;
-  onAddGame: (game: IGDBGame) => void;
-  onAddWishlist: (game: IGDBGame) => void;
-}
-
-const DiscoverGameCard = React.memo<DiscoverGameCardProps>(({ 
-  game, libGame, wishlisted, onClick, onAddGame, onAddWishlist 
-}) => {
-  const handleCardClick = (e: React.MouseEvent | React.KeyboardEvent) => {
-    if ((e.target as HTMLElement).closest('button')) {
-      return;
-    }
-    onClick(game);
-  };
-
-  return (
-    <div
-      onClick={handleCardClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          handleCardClick(e);
-        }
-      }}
-      tabIndex={0}
-      role="button"
-      aria-label={`View details for ${game.title}`}
-      className="group bg-transparent border border-brand-border rounded-none overflow-hidden hover:border-brand-accent/40 focus:outline-none focus:border-brand-accent transition-all duration-200 flex flex-col justify-between cursor-pointer"
-    >
-      {/* Poster Art with Hover overlay */}
-      <div className="aspect-[2/3] relative overflow-hidden bg-zinc-950 border-b border-brand-border">
-        <PosterImage
-          src={game.poster_url}
-          alt={game.title}
-          className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200 transform-gpu will-change-transform"
-        />
-      </div>
-
-      {/* Metadata & Quick Action */}
-      <div className="p-4 flex-1 flex flex-col justify-between">
-        <div>
-          <h4 className="font-bold text-white text-sm line-clamp-1 uppercase tracking-tight">{game.title}</h4>
-          <p className="block truncate whitespace-nowrap text-[11px] text-brand-muted mt-0.5 uppercase font-bold">
-            {game.year ? `${game.year} // ` : ""}{(game.genres || []).slice(0, 1).join(" • ") || "Unknown Genre"}
-          </p>
-        </div>
-
-        <div className="mt-4 pt-3 border-t border-brand-border">
-          <div className="flex gap-2">
-            {libGame ? (
-              <div className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-500/10 border border-emerald-500/35 text-emerald-400 rounded-none text-[11px] font-black uppercase tracking-widest select-none">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                Registered
-              </div>
-            ) : (
-              <button
-                onClick={() => onAddGame(game)}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink rounded-none text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5 stroke-[3]" />
-                Add
-              </button>
-            )}
-            {!libGame && (
-              <button
-                onClick={() => onAddWishlist(game)}
-                title={wishlisted ? "Remove from wishlist" : "Add to wishlist"}
-                aria-label={wishlisted ? "Remove from wishlist" : "Add to wishlist"}
-                aria-pressed={wishlisted}
-                className={`w-[34px] flex items-center justify-center border rounded-none text-[11px] transition-colors cursor-pointer ${
-                  wishlisted
-                    ? "bg-brand-accent/10 border-brand-accent/40 text-brand-accent hover:bg-brand-accent/20"
-                    : "bg-zinc-950 border-brand-border text-brand-muted hover:text-brand-accent hover:border-brand-accent/50"
-                }`}
-              >
-                <Heart className={`w-3.5 h-3.5 ${wishlisted ? "fill-brand-accent stroke-brand-accent" : ""}`} />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
-DiscoverGameCard.displayName = "DiscoverGameCard";
-
 interface TabbedCuratedSectionProps {
   loading: boolean;
   /** Active Discover genre filter ("" = all) — lists are already narrowed to it. */
   genreLabel: string;
+  /** Raw genre filter value and its setter — the select moved up into this row. */
+  discoverGenre: string;
+  onGenreChange: (genre: string) => void;
   showRating?: boolean;
   onCardClick: (game: IGDBGame) => void;
   onAddGame: (game: IGDBGame) => void;
@@ -750,12 +649,31 @@ interface TabbedCuratedSectionProps {
 
 type CuratedTabId = "recent" | "alltime" | "new" | "hyped";
 
+/**
+ * The most curated cards that fit across at each width — a cap, not the final
+ * count. The list itself decides: a 2-row grid is only gap-free when the items
+ * divide evenly into the columns, and these lists are 13-15 long, so the
+ * column count is derived from the length in `TabbedCuratedSection` and capped
+ * by this.
+ */
+function useCuratedColumnCap(): number {
+  const isXl = useMediaQuery("(min-width: 1280px)");
+  const isLg = useMediaQuery("(min-width: 1024px)");
+  const isMd = useMediaQuery("(min-width: 768px)");
+  const isSm = useMediaQuery("(min-width: 640px)");
+  if (isXl) return 8;
+  if (isLg) return 6;
+  if (isMd) return 5;
+  if (isSm) return 4;
+  return 3;
+}
+
 const TabbedCuratedSection: React.FC<TabbedCuratedSectionProps> = ({
-  loading, genreLabel, showRating = true, onCardClick, onAddGame, onAddWishlist, isWishlisted, getLibraryGame,
+  loading, genreLabel, discoverGenre, onGenreChange, showRating = true, onCardClick, onAddGame, onAddWishlist, isWishlisted, getLibraryGame,
   topThisMonth, bestAllTime, newReleases, mostHyped,
 }) => {
   const [activeTab, setActiveTab] = useState<CuratedTabId>("recent");
-  const trackRef = useRef<HTMLDivElement | null>(null);
+  const cap = useCuratedColumnCap();
 
   const tabs: { id: CuratedTabId; label: string; desc: string; games: IGDBGame[] | undefined }[] = [
     { id: "recent", label: "Recent Top Rated", desc: "The best releases of the last 90 days", games: topThisMonth },
@@ -765,17 +683,21 @@ const TabbedCuratedSection: React.FC<TabbedCuratedSectionProps> = ({
   ];
 
   const active = tabs.find((t) => t.id === activeTab) ?? tabs[0]!;
+  const available = active.games?.length ?? 0;
 
-  const scrollBy = (dir: 1 | -1) => {
-    const track = trackRef.current;
-    if (!track) return;
-    const cardWidth = track.querySelector("[data-card]")?.clientWidth || 160;
-    track.scrollBy({ left: dir * cardWidth * 3, behavior: "smooth" });
-  };
+  // An even number of cards in two full rows, or one full row when the list is
+  // short enough to fit one. The two-row case drops the odd leftover on purpose:
+  // 15 titles in 8 columns leaves a hole in the last row (13 leaves three), and
+  // no column count fills both rows of an odd-length list. So the columns come
+  // down to what divides evenly — 7 for 15, 6 for 13 — and the title that no
+  // longer fits stays off the panel rather than hanging in a gap.
+  const singleRow = available <= cap;
+  const columns = singleRow ? Math.max(1, available) : Math.max(1, Math.min(cap, Math.floor(available / 2)));
+  const shownGames = active.games ? active.games.slice(0, columns * (singleRow ? 1 : 2)) : active.games;
+  const slotCount = columns * (singleRow ? 1 : 2);
 
   const switchTab = (id: CuratedTabId) => {
     setActiveTab(id);
-    trackRef.current?.scrollTo({ left: 0 });
   };
 
   return (
@@ -803,42 +725,58 @@ const TabbedCuratedSection: React.FC<TabbedCuratedSectionProps> = ({
           );
         })}
         </div>
-        <div className="flex gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => scrollBy(-1)}
-            aria-label={`Scroll ${active.label} left`}
-            className="w-8 h-8 flex items-center justify-center bg-zinc-950 border border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/50 transition-colors cursor-pointer"
+
+        {/* Genre filter — it narrows these lists and the feed below, so it sits
+            with the lists it filters rather than down in the search bar. Sized
+            to the tab buttons beside it (same 11px type, py-1.5 and hairline)
+            so the row reads as one control strip, and filled accent while a
+            genre is on, so the active state is visible without opening it. */}
+        <div className="relative shrink-0">
+          <label htmlFor="discover-genre" className="sr-only">Filter by genre</label>
+          <select
+            id="discover-genre"
+            value={discoverGenre}
+            onChange={(e) => onGenreChange(e.target.value)}
+            className={`appearance-none pl-3.5 pr-9 py-1.5 text-[11px] font-black uppercase tracking-wider border transition-colors cursor-pointer focus:outline-none focus:border-brand-accent ${
+              discoverGenre
+                ? "bg-brand-accent text-brand-accent-ink border-brand-accent"
+                : "bg-zinc-950 border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/50"
+            }`}
           >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => scrollBy(1)}
-            aria-label={`Scroll ${active.label} right`}
-            className="w-8 h-8 flex items-center justify-center bg-zinc-950 border border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/50 transition-colors cursor-pointer"
+            <option value="">All Genres</option>
+            {DISCOVER_GENRES.map((genre) => (
+              <option key={genre} value={genre}>{genre}</option>
+            ))}
+          </select>
+          <div
+            className={`absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none ${
+              discoverGenre ? "text-brand-accent-ink" : "text-brand-muted"
+            }`}
           >
-            <ChevronRight className="w-4 h-4" />
-          </button>
+            <ChevronDown className="w-3.5 h-3.5" />
+          </div>
         </div>
       </div>
 
       {loading ? (
-        <div className="flex gap-4 overflow-hidden">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="w-36 sm:w-40 shrink-0 aspect-[2/3] bg-zinc-900/50 border border-brand-border rounded-none animate-pulse" />
+        <div
+          className="grid gap-3 sm:gap-4"
+          style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        >
+          {Array.from({ length: slotCount }, (_, i) => (
+            <div key={i} className="aspect-[2/3] bg-zinc-900/50 border border-brand-border rounded-none animate-pulse" />
           ))}
         </div>
-      ) : active.games && active.games.length > 0 ? (
+      ) : shownGames && shownGames.length > 0 ? (
         <div
-          ref={trackRef}
           id={`curated-panel-${active.id}`}
           role="tabpanel"
           aria-label={active.label}
-          className="flex gap-4 overflow-x-auto no-scrollbar snap-x"
+          className="grid gap-3 sm:gap-4"
+          style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
         >
-          {active.games.map((game) => (
-            <CuratedGameCard
+          {shownGames.map((game) => (
+            <DiscoverGameCard
               key={game.igdb_id}
               game={game}
               inLibrary={Boolean(getLibraryGame(game.igdb_id))}
@@ -863,7 +801,7 @@ const TabbedCuratedSection: React.FC<TabbedCuratedSectionProps> = ({
   );
 };
 
-const CuratedGameCard = React.memo<{
+const DiscoverGameCard = React.memo<{
   game: IGDBGame;
   inLibrary: boolean;
   wishlisted: boolean;
@@ -872,20 +810,27 @@ const CuratedGameCard = React.memo<{
   onAddGame: (game: IGDBGame) => void;
   onAddWishlist: (game: IGDBGame) => void;
 }>(({ game, inLibrary, wishlisted, showRating = true, onClick, onAddGame, onAddWishlist }) => {
-  const handleClick = () => onClick(game);
+  // A click that started on one of the card's own buttons belongs to that
+  // button. The pointer path is safe already — they stopPropagation — but the
+  // keydown on the root still fires, so activating the wishlist heart with the
+  // keyboard would toggle the wishlist and open the details modal at once.
+  const handleCardClick = (e: React.MouseEvent | React.KeyboardEvent) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    onClick(game);
+  };
   return (
     <div
-      onClick={handleClick}
+      onClick={handleCardClick}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          handleClick();
+          handleCardClick(e);
         }
       }}
       tabIndex={0}
       role="button"
       aria-label={`View details for ${game.title}`}
-      className="w-36 sm:w-40 shrink-0 snap-start group cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2"
+      className="w-full group cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2"
       data-card
     >
       <div className="relative aspect-[2/3] overflow-hidden bg-zinc-950 border border-brand-border group-hover:border-brand-accent/40 transition-colors">
@@ -949,6 +894,6 @@ const CuratedGameCard = React.memo<{
     </div>
   );
 });
-CuratedGameCard.displayName = "CuratedGameCard";
+DiscoverGameCard.displayName = "DiscoverGameCard";
 
 export default DiscoverView;

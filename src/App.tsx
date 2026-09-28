@@ -251,8 +251,16 @@ export default function App() {
   // switch after the first) never shows the spinner at all. The first batch is
   // preloaded — the same twenty the view reveals — so the gate covers what is
   // on screen and nothing more.
-  const [coversReady, setCoversReady] = useState(false);
-  useEffect(() => { setCoversReady(false); }, [activeTab]);
+  //
+  // Readiness *latches per tab* rather than tracking the live load flags. The
+  // gate covers a view's first presentation, and that is all it should cover:
+  // once a view is on screen an inline reload — Discover's debounced search or
+  // its infinite feed both set `loadingDiscover` — used to flip the gate back
+  // to the spinner, unmount the view and remount it. That wiped the search box
+  // mid-keystroke and reverted the results to trending, i.e. search did nothing.
+  // Keying the latch on the tab id means only a real navigation re-gates.
+  const [readyTab, setReadyTab] = useState<string | null>(null);
+  const coversReady = readyTab === activeTab;
 
   const viewDataReady = (() => {
     switch (activeTab) {
@@ -288,7 +296,7 @@ export default function App() {
   useEffect(() => {
     if (!viewDataReady || coversReady) return;
     if (firstBatchCovers.length === 0) {
-      setCoversReady(true);
+      setReadyTab(activeTab);
       return;
     }
     // One preloader at a time: a rapid tab flip would otherwise start a second
@@ -302,21 +310,23 @@ export default function App() {
     // Cleared as soon as the real preload lands, so the cap only ever applies
     // when the network is the problem.
     const cap = setTimeout(() => {
-      if (!cancelled) setCoversReady(true);
+      if (!cancelled) setReadyTab(activeTab);
     }, GATE_MAX_WAIT_MS);
     preloadImages(firstBatchCovers, { timeoutMs: 4000 }).then(() => {
       if (cancelled) return;
       clearTimeout(cap);
-      setCoversReady(true);
+      setReadyTab(activeTab);
     });
     return () => {
       cancelled = true;
       clearTimeout(cap);
       preloading.current = false;
     };
-  }, [viewDataReady, coversReady, firstBatchCovers]);
+  }, [viewDataReady, coversReady, firstBatchCovers, activeTab]);
 
-  const viewReady = viewDataReady && coversReady;
+  // `coversReady` can only latch once the effect above saw `viewDataReady`, so
+  // it is the whole gate on its own — no need to re-assert the live flag.
+  const viewReady = coversReady;
 
   const renderActiveView = () => {
     switch (activeTab) {
