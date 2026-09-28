@@ -5,6 +5,7 @@ import { Search, Compass, Plus, CheckCircle2, Loader2, ChevronDown, ChevronLeft,
 import { motion, AnimatePresence } from "motion/react";
 import { IGDBGame, Game } from "../types";
 import { PosterImage } from "./PosterImage";
+import { preloadImages } from "../utils/image";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { DISCOVER_GENRES, gameMatchesDiscoverGenre, libraryGridClass } from "../constants";
 
@@ -248,6 +249,23 @@ export const DiscoverView: React.FC = () => {
   const gamesToDisplay = React.useMemo(() => {
     return query.trim() ? discoverSearchResults : trendingGames;
   }, [query, discoverSearchResults, trendingGames]);
+
+  // ── Scroll paging ───────────────────────────────────────────────
+  // The feed grows on its own as the sentinel scrolls into view. A Show More
+  // button was tried here and cut: this is a feed, not a list to page through,
+  // and reaching the bottom was already the gesture.
+  //
+  // What the button's loader used to cover stays, because it is the part that
+  // was actually broken: thirty-five covers sit in the browser cache at rest,
+  // so the sentinel fetches the next page of results while their covers are
+  // already decoded and scrolling triggers no image request of its own. The
+  // effect re-runs as the feed grows, so the window keeps sliding.
+  useEffect(() => {
+    const warm = gamesToDisplay.slice(0, 35);
+    if (warm.length === 0) return;
+    void preloadImages(warm.map((g) => g.poster_url));
+  }, [gamesToDisplay]);
+
 
   // Curated editorial lists are fetched once for all genres, so their genre
   // narrowing stays client-side (they are small, fixed lists).

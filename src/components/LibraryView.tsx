@@ -8,6 +8,7 @@ import { Game } from "../types";
 
 import { STATUSES, getStatusLabel, getStatusMarkerColor, getStatusTextColor, platformIdMatches, mergeCustomPlatforms, libraryGridClass } from "../constants";
 import { formatPlaytimeLong } from "../utils/time";
+import { preloadImages } from "../utils/image";
 import { PosterImage } from "./PosterImage";
 
 export const LibraryView: React.FC = () => {
@@ -225,6 +226,22 @@ export const LibraryView: React.FC = () => {
   const [draggingId, setDraggingId] = useState<number | null>(null);
 
   const visibleList = dragOrder ?? filteredGames;
+
+  // ── Poster preloading ───────────────────────────────────────────
+  // The whole library is listed at once — a Show More step was tried here and
+  // cut, the same call as Discover: the store already holds every row, so
+  // paging only stood between the reader and their own collection.
+  //
+  // What replaces it is the part that was actually broken. Every cover in the
+  // current list is warmed as soon as the list changes, so scrolling never
+  // starts a request of its own and no card paints as an empty box. Six at a
+  // time, which is what keeps a large library from opening thirty sockets at
+  // once; the browser cache does the rest, and a dead CDN link costs one
+  // skipped image rather than a stalled page.
+  useEffect(() => {
+    if (visibleList.length === 0) return;
+    void preloadImages(visibleList.map((g) => g.poster_url));
+  }, [visibleList]);
 
   const handleDragStart = useCallback((game: Game) => {
     setDraggingId(game.id);

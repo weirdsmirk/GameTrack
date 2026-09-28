@@ -101,6 +101,13 @@ export interface CustomizationSettings {
   discoverColumns: number; // 3, 4, 5, 6, 7
   showPlaytimeBadge: boolean;
   showRatingBadge: boolean;
+  /**
+   * Whether the one-time keyboard-shortcut hint may still be shown. Set false
+   * by the hint's own Dismiss, which is permanent; the toggle in Settings puts
+   * it back. Server-persisted with the rest of the preferences so clearing the
+   * browser cache does not resurrect a hint the reader deliberately closed.
+   */
+  showShortcutHint: boolean;
 }
 
 export interface DuplicateGroup {

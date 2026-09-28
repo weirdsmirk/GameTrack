@@ -9,7 +9,7 @@ import { THEMES } from "../themes";
 
 export const SettingsModal: React.FC = React.memo(() => {
   const { 
-    isSettingsOpen, setSettingsOpen,
+    isSettingsOpen, setSettingsOpen, setShortcutsOpen,
     wipeLibrary, showToast, importLibraryJSON, exportLibraryJSON,
     steamSettings, fetchSteamSettings, saveSteamSettings, syncSteamLibrary,
     customizations, updateCustomizations,
@@ -330,7 +330,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                 </div>
               </div>
 
-              {/* 3. Interface Theme */}
+              {/* 2. Interface Theme */}
               <div className="space-y-3.5">
                 <h4 className="text-[11px] font-black uppercase tracking-widest text-brand-accent">Interface Theme</h4>
                 <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-3">
@@ -374,6 +374,69 @@ export const SettingsModal: React.FC = React.memo(() => {
                   <p className="text-[9px] text-brand-muted uppercase tracking-wider pt-0.5">
                     // Theme applies instantly and is saved locally
                   </p>
+                </div>
+              </div>
+
+              {/* 3. Onboarding — the one-time hint's off switch. Its Dismiss
+                  writes this same preference, so the two can never disagree:
+                  a dismissed hint and a disabled switch are the same state.
+                  Turning it back on shows the hint immediately rather than
+                  making the reader reload and wait ten seconds to find out. */}
+              <div className="space-y-3.5">
+                <h4 className="text-[11px] font-black uppercase tracking-widest text-brand-accent">Onboarding</h4>
+                <div className="bg-zinc-950/40 border border-brand-border p-4.5 space-y-3.5">
+                  <div className="flex items-center justify-between gap-4 group">
+                    <span className="min-w-0">
+                      <span id="settings-toggle-shortcut-hint-label" className="block text-[11px] uppercase tracking-wider text-zinc-300 group-hover:text-white">
+                        Keyboard Shortcut Hint
+                      </span>
+                      <span className="block mt-1 text-[9px] uppercase tracking-wider text-brand-muted leading-relaxed">
+                        {customizations.showShortcutHint === false
+                          ? "Dismissed — the one-time tip will not appear again"
+                          : "Appears once, ten seconds after the app opens"}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={customizations.showShortcutHint !== false}
+                      aria-labelledby="settings-toggle-shortcut-hint-label"
+                      onClick={() => {
+                        const next = customizations.showShortcutHint === false;
+                        updateCustomizations({ showShortcutHint: next });
+                        // Re-enabling is a request to see it, so show it now
+                        // rather than leaving the reader to reload and wait.
+                        if (next) {
+                          showToast(
+                            "Most of this app is one keystroke away — the keyboard is quicker.",
+                            "info",
+                            undefined,
+                            12000,
+                            [
+                              { label: "View shortcuts", onClick: () => setShortcutsOpen(true) },
+                              {
+                                label: "Dismiss",
+                                tone: "secondary",
+                                title: "Don't show this again",
+                                onClick: () => updateCustomizations({ showShortcutHint: false }),
+                              },
+                            ]
+                          );
+                        }
+                      }}
+                      className={`relative w-10 h-5.5 shrink-0 border transition-colors cursor-pointer ${
+                        customizations.showShortcutHint === false
+                          ? "bg-zinc-900 border-brand-border"
+                          : "bg-brand-accent border-brand-accent"
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-1/2 -translate-y-1/2 w-4 h-3.5 transition-all duration-200 ${
+                          customizations.showShortcutHint === false ? "left-0.5 bg-brand-muted" : "left-[21px] bg-brand-accent-ink"
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
               </div>
 

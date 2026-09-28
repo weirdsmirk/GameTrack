@@ -42,25 +42,32 @@ export const Toast: React.FC = () => {
                 {toast.message}
               </p>
 
-              {/* The action inherits the fill's ink rather than picking a colour,
-                  so the same markup works on the accent, red and zinc slabs
+              {/* Actions inherit the fill's ink rather than picking a colour, so
+                  the same markup works on the accent, red and zinc slabs
                   without a variant per type. Underlined rather than boxed: the
-                  toast is already a box. It dismisses itself on click — the
-                  toast sits above the modals at z-100, so leaving it up would
-                  park it on top of whatever it just opened. */}
-              {toast.action && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const action = toast.action;
-                    dismissToast(toast.id);
-                    action?.onClick();
-                  }}
-                  className="mt-2 text-left text-[11px] font-black uppercase tracking-wider underline underline-offset-4 hover:opacity-75 focus-visible:outline-2 focus-visible:outline-current focus-visible:outline-offset-2"
-                >
-                  {toast.action.label}
-                </button>
+                  toast is already a box. Each dismisses the toast as it runs —
+                  the toast sits above the modals at z-100, so leaving it up
+                  would park it on top of whatever it just opened. */}
+              {toast.actions && toast.actions.length > 0 && (
+                <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+                  {toast.actions.map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      title={action.title}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        dismissToast(toast.id);
+                        action.onClick();
+                      }}
+                      className={`text-left text-[11px] font-black uppercase tracking-wider underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-current focus-visible:outline-offset-2 ${
+                        action.tone === "secondary" ? "opacity-60 hover:opacity-100" : "hover:opacity-75"
+                      }`}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
 

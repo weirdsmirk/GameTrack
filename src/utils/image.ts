@@ -73,6 +73,81 @@ export async function compressImage(
 export const IGDB_COVER_SIZE = "t_cover_big_2x";
 
 /**
+ * Warm the browser cache with a set of poster URLs, so the `<img>` tags that
+ * render them paint instantly instead of each one starting its own request as
+ * it scrolls into view.
+ *
+ * Two details make the warmed entry actually the one the `<img>` will read:
+ * the URL is passed through `upgradeIgdbPosterUrl` exactly as `PosterImage`
+ * does it, and `referrerPolicy` is set to `no-referrer` to match — IGDB and
+ * Steam reject requests that carry a Referer, so a preloaded image fetched
+ * under different rules would not be reused.
+ *
+ * Never rejects. A dead CDN link resolves as fast as a good one, and every
+ * image gets a timeout so one hung socket cannot hold a page gate open.
+ */
+export function preloadImages(
+  urls: (string | null | undefined)[],
+  { concurrency = 6, timeoutMs = 8000 }: { concurrency?: number; timeoutMs?: number } = {}
+): Promise<void> {
+  const list = Array.from(
+    new Set(
+      urls
+        .filter((u): u is string => typeof u === "string" && u.length > 0)
+        .map((u) => (upgradeIgdbPosterUrl(u) as string) || u)
+    )
+  );
+  if (list.length === 0) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    let index = 0;
+    let live = 0;
+
+    const finishOne = () => {
+      live -= 1;
+      if (index >= list.length && live <= 0) resolve();
+      else pump();
+    };
+
+    const loadOne = (url: string) => {
+      const img = new Image();
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        finishOne();
+      };
+      // Belt and braces: `onload`/`onerror` normally settle this, but a
+      // connection that stalls without erroring would otherwise hang the gate.
+      const timer = setTimeout(done, timeoutMs);
+      img.onload = () => {
+        clearTimeout(timer);
+        done();
+      };
+      img.onerror = () => {
+        clearTimeout(timer);
+        done();
+      };
+      img.referrerPolicy = "no-referrer";
+      img.src = url;
+    };
+
+    const pump = () => {
+      while (live < concurrency && index < list.length) {
+        const url = list[index];
+        index += 1;
+        if (url === undefined) continue;
+        live += 1;
+        loadOne(url);
+      }
+      if (index >= list.length && live <= 0) resolve();
+    };
+
+    pump();
+  });
+}
+
+/**
  * Upgrade a stored IGDB poster URL to the highest-quality cover preset in
  * the modern WebP format. Mirrors the server-side helper so every render
  * path loads the fastest best-quality variant even if the row was written

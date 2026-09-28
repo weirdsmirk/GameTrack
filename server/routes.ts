@@ -810,6 +810,9 @@ const CustomizationsSchema = z.object({
   discoverColumns: z.number().int().min(3).max(7).default(6),
   showPlaytimeBadge: z.boolean().default(true),
   showRatingBadge: z.boolean().default(true),
+  // Defaults to true, so a preferences row written before this field existed
+  // parses unchanged and the hint is still offered to readers who never saw it.
+  showShortcutHint: z.boolean().default(true),
 });
 
 // GET /api/settings/customizations — persisted UI preferences.

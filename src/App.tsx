@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useGameTrackStore } from "./store";
 import { TABS } from "./tabs";
@@ -20,8 +20,13 @@ import PageLoader from "./components/PageLoader";
 import { Buttons } from "./components/Buttons";
 import { KeyRow } from "./components/KeyRow";
 import { useMediaQuery } from "./hooks/useMediaQuery";
+import { preloadImages } from "./utils/image";
+import { Spinner } from "./components/Spinner";
 import AppFooter from "./components/AppFooter";
 import { getLegalDoc, LegalView } from "./components/LegalView";
+
+/** Longest the page gate will hold a view back waiting for its covers. */
+const GATE_MAX_WAIT_MS = 2500;
 
 /**
  * The right-hand slot of a menu row: the row's own Option digit from md up,
@@ -46,6 +51,9 @@ export default function App() {
     loadingGames,
     fetchCustomizations,
     showToast,
+    customizations, updateCustomizations,
+    games, loadingAnalytics, loadingWishlist, loadingLists, loadingDiscover,
+    trendingGames, discoverSearchResults, discoverQuery, wishlist,
   } = useGameTrackStore();
   const [pathname, setPathname] = useState(() => window.location.pathname);
   // The app has no router; Link pushes history state and fires popstate, so
@@ -91,19 +99,33 @@ export default function App() {
   // phone has no Alt key, so there is nothing to point at. The timer is keyed
   // on `booted`, so a slow first load waits for the app rather than counting
   // from the document.
+  //
+  // Dismiss is permanent and writes the preference, which lands in
+  // `customizations` — so it survives a reload, a new tab and a cleared cache,
+  // and Settings > Onboarding puts it back. The hint is offered once, not
+  // repeatedly: an unread nag that survives dismissal is worse than none.
+  const shortcutHintAllowed = customizations.showShortcutHint !== false;
   useEffect(() => {
-    if (!booted || !hasKeyboard) return;
+    if (!booted || !hasKeyboard || !shortcutHintAllowed) return;
     const timer = setTimeout(() => {
       showToast(
         "Most of this app is one keystroke away — the keyboard is quicker.",
         "info",
         undefined,
         12000,
-        { label: "View shortcuts", onClick: () => setShortcutsOpen(true) }
+        [
+          { label: "View shortcuts", onClick: () => setShortcutsOpen(true) },
+          {
+            label: "Dismiss",
+            tone: "secondary",
+            title: "Don't show this again — re-enable it in Settings › Onboarding",
+            onClick: () => updateCustomizations({ showShortcutHint: false }),
+          },
+        ]
       );
     }, 10000);
     return () => clearTimeout(timer);
-  }, [booted, hasKeyboard, showToast, setShortcutsOpen]);
+  }, [booted, hasKeyboard, shortcutHintAllowed, showToast, setShortcutsOpen, updateCustomizations]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -218,6 +240,84 @@ export default function App() {
     };
   }, []);
 
+  // ── Page gate ───────────────────────────────────────────────────
+  // A view is presented only once its own data has landed and the covers it is
+  // about to show are in the browser cache. Without this a tab switch renders
+  // the view immediately and the posters stream in one by one as each card
+  // scrolls into view, so every navigation looks like a half-loaded page.
+  //
+  // Readiness is per view, not global: switching to Analytics should not wait
+  // on the Discover feed, and a view whose data is already in the store (every
+  // switch after the first) never shows the spinner at all. The first batch is
+  // preloaded — the same twenty the view reveals — so the gate covers what is
+  // on screen and nothing more.
+  const [coversReady, setCoversReady] = useState(false);
+  useEffect(() => { setCoversReady(false); }, [activeTab]);
+
+  const viewDataReady = (() => {
+    switch (activeTab) {
+      case "library":
+      case "dashboard":
+        return !loadingGames;
+      case "discover":
+        return !loadingLists && !loadingDiscover && trendingGames.length > 0;
+      case "analytics":
+        return !loadingAnalytics;
+      case "wishlist":
+        return !loadingWishlist;
+      default:
+        return true;
+    }
+  })();
+
+  const firstBatchCovers = useMemo(() => {
+    if (activeTab === "library" || activeTab === "dashboard") {
+      return games.slice(0, 20).map((g) => g.poster_url);
+    }
+    if (activeTab === "discover") {
+      const feed = discoverQuery ? discoverSearchResults : trendingGames;
+      return feed.slice(0, 20).map((g) => g.poster_url);
+    }
+    if (activeTab === "wishlist") {
+      return wishlist.slice(0, 20).map((g) => g.poster_url);
+    }
+    return [];
+  }, [activeTab, games, trendingGames, discoverSearchResults, discoverQuery, wishlist]);
+
+  const preloading = useRef(false);
+  useEffect(() => {
+    if (!viewDataReady || coversReady) return;
+    if (firstBatchCovers.length === 0) {
+      setCoversReady(true);
+      return;
+    }
+    // One preloader at a time: a rapid tab flip would otherwise start a second
+    // batch against a list the view has already moved on from.
+    if (preloading.current) return;
+    preloading.current = true;
+    let cancelled = false;
+    // Hard ceiling on the wait. A cover that will not arrive must not hold the
+    // page hostage — `PosterImage` has its own fallback for a broken URL, so
+    // revealing on time with one empty box beats a spinner that never clears.
+    // Cleared as soon as the real preload lands, so the cap only ever applies
+    // when the network is the problem.
+    const cap = setTimeout(() => {
+      if (!cancelled) setCoversReady(true);
+    }, GATE_MAX_WAIT_MS);
+    preloadImages(firstBatchCovers, { timeoutMs: 4000 }).then(() => {
+      if (cancelled) return;
+      clearTimeout(cap);
+      setCoversReady(true);
+    });
+    return () => {
+      cancelled = true;
+      clearTimeout(cap);
+      preloading.current = false;
+    };
+  }, [viewDataReady, coversReady, firstBatchCovers]);
+
+  const viewReady = viewDataReady && coversReady;
+
   const renderActiveView = () => {
     switch (activeTab) {
       case "library":
@@ -283,7 +383,17 @@ export default function App() {
                   if (el && el.style.transform) el.style.transform = "";
                 }}
               >
-                {renderActiveView()}
+                {/* The gate sits inside the switching wrapper so it inherits the
+                    same enter/exit as the view it stands in for — the spinner
+                    is a placeholder for the page, not an overlay on top of a
+                    half-drawn one. */}
+                {viewReady ? (
+                  renderActiveView()
+                ) : (
+                  <div className="min-h-[60vh] flex items-center justify-center">
+                    <Spinner size={34} label="Loading page" />
+                  </div>
+                )}
               </motion.div>
             </AnimatePresence>
             {/* Sits outside AnimatePresence so it persists across tab switches

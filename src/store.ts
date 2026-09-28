@@ -8,6 +8,19 @@ import {
 import { isThemeId, applyTheme, applyThemeWithReboot } from "./themes";
 import { Platform, slugifyPlatformLabel, mergeCustomPlatforms, igdbGenreNamesFor } from "./constants";
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+  /**
+   * `primary` is the one the toast is really offering; `secondary` sits beside
+   * it a step quieter. Both inherit the fill's ink, so the pair works on the
+   * accent, red and zinc slabs without a variant per type.
+   */
+  tone?: "primary" | "secondary";
+  /** Longer explanation on hover, for a label that might be misread. */
+  title?: string;
+}
+
 export interface ToastItem {
   id: number;
   /** The one line of text the popup shows — title and detail already joined. */
@@ -15,13 +28,13 @@ export interface ToastItem {
   type: "success" | "error" | "info";
   duration: number;
   /**
-   * Optional link under the message. A toast that only reports something is
-   * most of them; the few that offer a follow-up (the keyboard-shortcut hint)
-   * pass an action, and the toast renders the label as a button that runs it.
+   * Optional row of links under the message. Most toasts only report something;
+   * the few that offer a follow-up (the keyboard-shortcut hint, which offers
+   * both the sheet and a permanent Dismiss) pass actions, rendered as buttons.
    * Lives in the store rather than being passed to the component because the
    * queue is state, not props.
    */
-  action?: { label: string; onClick: () => void };
+  actions?: ToastAction[];
 }
 
 // One auto-dismiss timer per toast, so the queue can pause/resume/dismiss
@@ -224,7 +237,7 @@ interface GameTrackState {
     type?: "success" | "error" | "info",
     description?: string,
     duration?: number,
-    action?: { label: string; onClick: () => void }
+    actions?: ToastAction[]
   ) => void;
   dismissToast: (id: number) => void;
   pauseToast: (id: number) => void;
@@ -288,6 +301,7 @@ const DEFAULT_CUSTOMIZATIONS: CustomizationSettings = {
   discoverColumns: 6,
   showPlaytimeBadge: true,
   showRatingBadge: true,
+  showShortcutHint: true,
 };
 
 function loadSavedCustomizations(): CustomizationSettings {
@@ -299,6 +313,8 @@ function loadSavedCustomizations(): CustomizationSettings {
       discoverColumns: [3, 4, 5, 6, 7].includes(parsed.discoverColumns) ? parsed.discoverColumns : 6,
       showPlaytimeBadge: typeof parsed.showPlaytimeBadge === "boolean" ? parsed.showPlaytimeBadge : true,
       showRatingBadge: typeof parsed.showRatingBadge === "boolean" ? parsed.showRatingBadge : true,
+      // Absent on rows saved before the hint existed: treat as not-yet-dismissed.
+      showShortcutHint: typeof parsed.showShortcutHint === "boolean" ? parsed.showShortcutHint : true,
     };
   } catch {
     return DEFAULT_CUSTOMIZATIONS;
@@ -1274,13 +1290,13 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
 
   // ── Toasts (queue) ─────────────────────────────────────────────
   toasts: [],
-  showToast: (message, type = "info", description, duration, action) => {
+  showToast: (message, type = "info", description, duration, actions) => {
     const id = ++toastIdCounter;
     const ms = duration ?? (type === "error" ? 6000 : type === "info" ? 3500 : 4000);
     // Toasts render as a single line of text, so the optional detail is folded
     // into the message here — once — instead of being a second line of copy.
     const text = description ? `${message} — ${description}` : message;
-    set((state) => ({ toasts: [...state.toasts, { id, message: text, type, duration: ms, action }] }));
+    set((state) => ({ toasts: [...state.toasts, { id, message: text, type, duration: ms, actions }] }));
     scheduleToastDismiss(id, ms, set);
   },
   dismissToast: (id) => {
