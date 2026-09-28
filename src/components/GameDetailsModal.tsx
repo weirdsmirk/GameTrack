@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useGameTrackStore } from "../store";
 import {
-  X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2, ChevronDown, Check
+  X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2, ChevronDown, Check, ExternalLink
 } from "lucide-react";
 import { formatPlaytimePrecise } from "../utils/time";
 import { motion, AnimatePresence } from "motion/react";
@@ -9,6 +9,43 @@ import { uploadPoster } from "../utils/image";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { STATUSES, getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms } from "../constants";
 import { PosterImage } from "./PosterImage";
+
+/**
+ * The status radio group's two states, keyed by status.
+ *
+ * The palette is the app's shared one — zinc / blue / emerald / fuchsia, the
+ * same four `getStatusBadgeColor` and `getStatusTextColor` use — rather than a
+ * local copy. The previous local map had drifted: it gave `playing` emerald and
+ * `completed` the brand accent, which is precisely what `constants.ts` warns
+ * against. Yellow there reads as "this is the button you have selected", not
+ * "you finished this game", and the two collided inside one four-button row.
+ *
+ * Every option carries its own colour in both states, dimmed when unselected.
+ * Only the selected one was tinted before, so the other three were identical
+ * grey boxes and the row said nothing about what those statuses look like
+ * everywhere else in the app.
+ */
+const NEUTRAL_STATUS_TONE = {
+  on: "bg-zinc-500/25 border-zinc-400 text-zinc-100",
+  off: "bg-zinc-900/60 border-zinc-700 text-zinc-400 hover:text-zinc-100 hover:border-zinc-400",
+};
+
+const STATUS_SELECTOR_TONES: Record<string, { on: string; off: string }> = {
+  backlog: NEUTRAL_STATUS_TONE,
+  playing: {
+    on: "bg-blue-500/20 border-blue-500/50 text-blue-400",
+    off: "bg-zinc-900/60 border-blue-500/25 text-blue-400/60 hover:text-blue-300 hover:border-blue-500/50",
+  },
+  completed: {
+    on: "bg-emerald-500/20 border-emerald-500/50 text-emerald-400",
+    off: "bg-zinc-900/60 border-emerald-500/25 text-emerald-400/60 hover:text-emerald-300 hover:border-emerald-500/50",
+  },
+  endless: {
+    on: "bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-400",
+    off: "bg-zinc-900/60 border-fuchsia-500/25 text-fuchsia-400/60 hover:text-fuchsia-300 hover:border-fuchsia-500/50",
+  },
+};
+
 export const GameDetailsModal: React.FC = React.memo(() => {
   const {
     selectedGame, setSelectedGame, updateGame, deleteGame,
@@ -475,6 +512,30 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   <Trophy className="w-3.5 h-3.5 text-zinc-950 stroke-[2.5]" />
                 </div>
               )}
+              {/* Steam store link, in the poster's bottom-right corner, revealed
+                  on hover. It belongs on the poster rather than in the title
+                  panel because it is a link to the artefact itself. Bottom
+                  right rather than top, so it sits clear of the trophy badge.
+
+                  Ghost rather than solid so it does not read as a second state
+                  badge beside the trophy — it is an action, and it fills on
+                  hover to say so.
+
+                  View mode only. The edit overlay owns the poster while
+                  metadata is being changed, and the title panel is already
+                  carrying Apply/Cancel at that point. */}
+              {!isEditing && selectedGame.steam_appid && (
+                <a
+                  href={`https://store.steampowered.com/app/${selectedGame.steam_appid}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`View ${selectedGame.title} on Steam`}
+                  aria-label={`View ${selectedGame.title} on Steam`}
+                  className="absolute bottom-2.5 right-2.5 z-10 w-8 h-8 bg-zinc-950/90 hover:bg-brand-accent text-brand-accent hover:text-brand-accent-ink border border-brand-accent/50 hover:border-brand-accent backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-200"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
               <PosterImage
                 src={posterUrl}
                 alt={selectedGame.title}
@@ -548,21 +609,10 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     CRITIC: {selectedGame.critic_score}
                   </span>
                 )}
-                {selectedGame.steam_appid && (
-                  <a
-                    href={`https://store.steampowered.com/app/${selectedGame.steam_appid}/`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-2 py-0.5 rounded-none text-[11px] font-sans font-black bg-zinc-900 border border-brand-border text-brand-accent hover:border-brand-accent hover:text-white transition-colors"
-                  >
-                    VIEW ON STEAM
-                  </a>
-                )}
               </div>
 
               {/* Status — full-width and clickable, sitting below the badge row
-                  (so it lands under VIEW ON STEAM) and opening the quick picker
-                  instead of the full edit form. */}
+                  and opening the quick picker instead of the full edit form. */}
               <button
                 type="button"
                 onClick={() => setStatusPickerOpen(true)}
@@ -821,12 +871,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="radiogroup" aria-labelledby="edit-game-status-label">
                   {STATUSES.map((s) => {
                     const active = editStatus === s.value;
-                    const activeStyles: Record<string, string> = {
-                      backlog: "bg-zinc-700/30 border-zinc-500 text-zinc-200",
-                      playing: "bg-emerald-500/20 border-emerald-500/50 text-emerald-400",
-                      completed: "bg-brand-accent/20 border-brand-accent/50 text-brand-accent",
-                      endless: "bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-400",
-                    };
+                    const tone = STATUS_SELECTOR_TONES[s.value] ?? NEUTRAL_STATUS_TONE;
                     return (
                       <button
                         key={s.value}
@@ -840,9 +885,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                           }
                         }}
                         className={`h-9 sm:h-10 px-3 rounded-none border text-[11px] font-black uppercase tracking-wider cursor-pointer transition-all flex items-center justify-center ${
-                          active
-                            ? activeStyles[s.value]
-                            : "bg-zinc-900/60 border-brand-border/50 text-brand-muted hover:text-white hover:border-brand-accent/40"
+                          active ? tone.on : tone.off
                         }`}
                       >
                         {s.label}

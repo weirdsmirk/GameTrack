@@ -353,6 +353,26 @@ export const LibraryView: React.FC = () => {
       {/* Filter and Search Bar */}
       <div className={`${showFilters ? "space-y-4" : ""}`}>
         <div className="flex flex-col sm:flex-row gap-3">
+          {/* Reset, leftmost and only while a filter is actually on. It used to
+              live as the last cell of the collapsible panel, which meant the
+              only way to reach it was to open the panel and scroll to its
+              bottom-right — for a control you press after deciding you want to
+              undo the filtering. Gated on `activeFiltersCount`, not on the
+              search text: the search field clears itself from its own X, so a
+              reset button that appears for a typed query would be a second way
+              to do something already one click away. */}
+          {activeFiltersCount > 0 && (
+            <button
+              type="button"
+              onClick={handleReset}
+              title={`Reset ${activeFiltersCount} active filter${activeFiltersCount === 1 ? "" : "s"}`}
+              className="px-4 py-2.5 bg-transparent border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-brand-muted hover:text-white hover:border-brand-accent/50 transition-all flex items-center justify-center gap-2 cursor-pointer select-none shrink-0 h-[38px]"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Reset</span>
+            </button>
+          )}
+
           {/* Search Input */}
           <div className="relative flex-1">
             <label htmlFor="library-search" className="sr-only">Search games</label>
@@ -425,7 +445,7 @@ export const LibraryView: React.FC = () => {
           style={{ height: showFilters ? filtersPanelHeight : 0 }}
           className="overflow-hidden transition-[height] duration-[160ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
         >
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {/* Status Selector */}
               <div className="relative">
                   <label htmlFor="filter-status" className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted mb-1">Status</label>
@@ -545,17 +565,6 @@ export const LibraryView: React.FC = () => {
                   >
                     <span className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 transition-all duration-200 ${filters.hideEndless ? "left-[22px] bg-brand-accent-ink" : "left-0.5 bg-brand-muted"}`} />
                   </span>
-                </button>
-              </div>
-
-              {/* Reset Filters button */}
-              <div className="flex flex-col justify-end">
-                <button
-                  onClick={handleReset}
-                  className="w-full py-2.5 bg-transparent border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-brand-muted hover:text-white transition-colors flex items-center justify-center gap-2 h-[38px] cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Reset Filters
                 </button>
               </div>
             </div>
