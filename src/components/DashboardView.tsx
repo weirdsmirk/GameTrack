@@ -263,7 +263,7 @@ export const DashboardView: React.FC = React.memo(() => {
           {activeGames.map((game) => (
             <div
               key={game.id}
-              className="bg-session-bg text-session-text px-8 sm:px-10 py-12 sm:py-14 lg:min-h-[280px] rounded-none flex flex-col sm:flex-row justify-between items-stretch gap-6 transition-all border-l-8 border-brand-accent select-none"
+              className="bg-session-bg text-session-text px-8 sm:px-10 py-12 sm:py-14 lg:min-h-[280px] rounded-none flex flex-col sm:flex-row justify-between items-stretch gap-6 transition-all select-none"
             >
               <div className="flex flex-col justify-between gap-4">
                 <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext">
@@ -297,7 +297,7 @@ export const DashboardView: React.FC = React.memo(() => {
           ))}
         </div>
       ) : (
-        <div className="bg-session-bg text-session-text px-8 sm:px-10 py-12 sm:py-14 lg:min-h-[280px] rounded-none flex flex-col sm:flex-row justify-between items-stretch gap-6 transition-all border-l-8 border-brand-accent select-none">
+        <div className="bg-session-bg text-session-text px-8 sm:px-10 py-12 sm:py-14 lg:min-h-[280px] rounded-none flex flex-col sm:flex-row justify-between items-stretch gap-6 transition-all select-none">
           <div className="flex flex-col justify-between gap-4">
             <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext">
               NO_ACTIVE_SESSION

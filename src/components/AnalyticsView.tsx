@@ -5,22 +5,68 @@ import {
 } from "recharts";
 import { STATUSES } from "../constants";
 import { formatPlaytimePrecise } from "../utils/time";
-const CustomTooltip = React.memo(({ active, payload, label }: { active?: boolean, payload?: { name: string, value: number | string }[], label?: string }) => {
-  if (active && payload && payload.length) {
+
+/** One rated title, reduced to the two fields the chart reasons about. */
+type RatedTitle = { hours: number; rating: number };
+
+/** One playtime bucket: where a group of titles sits on the rating scale. */
+type RatingBand = {
+  /** The bucket's own label, used verbatim as the axis tick. */
+  label: string;
+  avgRating: number;
+  count: number;
+  hours: number;
+};
+
+/**
+ * The playtime ladder — this is the "log axis", expressed as buckets.
+ *
+ * The requirement was that a 3-hour game and a 300-hour game stay legible in
+ * the same plot. A true log axis does that, but it has no meaning at zero, and
+ * a rated-but-never-launched game is a real title in this data, not an error.
+ * Bucketing gives the same even visual weight per order of magnitude with none
+ * of that: every rung is the same width on screen whether it spans 0-1 hours or
+ * 250-500, so the eye compares the ratings, not the distances. The ladder runs
+ * to 500+ because that is the tail that otherwise squashes everything else into
+ * the left margin.
+ */
+const PLAYTIME_BANDS: { label: string; min: number; max: number }[] = [
+  { label: "0-1", min: 0, max: 1 },
+  { label: "1-5", min: 1, max: 5 },
+  { label: "5-10", min: 5, max: 10 },
+  { label: "10-25", min: 10, max: 25 },
+  { label: "25-50", min: 25, max: 50 },
+  { label: "50-100", min: 50, max: 100 },
+  { label: "100-250", min: 100, max: 250 },
+  { label: "250-500", min: 250, max: 500 },
+  { label: "500+", min: 500, max: Infinity },
+];
+
+/** The band tooltip. Carries N as well as the average, because a band holding
+    one title is a far weaker claim than a band holding twelve, and an average
+    that hides its sample size is how a chart misleads. */
+const BandTooltip = React.memo(
+  ({ active, payload }: { active?: boolean; payload?: { payload: RatingBand }[] }) => {
+    const b = payload?.[0]?.payload;
+    if (!active || !b) return null;
     return (
-      <div className="bg-zinc-950 border border-brand-border p-3 text-[11px] uppercase tracking-widest shadow-xl">
-        <p className="font-bold text-white mb-1.5 border-b border-brand-border/40 pb-1">{label}</p>
-        {payload.map((pld: { name: string, value: number | string }) => (
-          <div key={pld.name} className="flex justify-between items-center gap-4 py-0.5">
-            <span className="text-brand-muted">{pld.name}:</span>
-            <span className="font-black text-brand-accent">{pld.value}</span>
-          </div>
-        ))}
+      <div className="bg-zinc-950 border border-brand-border px-3 py-2.5 text-[11px] uppercase tracking-wider shadow-xl whitespace-nowrap">
+        <p className="font-black text-white">{b.label} HRS</p>
+        <p className="mt-1.5 text-brand-muted">
+          Avg{" "}
+          <span className="font-black text-brand-accent">{b.avgRating.toFixed(1)}/5</span>
+        </p>
+        <p className="text-brand-muted">
+          N = <span className="font-black text-white">{b.count}</span>{" "}
+          {b.count === 1 ? "Title" : "Titles"}
+        </p>
+        <p className="text-brand-muted">
+          <span className="font-black text-white">{b.hours.toFixed(1)}</span> HRS Total
+        </p>
       </div>
     );
   }
-  return null;
-});
+);
 
 const STATUS_BAR_COLORS: Record<string, string> = {
   backlog: "var(--zinc-600-val)",
@@ -31,7 +77,7 @@ const STATUS_BAR_COLORS: Record<string, string> = {
 
 export const AnalyticsView: React.FC = React.memo(() => {
   const { 
-    games, genreAnalytics, summary, lastAnalyticsFetch, fetchAnalytics
+    games, summary, lastAnalyticsFetch, fetchAnalytics
   } = useGameTrackStore();
 
   useEffect(() => {
@@ -74,8 +120,50 @@ export const AnalyticsView: React.FC = React.memo(() => {
       .slice(0, 8);
   }, [games]);
 
-  // Single-accent series — one clean color story instead of a rainbow.
-  const genreData = genreAnalytics.slice(0, 7);
+  // ── Playtime vs rating ────────────────────────────────────────────
+  // Two filters, both about not lying to the reader:
+  //   - unrated titles have no Y, so they cannot contribute to an average;
+  //   - `hide_playtime` titles are excluded outright, because bucketing one
+  //     would republish the exact figure the user chose to hide — the same
+  //     reason the hour total and the most-played list drop them.
+  // The stored rating is an integer out of 10 (every other surface in the app
+  // prints `/10`), halved here to the 0-5 this chart reads in.
+  const ratedTitles = React.useMemo<RatedTitle[]>(() => {
+    return games
+      .filter((g) => (g.personal_rating ?? 0) > 0 && g.hide_playtime !== 1)
+      .map((g) => ({
+        hours: g.playtime || 0,
+        rating: (g.personal_rating as number) / 2,
+      }));
+  }, [games]);
+
+  // Bands with nothing in them are dropped rather than plotted as zero: a flat
+  // trough at 0 would read as "these playtimes were rated terribly" when it
+  // actually means "nobody has played anything in this bracket". Dropping also
+  // keeps the line continuous, since an empty bucket has no average to draw.
+  const ratingBands = React.useMemo<RatingBand[]>(() => {
+    return PLAYTIME_BANDS.reduce<RatingBand[]>((acc, band) => {
+      const inBand = ratedTitles.filter((g) => g.hours >= band.min && g.hours < band.max);
+      if (!inBand.length) return acc;
+      const sum = (pick: (g: RatedTitle) => number) =>
+        inBand.reduce((s, g) => s + pick(g), 0);
+      acc.push({
+        label: band.label,
+        avgRating: sum((g) => g.rating) / inBand.length,
+        count: inBand.length,
+        hours: sum((g) => g.hours),
+      });
+      return acc;
+    }, []);
+  }, [ratedTitles]);
+
+  // The populated span, for the chart's accessible name. Optional-chained
+  // because the list can be empty, which the label has its own branch for.
+  const bandSpan =
+    ratingBands.length > 0
+      ? `${ratingBands[0]?.label} to ${ratingBands[ratingBands.length - 1]?.label} hours`
+      : "";
+
 
   return (
     <div className="space-y-10">
@@ -113,20 +201,22 @@ export const AnalyticsView: React.FC = React.memo(() => {
           two-column sizes, where the one cell carrying a bar would otherwise
           stretch its row and knock the meta lines out of line. Every label
           reserves two lines (`min-h-[2lh]`) so the four figures share one
-          baseline however their labels wrap: at the narrowest four-column width
-          "Total Telemetry Hours" is the longest string in the row, and without
-          the reservation its figure drops a line below its neighbours. Same
-          vocabulary as the app — square corners, 1px brand-border, tracked
-          caps, black Inter figures, accent reserved for the one figure that is
-          a ratio. */}
+          baseline however their labels wrap — at the narrowest four-column width
+          a two-word label still folds on the tracked caps, and without the
+          reservation its figure drops a line below its neighbours. The labels
+          are held to two words so none of them can outrun its cell, and they
+          borrow the dashboard's vocabulary rather than inventing a second one
+          for the same two figures. Same language as the app — square corners,
+          1px brand-border, tracked caps, black Inter figures, accent reserved
+          for the one figure that is a ratio. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr gap-px bg-brand-border border border-brand-border">
         <div className="bg-brand-bg p-5 sm:p-6">
-          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted">Registry Titles</p>
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Registry Titles</p>
           <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none mt-4">{totalGames}</h3>
         </div>
 
         <div className="bg-brand-bg p-5 sm:p-6">
-          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted">Total Telemetry Hours</p>
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Total Playtime</p>
           <div className="flex items-baseline gap-2 mt-4">
             <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none">{Math.round(totalPlaytime)}</h3>
             <span className="text-sm sm:text-base font-black uppercase text-brand-muted">HRS</span>
@@ -134,7 +224,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
         </div>
 
         <div className="bg-brand-bg p-5 sm:p-6">
-          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted">Avg Unit Duration</p>
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Avg Playtime</p>
           <div className="flex items-baseline gap-2 mt-4">
             <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none">{avgPlaytime}</h3>
             <span className="text-sm sm:text-base font-black uppercase text-brand-muted">HRS/GAME</span>
@@ -142,7 +232,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
         </div>
 
         <div className="bg-brand-bg p-5 sm:p-6">
-          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted">Completion Rate</p>
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Completion Rate</p>
           <div className="flex items-baseline justify-between gap-3 mt-4">
             <h3 className="text-4xl sm:text-5xl font-black text-brand-accent font-sans tracking-tighter leading-none">{completionRate}%</h3>
             <span className="text-xs sm:text-sm text-brand-muted uppercase shrink-0">
@@ -155,67 +245,77 @@ export const AnalyticsView: React.FC = React.memo(() => {
         </div>
       </div>
 
-      {/* Row 1: Genres (wide) + Status Distribution (narrow) */}
+      {/* Row 1: Playtime vs Rating (wide) + Status Distribution (narrow) */}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
 
-        {/* Genre distribution Area chart */}
+        {/* Playtime vs rating. Replaces the genre area chart, which was summing
+            each game's hours once per genre tag it carried — a title in two
+            genres counted its full playtime twice, so the plotted total came to
+            more than the library's actual hours. Bucketing by playtime has no
+            such arithmetic: every hour is counted once, in exactly one band. */}
         <div className="xl:col-span-3 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
-          <div className="flex items-center gap-2">
-            <h3 className="text-xs font-black uppercase tracking-widest text-white">Genre Telemetry Share</h3>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs font-black uppercase tracking-widest text-white">Playtime vs Rating</h3>
+            <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-brand-muted">
+              N = {ratedTitles.length} Rated Titles
+            </span>
           </div>
           <div
             className="h-72 w-full pt-4"
             role="img"
             aria-label={
-              genreAnalytics.length === 0
-                ? "Genre chart: no data"
-                : `Genre chart by playtime: ${genreData.map((g) => `${g.genre} ${Math.round(g.total_playtime || 0)} hours`).join(", ")}`
+              ratingBands.length === 0
+                ? "Playtime versus rating: no rated titles to plot"
+                : `Area chart of average personal rating by playtime band, across ${ratingBands.length} populated bands covering ${ratedTitles.length} rated titles. Bands run left to right from ${bandSpan}; personal rating out of 5 runs bottom to top.`
             }
           >
-            {genreData.length === 0 ? (
+            {ratingBands.length === 0 ? (
               <div className="w-full h-full flex items-center justify-center border border-brand-border/30 bg-zinc-950/20 text-xs uppercase text-brand-muted">
-                No genre metrics registry
+                No rated titles to plot
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={genreData} margin={{ top: 14, right: 14, left: -4, bottom: 0 }}>
+                <AreaChart data={ratingBands} margin={{ top: 14, right: 14, left: -4, bottom: 0 }}>
                   <defs>
                     {/* Vertical fade: luminous at the line, dissolving into the background */}
-                    <linearGradient id="genreAreaFill" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="ratingAreaFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="var(--brand-accent)" stopOpacity={0.28} />
                       <stop offset="70%" stopColor="var(--brand-accent)" stopOpacity={0.05} />
                       <stop offset="100%" stopColor="var(--brand-accent)" stopOpacity={0} />
                     </linearGradient>
                     {/* Soft bloom behind the line */}
-                    <filter id="genreGlow" x="-20%" y="-20%" width="140%" height="140%">
+                    <filter id="ratingGlow" x="-20%" y="-20%" width="140%" height="140%">
                       <feDropShadow dx="0" dy="0" stdDeviation="8" floodColor="var(--brand-accent)" floodOpacity="0.35" />
                     </filter>
                   </defs>
                   <CartesianGrid vertical={false} stroke="var(--brand-border)" strokeOpacity={0.35} strokeDasharray="3 6" />
-                  <XAxis 
-                    dataKey="genre" 
-                    stroke="var(--zinc-600-val)" 
+                  <XAxis
+                    dataKey="label"
+                    stroke="var(--zinc-600-val)"
                     tickLine={false}
                     axisLine={{ stroke: "var(--brand-border)", strokeOpacity: 0.5 }}
                     tickMargin={10}
-                    tick={{ fill: "var(--brand-muted)", fontSize: 9, fontFamily: "var(--font-sans)", letterSpacing: "0.08em" }} 
+                    tick={{ fill: "var(--brand-muted)", fontSize: 9, fontFamily: "var(--font-sans)", letterSpacing: "0.08em" }}
                   />
-                  <YAxis 
-                    stroke="var(--zinc-600-val)" 
+                  <YAxis
+                    domain={[0, 5]}
+                    ticks={[0, 1, 2, 3, 4, 5]}
+                    allowDecimals={false}
+                    stroke="var(--zinc-600-val)"
                     tickLine={false}
                     axisLine={false}
                     tickMargin={6}
                     tick={{ fill: "var(--brand-muted)", fontSize: 9, fontFamily: "var(--font-sans)" }}
                   />
-                  <Tooltip content={<CustomTooltip />} cursor={{ stroke: "var(--brand-accent)", strokeOpacity: 0.35, strokeWidth: 1 }} />
+                  <Tooltip content={<BandTooltip />} cursor={{ stroke: "var(--brand-accent)", strokeOpacity: 0.35, strokeWidth: 1 }} />
                   <Area
                     type="monotone"
-                    dataKey="total_playtime"
-                    name="PLAYTIME HOURS"
+                    dataKey="avgRating"
+                    name="AVG RATING"
                     stroke="var(--brand-accent)"
                     strokeWidth={2.5}
-                    fill="url(#genreAreaFill)"
-                    filter="url(#genreGlow)"
+                    fill="url(#ratingAreaFill)"
+                    filter="url(#ratingGlow)"
                     dot={{ fill: "var(--brand-bg)", stroke: "var(--brand-accent)", strokeWidth: 2, r: 3.5 }}
                     activeDot={{ fill: "var(--brand-accent)", stroke: "var(--brand-bg)", strokeWidth: 2, r: 5.5 }}
                   />
