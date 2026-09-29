@@ -33,6 +33,14 @@ export const Toast: React.FC = () => {
             onClick={() => dismissToast(toast.id)}
             onMouseEnter={() => pauseToast(toast.id)}
             onMouseLeave={() => resumeToast(toast.id)}
+            /* Pausing on hover *and* on focus. Hover-only pausing is a WCAG 2.2.1
+               failure: an error toast can carry the only description of what just
+               went wrong, and a keyboard or screen-reader user cannot hover, so it
+               expired underneath them before they finished reading it. onFocus
+               uses the capture phase because focus can land here without the
+               element itself first receiving a bubbled focus event. */
+            onFocusCapture={() => pauseToast(toast.id)}
+            onBlurCapture={() => resumeToast(toast.id)}
             role={toast.type === "error" ? "alert" : "status"}
             aria-live={toast.type === "error" ? "assertive" : "polite"}
             className={`pointer-events-auto will-change-transform overflow-hidden cursor-pointer select-none w-[calc(100vw-3rem)] sm:w-auto sm:max-w-[340px] ${TYPE_STYLES[toast.type]}`}

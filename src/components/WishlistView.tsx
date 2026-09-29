@@ -462,26 +462,16 @@ const WishlistItemCard = React.memo<WishlistItemCardProps>(({
   item, alreadyInLibrary, owning, showRating = true, onOwn, onRemove,
   selectMode = false, selected = false, onToggleSelect,
 }) => {
-  const handleCardClick = () => {
-    if (selectMode) {
-      onToggleSelect?.(item.id);
-    }
-  };
-
   return (
-    <div
-      onClick={handleCardClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          handleCardClick();
-        }
-      }}
-      tabIndex={0}
-      role="button"
-      aria-pressed={selectMode ? selected : undefined}
-      aria-label={`${selectMode ? (selected ? "Deselect " : "Select ") : ""}${item.title}`}
-      className={`group bg-zinc-950 border rounded-none overflow-hidden transition-all duration-200 flex flex-col justify-between focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2 ${
+    /* In browse mode (selectMode off) the card does nothing at all — it has no
+       click target, no detail view, no selection. The old markup still gave it
+       role="button", tabIndex=0 and an onKeyDown, so a keyboard user tabbed
+       through a list of controls that silently did nothing: a focusable element
+       that is not a control. Outside select mode this is now a plain
+       <article>; in select mode it becomes a real checkbox input, which brings
+       Space and Enter handling for free and reports its state natively. */
+    <article
+      className={`group bg-zinc-950 border rounded-none overflow-hidden transition-all duration-200 flex flex-col justify-between focus-within:outline-none focus-within:ring-2 focus-within:ring-brand-accent focus-within:ring-offset-2 focus-within:ring-offset-brand-bg ${
         selectMode
           ? (selected
               ? "border-brand-accent ring-2 ring-brand-accent/50 bg-brand-accent/[0.04] cursor-pointer"
@@ -490,19 +480,37 @@ const WishlistItemCard = React.memo<WishlistItemCardProps>(({
       }`}
     >
       <div className="aspect-[2/3] relative overflow-hidden border-b border-brand-border">
-        {/* Checkbox indicator in select mode */}
+        {/* Select-mode affordance. The visible tick box is aria-hidden
+            decoration; the real control is the transparent <input> stretched
+            over the whole card, so the entire poster is the hit target (a
+            <label> can only wrap one control and would have to sit on the
+            inner box instead). opacity-0 rather than sr-only so the input still
+            receives clicks anywhere on the card, and focus-within on the
+            wrapper draws the ring — otherwise tabbing to a card in select mode
+            moved an invisible focus. Space and Enter come free with a native
+            checkbox; the old div-level onKeyDown had to implement them and
+            swallowed the ones belonging to the Own/Remove buttons. */}
         {selectMode && (
-          <div className="absolute top-2.5 left-2.5 z-20">
-            <div
-              className={`w-6 h-6 border rounded-none flex items-center justify-center transition-all ${
-                selected
-                  ? "bg-brand-accent text-brand-accent-ink border-brand-accent shadow-md"
-                  : "bg-zinc-950/80 border-zinc-400/60 text-transparent hover:border-brand-accent"
-              }`}
-            >
-              {selected && <Check className="w-4 h-4 stroke-[3]" />}
+          <>
+            <div aria-hidden="true" className="absolute top-2.5 left-2.5 z-20 pointer-events-none">
+              <div
+                className={`w-6 h-6 border rounded-none flex items-center justify-center transition-all ${
+                  selected
+                    ? "bg-brand-accent text-brand-accent-ink border-brand-accent shadow-md"
+                    : "bg-zinc-950/80 border-zinc-400/60 text-transparent hover:border-brand-accent"
+                }`}
+              >
+                {selected && <Check className="w-4 h-4 stroke-[3]" />}
+              </div>
             </div>
-          </div>
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleSelect?.(item.id)}
+              aria-label={`${selected ? "Deselect" : "Select"} ${item.title}`}
+              className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 focus:outline-none"
+            />
+          </>
         )}
 
         <PosterImage
@@ -564,7 +572,7 @@ const WishlistItemCard = React.memo<WishlistItemCardProps>(({
           {item.year ? `${item.year} // ` : ""}{(item.genres || []).slice(0, 1).join(" • ") || "Unknown Genre"}
         </p>
       </div>
-    </div>
+      </article>
   );
 });
 WishlistItemCard.displayName = "WishlistItemCard";

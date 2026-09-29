@@ -19,9 +19,30 @@ export function useModalA11y(open: boolean) {
     const panel = ref.current;
     const prevFocus = document.activeElement as HTMLElement | null;
 
+    /* Filtered for actual visibility, not just for not being `disabled`.
+       The selector alone returned hidden elements, and the trap then computed
+       its first/last stops from them: the Discover "Add to library" overlay is
+       `opacity-0 invisible` until hover, and the Wishlist hover overlay the
+       same, so both sat at the ends of the focus list. Tabbing forward from
+       the last *real* control wrapped to an invisible one — focus went
+       somewhere the user could not see, and Tab from there had to walk the
+       hidden elements back out before reaching anything on screen. */
+    const isVisible = (el: HTMLElement): boolean => {
+      // offsetParent is null for display:none subtrees; the rect check covers
+      // the visibility/opacity/zero-size cases the class names express.
+      // checkVisibility() would be tidier but is not in every target browser.
+      if (el.hasAttribute("disabled") || el.getAttribute("aria-hidden") === "true") return false;
+      if (el.closest('[aria-hidden="true"]')) return false;
+      if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
+      const style = getComputedStyle(el);
+      if (style.visibility === "hidden" || style.display === "none") return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 || rect.height > 0 || el === document.activeElement;
+    };
+
     const getFocusables = () =>
       panel
-        ? Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+        ? Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(isVisible)
         : [];
 
     // Move focus into the dialog (first focusable, or the panel itself so

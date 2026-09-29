@@ -810,27 +810,17 @@ const DiscoverGameCard = React.memo<{
   onAddGame: (game: IGDBGame) => void;
   onAddWishlist: (game: IGDBGame) => void;
 }>(({ game, inLibrary, wishlisted, showRating = true, onClick, onAddGame, onAddWishlist }) => {
-  // A click that started on one of the card's own buttons belongs to that
-  // button. The pointer path is safe already — they stopPropagation — but the
-  // keydown on the root still fires, so activating the wishlist heart with the
-  // keyboard would toggle the wishlist and open the details modal at once.
-  const handleCardClick = (e: React.MouseEvent | React.KeyboardEvent) => {
-    if ((e.target as HTMLElement).closest("button")) return;
-    onClick(game);
-  };
   return (
+    /* The card container is a plain div, not role="button". A role="button"
+       makes every descendant presentational and ARIA forbids interactive
+       content inside it, so nesting the wishlist heart and the Add button in
+       one was invalid: assistive tech could neither reach them nor announce the
+       critic score. Instead the whole card is clickable through a single
+       "stretched" real button that sits *under* the two action buttons, which
+       get a higher z-index. One focusable control, correct semantics, and the
+       same pointer behaviour. */
     <div
-      onClick={handleCardClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          handleCardClick(e);
-        }
-      }}
-      tabIndex={0}
-      role="button"
-      aria-label={`View details for ${game.title}`}
-      className="w-full group cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:outline-offset-2"
+      className="w-full group cursor-pointer"
       data-card
     >
       <div className="relative aspect-[2/3] overflow-hidden bg-zinc-950 border border-brand-border group-hover:border-brand-accent/40 transition-colors">
@@ -850,10 +840,7 @@ const DiscoverGameCard = React.memo<{
         ) : (
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAddWishlist(game);
-            }}
+            onClick={() => onAddWishlist(game)}
             title={wishlisted ? "Remove from wishlist" : "Add to wishlist"}
             aria-label={wishlisted ? "Remove from wishlist" : "Add to wishlist"}
             className={`absolute top-2 right-2 w-6 h-6 border flex items-center justify-center cursor-pointer transition-colors shadow-sm z-10 ${
@@ -865,14 +852,28 @@ const DiscoverGameCard = React.memo<{
             <Heart className={`w-3.5 h-3.5 ${wishlisted ? "fill-brand-accent-ink stroke-brand-accent-ink" : ""}`} />
           </button>
         )}
+        {/* The stretched "view details" button. It covers the whole poster so
+            the card is clickable and keyboard-reachable in one control, and sits
+            below the two action buttons (z-10 / z-20) in the stacking order, so
+            those keep their own hit area. Its accessible name names the game,
+            since the visual title is outside the button. */}
+        <button
+          type="button"
+          onClick={() => onClick(game)}
+          aria-label={`View details for ${game.title}`}
+          className="absolute inset-0 z-[1] cursor-pointer focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent focus-visible:-outline-offset-2"
+        />
         {!inLibrary && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[1px] opacity-0 invisible group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible transition-all duration-200 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto">
+          /* `[@media(hover:none)]` — the overlay is hover-revealed, and a touch
+             device has no hover state, so "Add to library" was literally
+             unreachable: the primary action on the whole Discover page. On a
+             hoverless pointer the overlay is always shown. Combined with
+             group-focus-within above, it also stays visible while the Add button
+             or the card itself holds keyboard focus. */
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 backdrop-blur-[1px] opacity-0 invisible group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible [@media(hover:none)]:opacity-100 [@media(hover:none)]:visible transition-all duration-200 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto [@media(hover:none)]:pointer-events-auto">
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAddGame(game);
-              }}
+              onClick={() => onAddGame(game)}
               title="Add to library"
               aria-label={`Add ${game.title} to library`}
               className="w-11 h-11 bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink border border-brand-accent shadow-2xl flex items-center justify-center cursor-pointer transform scale-75 group-hover:scale-100 transition-all duration-200"
@@ -882,7 +883,15 @@ const DiscoverGameCard = React.memo<{
           </div>
         )}
         {showRating && game.critic_score != null && (
-          <div className="absolute bottom-2 right-2 bg-zinc-950/90 backdrop-blur-sm px-1.5 py-0.5 text-[10px] font-black text-brand-accent border border-brand-border shadow-sm">
+          /* Metacritic score. Below the stretched button's z-[1] on purpose, so
+             the badge cannot swallow clicks meant for "view details". It is
+             aria-hidden because the stretched button's label already names the
+             game and adding a bare number to a button's content is noise; the
+             score is still rendered visually and read from the details modal. */
+          <div
+            aria-hidden="true"
+            className="absolute bottom-2 right-2 z-[2] pointer-events-none bg-zinc-950/90 backdrop-blur-sm px-1.5 py-0.5 text-[10px] font-black text-brand-accent border border-brand-border shadow-sm"
+          >
             {game.critic_score}
           </div>
         )}
