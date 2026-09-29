@@ -428,14 +428,23 @@ export const AnalyticsView: React.FC = React.memo(() => {
           black Inter figures, accent reserved for the one figure that is a
           ratio.
 
+          The figures run one step up the scale from a typical body display size
+          (5xl/7xl → 6xl/8xl) with the cell padding and the label size lifted to
+          match. This is the page's opening line and the only place all four
+          headline numbers appear together, so it is sized to be read at a glance
+          from across the grid rather than inspected cell by cell. Completion
+          Rate sits a step below the other three because its `%` makes it the
+          widest figure at this size, and a percentage that is scaled to match a
+          bare number stops being comparable to it.
+
           One figure per question, so the strip answers four different things:
           how big the library is, how much of it has actually been played, what
           the owner thinks of it, and how much is finished. The two it replaced
           were both about hours, which made them half-sayings of one fact. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr gap-px bg-brand-border border border-brand-border">
-        <div className="bg-brand-bg p-5 sm:p-6">
-          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Registry Titles</p>
-          <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none mt-4">{totalGames}</h3>
+        <div className="bg-brand-bg p-6 sm:p-8">
+          <p className="text-[11px] sm:text-xs font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Registry Titles</p>
+          <h3 className="text-6xl sm:text-8xl font-black text-white font-sans tracking-tighter leading-none mt-5">{totalGames}</h3>
         </div>
 
         {/* Engagement as breadth, not volume. Counted on the same
@@ -443,11 +452,11 @@ export const AnalyticsView: React.FC = React.memo(() => {
             disagree with the "N of M played" line under Most Played. The "of"
             is the point: the gap between the two figures is the untouched
             library, which is the thing this metric exists to expose. */}
-        <div className="bg-brand-bg p-5 sm:p-6">
-          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Played Titles</p>
-          <div className="flex items-baseline justify-between gap-3 mt-4">
-            <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none">{playtime.playedCount}</h3>
-            <span className="text-xs sm:text-sm text-brand-muted uppercase shrink-0">
+        <div className="bg-brand-bg p-6 sm:p-8">
+          <p className="text-[11px] sm:text-xs font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Played Titles</p>
+          <div className="flex items-baseline justify-between gap-3 mt-5">
+            <h3 className="text-6xl sm:text-8xl font-black text-white font-sans tracking-tighter leading-none">{playtime.playedCount}</h3>
+            <span className="text-sm sm:text-base text-brand-muted uppercase shrink-0">
               <span className="text-white font-bold">{totalGames}</span> total
             </span>
           </div>
@@ -457,25 +466,25 @@ export const AnalyticsView: React.FC = React.memo(() => {
             Distribution below, so the figure here and the histogram there can
             never average different sets. An em dash rather than 0.0 when nothing
             is rated: a zero would be a claim about taste, not an absence of it. */}
-        <div className="bg-brand-bg p-5 sm:p-6">
-          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Avg Rating</p>
-          <div className="flex items-baseline gap-2 mt-4">
-            <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none">
+        <div className="bg-brand-bg p-6 sm:p-8">
+          <p className="text-[11px] sm:text-xs font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Avg Rating</p>
+          <div className="flex items-baseline gap-2 mt-5">
+            <h3 className="text-6xl sm:text-8xl font-black text-white font-sans tracking-tighter leading-none">
               {ratings.average === null ? "—" : ratings.average.toFixed(1)}
             </h3>
-            <span className="text-sm sm:text-base font-black uppercase text-brand-muted">/10</span>
+            <span className="text-base sm:text-lg font-black uppercase text-brand-muted">/10</span>
           </div>
         </div>
 
-        <div className="bg-brand-bg p-5 sm:p-6">
-          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Completion Rate</p>
-          <div className="flex items-baseline justify-between gap-3 mt-4">
-            <h3 className="text-4xl sm:text-5xl font-black text-brand-accent font-sans tracking-tighter leading-none">{completionRate}%</h3>
-            <span className="text-xs sm:text-sm text-brand-muted uppercase shrink-0">
+        <div className="bg-brand-bg p-6 sm:p-8">
+          <p className="text-[11px] sm:text-xs font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Completion Rate</p>
+          <div className="flex items-baseline justify-between gap-3 mt-5">
+            <h3 className="text-5xl sm:text-7xl font-black text-brand-accent font-sans tracking-tighter leading-none">{completionRate}%</h3>
+            <span className="text-sm sm:text-base text-brand-muted uppercase shrink-0">
               <span className="text-white font-bold">{completedGames}</span> / {totalGames}
             </span>
           </div>
-          <div className="h-1 bg-zinc-900 mt-4">
+          <div className="h-1.5 bg-zinc-900 mt-5">
             <div className="h-full bg-brand-accent" style={{ width: `${completionRate}%` }} />
           </div>
         </div>

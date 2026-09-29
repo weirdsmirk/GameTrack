@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useGameTrackStore } from "../store";
 import {
-  X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2, ChevronDown, Check, ExternalLink
+  X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2, ChevronDown, Check
 } from "lucide-react";
 import { formatPlaytimePrecise } from "../utils/time";
 import { motion, AnimatePresence } from "motion/react";
@@ -533,30 +533,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 <div className="absolute top-2.5 left-2.5 bg-brand-accent text-zinc-950 p-1.5 z-10 shadow-lg border border-brand-accent">
                   <Trophy className="w-3.5 h-3.5 text-zinc-950 stroke-[2.5]" />
                 </div>
-              )}
-              {/* Steam store link, in the poster's bottom-right corner, revealed
-                  on hover. It belongs on the poster rather than in the title
-                  panel because it is a link to the artefact itself. Bottom
-                  right rather than top, so it sits clear of the trophy badge.
-
-                  Ghost rather than solid so it does not read as a second state
-                  badge beside the trophy — it is an action, and it fills on
-                  hover to say so.
-
-                  View mode only. The edit overlay owns the poster while
-                  metadata is being changed, and the title panel is already
-                  carrying Apply/Cancel at that point. */}
-              {!isEditing && selectedGame.steam_appid && (
-                <a
-                  href={`https://store.steampowered.com/app/${selectedGame.steam_appid}/`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={`View ${selectedGame.title} on Steam`}
-                  aria-label={`View ${selectedGame.title} on Steam`}
-                  className="absolute bottom-2.5 right-2.5 z-10 w-8 h-8 bg-zinc-950/90 hover:bg-brand-accent text-brand-accent hover:text-brand-accent-ink border border-brand-accent/50 hover:border-brand-accent backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-200"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
               )}
               <PosterImage
                 src={posterUrl}
