@@ -95,6 +95,14 @@ function parseWishlistItem(row: unknown): WishlistItem | null {
 // ── Zod validation schemas ────────────────────────────────────────
 const VALID_STATUSES = ["backlog", "playing", "completed", "endless"] as const;
 
+/**
+ * Upper bound for any accepted epoch-millisecond timestamp. A real clock cannot
+ * be past 2100, so this is the "definitely not a real timestamp" line rather
+ * than a prediction. Guards the date columns against values that would render
+ * as a nonsense date or poison an ORDER BY.
+ */
+const MAX_TIMESTAMP_MS = 4102444800000; // 2100-01-01T00:00:00Z
+
 const GameSchema = z.object({
   title: z.string().trim().min(1).max(300),
   status: z.enum(VALID_STATUSES).default("backlog"),
@@ -102,17 +110,32 @@ const GameSchema = z.object({
   igdb_id: z.number().int().nullable().optional(),
   genres: z.array(z.string().max(100)).max(50).optional().default([]),
   synopsis: z.string().max(10_000).optional().default(""),
-  poster_url: z.string().max(2000).refine(val => val === "" || val.startsWith("http://") || val.startsWith("https://") || val.startsWith("/"), {
-    message: "Must be an http(s) URL or a local poster path"
-  }).optional().default(""),
+  // Note the explicit `!val.startsWith("//")`: a bare `startsWith("/")` also
+  // matches protocol-relative URLs, so "//evil.example/beacon.png" was accepted
+  // and stored. The client renders this straight into an <img src>, so a hostile
+  // import file turned into a request to an attacker-chosen host. Production CSP
+  // img-src blocks it, but dev mode serves no CSP at all.
+  poster_url: z.string().max(2000).refine(
+    val => val === ""
+      || val.startsWith("http://")
+      || val.startsWith("https://")
+      || (val.startsWith("/") && !val.startsWith("//")),
+    { message: "Must be an http(s) URL or a local poster path" }
+  ).optional().default(""),
   critic_score: z.number().int().min(0).max(100).nullable().optional(),
   owned_platforms: z.array(z.string().max(100)).max(50).optional().default([]),
   playtime: z.number().min(0).max(100_000).optional().default(0),
   personal_rating: z.number().int().min(0).max(10).nullable().optional(),
-  date_added: z.number().optional(),
-  date_completed: z.number().nullable().optional(),
-  created_at: z.number().optional(),
-  updated_at: z.number().optional(),
+  /* Epoch-millisecond timestamps. Bounded at both ends on purpose: a bare
+     `z.number()` accepted -1, so an import could persist a date before 1970 that
+     later renders as a nonsense "01/01/70" in the date column and sorts to the
+     top of every "recently added" query. The upper bound is a year past the
+     maximum `year` a game can have, which is generous for clock skew while
+     still rejecting values that no real export would carry. */
+  date_added: z.number().int().min(0).max(MAX_TIMESTAMP_MS).optional(),
+  date_completed: z.number().int().min(0).max(MAX_TIMESTAMP_MS).nullable().optional(),
+  created_at: z.number().int().min(0).max(MAX_TIMESTAMP_MS).optional(),
+  updated_at: z.number().int().min(0).max(MAX_TIMESTAMP_MS).optional(),
   hide_playtime: z.number().int().min(0).max(1).optional(),
   steam_appid: z.number().int().nullable().optional(),
   custom_order: z.number().int().min(0).nullable().optional(),
@@ -130,9 +153,18 @@ const WishlistSchema = z.object({
   igdb_id: z.number().int().nullable().optional(),
   genres: z.array(z.string().max(100)).max(50).optional().default([]),
   synopsis: z.string().max(10_000).optional().default(""),
-  poster_url: z.string().max(2000).refine(val => val === "" || val.startsWith("http://") || val.startsWith("https://") || val.startsWith("/"), {
-    message: "Must be an http(s) URL or a local poster path"
-  }).optional().default(""),
+  // Note the explicit `!val.startsWith("//")`: a bare `startsWith("/")` also
+  // matches protocol-relative URLs, so "//evil.example/beacon.png" was accepted
+  // and stored. The client renders this straight into an <img src>, so a hostile
+  // import file turned into a request to an attacker-chosen host. Production CSP
+  // img-src blocks it, but dev mode serves no CSP at all.
+  poster_url: z.string().max(2000).refine(
+    val => val === ""
+      || val.startsWith("http://")
+      || val.startsWith("https://")
+      || (val.startsWith("/") && !val.startsWith("//")),
+    { message: "Must be an http(s) URL or a local poster path" }
+  ).optional().default(""),
   critic_score: z.number().int().min(0).max(100).nullable().optional(),
   owned_platforms: z.array(z.string().max(100)).max(50).optional().default([]),
 });
@@ -379,6 +411,13 @@ apiRouter.put("/games/:id", (req: Request, res: Response) => {
     if (sent("status") && nextStatus === "completed" && existing.status !== "completed" && !nextDateCompleted) {
       nextDateCompleted = now; // entering completed — stamp the completion date
     }
+    // `date_completed` is deliberately NOT cleared when a title leaves
+    // "completed": it is a historical record of when the game was finished, so
+    // re-opening a game and completing it again keeps the original date rather
+    // than inflating the completion history. The consequence — a row that is
+    // no longer completed still carries a date — is handled at the read sites,
+    // which all require `status === "completed"` before counting a completion
+    // (see AnalyticsView.completedMonths and the "Completed This Month" panel).
 
     // Any edit to the metadata fields marks the row as user-customized, so the
     // next Steam sync preserves it instead of reverting it to IGDB defaults.
@@ -480,6 +519,73 @@ apiRouter.post("/games/:id/reset-metadata", async (req: Request, res: Response) 
     res.json(parseGame(stmts.getGameById.get(gameId)));
   } catch (err) {
     respondIgdbFailure(err, res, "Failed to reset metadata");
+  }
+});
+
+// POST /api/games/:id/reset-poster — restore just the poster to the default
+// artwork (Steam CDN for Steam-owned rows, IGDB cover for linked rows, blank
+// otherwise) and hand the row back to the automatic metadata pipeline.
+//
+// This exists instead of a client-side PUT because the PUT handler deliberately
+// *preserves* metadata_custom when a caller sends `metadata_custom: 0` (that
+// flag is the "the user hand-edited this" opt-out for internal refreshes).
+// The client used to reset the poster by PUTting the poster URL directly, which
+// the PUT handler read as a user edit: the row was permanently marked as
+// hand-customized, so the next Steam sync refused to touch it and a later reset
+// to defaults could never take hold. A reset has to be able to clear the flag,
+// and only the server knows the canonical poster URL — the client was
+// re-templating Valve's CDN path by hand and would silently drift from
+// server/steam.ts if either side changed.
+apiRouter.post("/games/:id/reset-poster", async (req: Request, res: Response) => {
+  try {
+    const paramParsed = IdParamSchema.safeParse(req.params);
+    if (!paramParsed.success) return res.status(400).json({ error: "Invalid game ID" });
+    const gameId = paramParsed.data.id;
+
+    const existing = stmts.getGameById.get(gameId) as GameRow | undefined;
+    if (!existing) return res.status(404).json({ error: "Game not found" });
+
+    // A row with no provider link has no default artwork to restore; blank it
+    // so the UI falls back to the built-in cover, which is what "reset" means.
+    let poster = "";
+    if (existing.steam_appid != null) {
+      poster = getSteamPosterImage(existing.steam_appid);
+    } else if (existing.igdb_id != null) {
+      const data = await cachedFetchFromIgdb(
+        "games",
+        `fields cover.image_id; where id = ${existing.igdb_id};`,
+        60 * 60 * 1000
+      );
+      if (!Array.isArray(data) || data.length === 0) {
+        return res.status(404).json({ error: "Game not found on IGDB" });
+      }
+      poster = mapIgdbGame(data[0]).poster_url || "";
+    }
+
+    stmts.updateGame.run({
+      title: existing.title,
+      year: existing.year,
+      igdb_id: existing.igdb_id,
+      genres: existing.genres,
+      synopsis: existing.synopsis,
+      poster_url: poster,
+      critic_score: existing.critic_score,
+      owned_platforms: existing.owned_platforms,
+      status: existing.status,
+      playtime: existing.playtime,
+      personal_rating: existing.personal_rating,
+      date_added: existing.date_added,
+      date_completed: existing.date_completed,
+      hide_playtime: existing.hide_playtime,
+      steam_appid: existing.steam_appid,
+      custom_order: existing.custom_order,
+      metadata_custom: 0,
+      updated_at: Date.now(),
+      id: existing.id,
+    });
+    res.json(parseGame(stmts.getGameById.get(gameId)));
+  } catch (err) {
+    respondIgdbFailure(err, res, "Failed to reset poster");
   }
 });
 
@@ -593,16 +699,34 @@ apiRouter.post("/import", (req: Request, res: Response) => {
     }
     const seenInBatch = new Set<string>();
 
+    /**
+     * A row is a duplicate if ANY of its keys is already claimed — not just the
+     * first one present. This used to return on the first non-null key, so a row
+     * carrying a *new* igdb_id alongside an *existing* steam_appid sailed past
+     * the check and then tripped the partial unique index on steam_appid inside
+     * the insert. That aborted the entire transaction, so one bad row silently
+     * discarded the whole batch and the caller got a 500 that looked like a
+     * server crash. The keys are independent unique constraints in the schema, so
+     * they have to be checked independently here.
+     */
     const isDuplicate = (data: z.infer<typeof GameSchema>) => {
-      if (data.igdb_id != null) {
-        return existingByIgdb.has(data.igdb_id) || seenInBatch.has(`i:${data.igdb_id}`);
+      if (data.igdb_id != null && (existingByIgdb.has(data.igdb_id) || seenInBatch.has(`i:${data.igdb_id}`))) {
+        return true;
       }
-      if (data.steam_appid != null) {
-        return existingBySteam.has(data.steam_appid) || seenInBatch.has(`s:${data.steam_appid}`);
+      if (data.steam_appid != null && (existingBySteam.has(data.steam_appid) || seenInBatch.has(`s:${data.steam_appid}`))) {
+        return true;
       }
       const titleKey = data.title.toLowerCase();
       return existingByTitle.has(titleKey) || seenInBatch.has(`t:${titleKey}`);
     };
+
+    /* Declared as its own transaction so better-sqlite3 compiles it to a
+       SAVEPOINT when called from inside `insertMany`. That is what makes a
+       single rejected row survivable: the rollback unwinds to the start of that
+       row, not to the start of the batch. */
+    const insertOne = db.transaction((row: Record<string, unknown>) => {
+      stmts.insertGame.run(row);
+    });
 
     const insertMany = db.transaction((items: any[]) => {
       for (const row of items) {
@@ -617,28 +741,46 @@ apiRouter.post("/import", (req: Request, res: Response) => {
         seenInBatch.add(`t:${data.title.toLowerCase()}`);
 
         const now = Date.now();
-        stmts.insertGame.run({
-          title: data.title,
-          year: data.year ?? null,
-          igdb_id: data.igdb_id ?? null,
-          genres: JSON.stringify(data.genres),
-          synopsis: data.synopsis,
-          poster_url: data.poster_url,
-          critic_score: data.critic_score ?? null,
-          owned_platforms: JSON.stringify(normalizePlatformIds(data.owned_platforms)),
-          status: data.status,
-          playtime: data.playtime,
-          personal_rating: data.personal_rating ?? null,
-          date_added: data.date_added ?? now,
-          date_completed: data.date_completed ?? (data.status === "completed" ? now : null),
-          created_at: data.created_at ?? now,
-          updated_at: data.updated_at ?? now,
-          hide_playtime: data.hide_playtime ?? 0,
-          steam_appid: data.steam_appid ?? null,
-          custom_order: null,
-          metadata_custom: data.metadata_custom ?? 0,
-        });
-        imported++;
+        /* Per-row savepoint. `isDuplicate` above now catches every unique-key
+           collision it can see, but the partial unique indexes on igdb_id and
+           steam_appid are the database's own last line of defence, and a
+           violation here used to abort the whole transaction — silently
+           discarding an entire import batch and answering with a 500 that is
+           indistinguishable from a crash. A nested `db.transaction` becomes a
+           SAVEPOINT, so one bad row rolls back to just before itself and the
+           rest of the batch commits. */
+        try {
+          insertOne({
+            title: data.title,
+            year: data.year ?? null,
+            igdb_id: data.igdb_id ?? null,
+            genres: JSON.stringify(data.genres),
+            synopsis: data.synopsis,
+            poster_url: data.poster_url,
+            critic_score: data.critic_score ?? null,
+            owned_platforms: JSON.stringify(normalizePlatformIds(data.owned_platforms)),
+            status: data.status,
+            playtime: data.playtime,
+            personal_rating: data.personal_rating ?? null,
+            date_added: data.date_added ?? now,
+            date_completed: data.date_completed ?? (data.status === "completed" ? now : null),
+            created_at: data.created_at ?? now,
+            updated_at: data.updated_at ?? now,
+            hide_playtime: data.hide_playtime ?? 0,
+            steam_appid: data.steam_appid ?? null,
+            custom_order: null,
+            metadata_custom: data.metadata_custom ?? 0,
+          });
+          imported++;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (/UNIQUE constraint failed/i.test(message)) {
+            duplicates++;
+            skipped++;
+            continue;
+          }
+          throw err;
+        }
       }
     });
 

@@ -22,8 +22,15 @@ export const DATA_DIR = process.env.GAMETRACK_DATA_DIR
 
 export const POSTERS_DIR = path.join(DATA_DIR, "posters");
 
-/** Compiled frontend assets. */
-export const DIST_DIR = path.join(ROOT_DIR, "dist");
+/**
+ * Compiled frontend assets. Overridable with GAMETRACK_DIST_DIR so the test
+ * suite can serve its own placeholder without writing into the repo's dist/ —
+ * which is what the suite used to do, and which made a broken `vite build`
+ * invisible to the SPA-fallback test.
+ */
+export const DIST_DIR = process.env.GAMETRACK_DIST_DIR
+  ? path.resolve(process.env.GAMETRACK_DIST_DIR)
+  : path.join(ROOT_DIR, "dist");
 
 /** Ensure the data directory exists with restricted permissions. */
 export function ensureDataDir(): void {

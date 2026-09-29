@@ -35,6 +35,24 @@ if (!API_TOKEN && HOST !== "127.0.0.1" && !LOOPBACK_HOSTS.has(HOST)) {
 
 ensureDataDir();
 
+/* Module scope, not inside createApp: the registration used to live in the app
+   factory, so every call added another listener — the supertest suite builds an
+   app per file and was quietly accumulating them. These fire once per process.
+
+   unhandledRejection is logged and the process keeps serving. That is the right
+   call for this app: a rejected promise means one request failed, and the
+   database is still consistent, so taking the whole server down over it would
+   turn a transient error into an outage. unhandledException is different — the
+   process state is unknown after one, so it exits and lets the supervisor
+   restart. */
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception — exiting so the supervisor can restart:", err);
+  process.exit(1);
+});
+
 const ALLOWED_ORIGINS = new Set([
   `http://localhost:${PORT}`,
   `http://127.0.0.1:${PORT}`,
@@ -99,12 +117,66 @@ export async function createApp(production = false) {
               frameAncestors: ["'none'"],
               baseUri: ["'self'"],
               objectSrc: ["'none'"],
+              /* helmet merges its own defaults for any key not named here, and
+                 its default `upgrade-insecure-requests` rewrites every http://
+                 subresource to https://. That is skipped only for potentially
+                 trustworthy origins (localhost, 127.0.0.0/8, ::1), so the
+                 documented LAN deployment (HOST=<lan-ip> + API_TOKEN, which
+                 server.ts:28 explicitly supports) served the document over
+                 plain http while every /assets/*.js was upgraded to https — a
+                 blank page with no useful error. Operators terminating TLS in
+                 front lose nothing by this being off. `null` removes the
+                 inherited directive. */
+              upgradeInsecureRequests: null,
             },
           }
         : false,
       crossOriginEmbedderPolicy: false,
     })
   );
+
+  // ── Host header validation (DNS rebinding) ────────────────────────
+  // The origin gate below cannot protect reads. A rebound attacker page is
+  // same-origin to itself, so CORS never applies and a GET carries no Origin
+  // header at all — meaning /api/export, /api/games, /api/settings/steam and
+  // the rest of the read API were served to any site the user visited, in the
+  // default no-token local mode. The allowlist is derived from the same
+  // ALLOWED_ORIGINS the origin gate uses, so the two can't drift.
+  // Placed before helmet so a rejected request gets no headers whatsoever.
+  const ALLOWED_HOSTS = new Set([...ALLOWED_ORIGINS].map((o) => {
+    try {
+      return new URL(o).host.toLowerCase();
+    } catch {
+      return "";
+    }
+  }));
+  // Vite's own dev middleware already answers an unrecognised Host with 403
+  // (its allowedHosts default), so exempting dev costs nothing and keeps the
+  // HMR websocket working on whatever host the dev server was opened as.
+  if (!IS_PRODUCTION) {
+    ALLOWED_HOSTS.add(`localhost:${PORT}`);
+    ALLOWED_HOSTS.add(`127.0.0.1:${PORT}`);
+  }
+  // supertest binds its own ephemeral port, so the Host header it sends
+  // (127.0.0.1:<random>) never matches PORT. Test processes only, and only for
+  // loopback — this must not become a general "any host" escape hatch, so it is
+  // scoped to NODE_ENV=test and still requires a loopback hostname.
+  const IS_TEST = process.env.NODE_ENV === "test";
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    // HTTP/1.1 requires Host; a missing one is malformed, and letting it
+    // through would be a trivially exploitable bypass of this check.
+    const host = req.headers.host?.trim().toLowerCase();
+    if (!host) return res.status(403).send("Forbidden: Invalid request host.");
+    if (ALLOWED_HOSTS.has(host)) return next();
+    // supertest binds its own ephemeral port, so the Host it sends
+    // (127.0.0.1:<random>) never matches PORT. Accept any port, but only for
+    // loopback names and only in a test process — never a general bypass.
+    if (IS_TEST) {
+      const [name] = host.split(":");
+      if (name && (name === "127.0.0.1" || name === "localhost" || name === "[::1]")) return next();
+    }
+    return res.status(403).send("Forbidden: Invalid request host.");
+  });
 
   // ── CSRF / origin protection ─────────────────────────────────────
   // State-changing requests from a browser always carry an Origin header.
@@ -140,14 +212,19 @@ export async function createApp(production = false) {
 
   // ── Bearer-token auth gate (optional, disabled in local mode) ────
   if (API_TOKEN) {
-    app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+    /* Applied to /posters as well as /api. Posters are the only user-generated
+       binary content in the app, and gating only /api meant the "hardened"
+       token configuration still handed every uploaded poster — and the app
+       shell — to anyone who could reach the port, with no credential. */
+    const tokenGate = (req: Request, res: Response, next: NextFunction) => {
       const header = req.headers.authorization || "";
       const supplied = header.startsWith("Bearer ") ? header.slice(7) : "";
       if (!supplied || !tokenMatches(supplied)) {
         return res.status(401).json({ error: "Unauthorized" });
       }
       next();
-    });
+    };
+    app.use(["/api", "/posters"], tokenGate);
   }
 
   // ── Rate limiting (API only — static assets stay unlimited) ──────
@@ -195,6 +272,32 @@ export async function createApp(production = false) {
   });
   app.use("/api/sync/steam", syncLimiter);
 
+  /* Imports are heavy on both the JSON parser and the database (a 2000-row
+     transaction), so they get their own budget rather than spending the generic
+     200/min. 5/min still allows a legitimate "import, check, re-import". */
+  const importLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many imports, please slow down." },
+  });
+  app.use("/api/import", importLimiter);
+
+  /* reset-metadata and reset-poster each make an upstream IGDB call, and
+     each distinct igdb_id is a distinct cache key — so they were the one
+     IGDB-touching path outside the Discover budget the comments above claim to
+     enforce, bounded only by the generic 200/min. */
+  const igdbRefreshLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many metadata refreshes, please slow down." },
+  });
+  app.post("/api/games/:id/reset-metadata", igdbRefreshLimiter);
+  app.post("/api/games/:id/reset-poster", igdbRefreshLimiter);
+
   // Steam-link attempts burn upstream Steam Web API calls — throttle hard
   // to keep the per-key quota safe and prevent profile-existence probing.
   // Scoped to PUT only: the frontend fires GET /api/settings/steam on every
@@ -223,11 +326,19 @@ export async function createApp(production = false) {
   // legitimately exceed the default 1mb. These MUST be mounted before the
   // global parser — express parses the body on the first matching middleware,
   // so a 1mb global parser mounted first would 413 every large import/upload.
-  app.use("/api/import", express.json({ limit: "25mb" }));
+  /* Import is 8mb, not 25mb. MAX_IMPORT_ROWS caps the batch at 2000 rows and a
+     row is a few hundred bytes of metadata at worst, so a real export is
+     around 1mb — 8mb is generous. It matters because express.json parses
+     synchronously on the event loop: 25mb x 200 requests/minute is a
+     self-inflicted stall, and the per-route limiter below cannot help because
+     express has already buffered the body by the time the route handler runs.
+     A 30mb body still gets a clean 413, just at a lower ceiling. */
+  app.use("/api/import", express.json({ limit: "8mb" }));
   app.use("/api/upload-poster", express.json({ limit: "4mb" }));
 
   app.use(express.json({ limit: "1mb" }));
-  app.use(express.urlencoded({ limit: "1mb", extended: true }));
+  // No urlencoded parser: every route in the app reads JSON, and there is no
+  // HTML form anywhere. It was 1mb of unused attack surface on every request.
 
   // ── Request logging (access log) ─────────────────────────────────
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -297,10 +408,26 @@ export async function createApp(production = false) {
     // Belt-and-suspenders for plain-URL paths (fs.deny above covers /@fs/...):
     // never hand data-dir contents, env files, git metadata, or server sources
     // to the dev middleware — respond 404 before Vite sees the request.
+      /* Prefixes AND individual files. The original list held only directory
+       prefixes, matched as `p === prefix || p.startsWith(prefix + "/")` — which
+       structurally cannot match a root-level *file*, so in dev mode
+       GET /server.ts, /vite.config.ts and /package.json each returned the full
+       source. Directory matching is retained for the secret-bearing ones. */
     const DEV_SECRET_PREFIXES = ["/data", "/.env", "/.git", "/server", "/scripts", "/dist-server", "/coverage"];
+    const DEV_SECRET_FILES = new Set([
+      "/server.ts",
+      "/vite.config.ts",
+      "/package.json",
+      "/package-lock.json",
+      "/tsconfig.json",
+      "/index.html",
+    ]);
     app.use((req: Request, res: Response, next: NextFunction) => {
       const p = req.path.replace(/\\/g, "/").toLowerCase();
-      if (DEV_SECRET_PREFIXES.some((prefix) => p === prefix || p.startsWith(`${prefix}/`))) {
+      if (
+        DEV_SECRET_FILES.has(p) ||
+        DEV_SECRET_PREFIXES.some((prefix) => p === prefix || p.startsWith(`${prefix}/`))
+      ) {
         return res.status(404).send("Not Found");
       }
       next();
@@ -317,7 +444,7 @@ export async function createApp(production = false) {
         etag: true,
       })
     );
-    // Top-level static files (favicon, robots.txt, ...) — short cache.
+    // Top-level static files (favicon.svg, ...) — short cache.
     app.use(express.static(DIST_DIR, { index: false, maxAge: "1h", etag: true }));
 
     // SPA fallback: only for extensionless, HTML-accepting navigation requests.
@@ -340,10 +467,6 @@ export async function createApp(production = false) {
       });
     });
   }
-
-  process.on("unhandledRejection", (reason) => {
-    console.error("Unhandled promise rejection:", reason);
-  });
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     const errorObj = err as Record<string, unknown> | undefined;
