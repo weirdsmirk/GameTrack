@@ -417,8 +417,8 @@ export const AnalyticsView: React.FC = React.memo(() => {
           paints the rules at any column count, so there are never double
           borders to misalign and never a stray cell outline to mistake for the
           other section. `auto-rows-fr` keeps the rows equal height at the
-          two-column sizes, where the one cell carrying a bar would otherwise
-          stretch its row and knock the meta lines out of line. Every label
+          two-column sizes, where the tallest cell would otherwise stretch its
+          row and knock the meta lines out of line. Every label
           reserves two lines (`min-h-[2lh]`) so the four figures share one
           baseline however their labels wrap — at the narrowest four-column width
           a two-word label still folds on the tracked caps, and without the
@@ -428,23 +428,41 @@ export const AnalyticsView: React.FC = React.memo(() => {
           black Inter figures, accent reserved for the one figure that is a
           ratio.
 
-          The figures run one step up the scale from a typical body display size
-          (5xl/7xl → 6xl/8xl) with the cell padding and the label size lifted to
-          match. This is the page's opening line and the only place all four
-          headline numbers appear together, so it is sized to be read at a glance
-          from across the grid rather than inspected cell by cell. Completion
-          Rate sits a step below the other three because its `%` makes it the
-          widest figure at this size, and a percentage that is scaled to match a
-          bare number stops being comparable to it.
+          The figures run at 56px / 88px, with the cell padding and the label
+          size set to match. 88px is the same step the dashboard's registry band
+          uses, which is what this readout is matched to — a named scale step
+          would have put it at 72 or 96 and split the two bands apart again, so
+          the sizes are given explicitly instead. All four are the same size:
+          the row is read as one set of comparable numbers, and a percentage set
+          a step down reads as a different kind of quantity rather than a
+          different value. Its `%` is the widest figure in the row, so the
+          context line beside it is the one that yields — `6 / 37` is
+          `shrink-0` and the figure takes the room.
 
           One figure per question, so the strip answers four different things:
           how big the library is, how much of it has actually been played, what
           the owner thinks of it, and how much is finished. The two it replaced
           were both about hours, which made them half-sayings of one fact. */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr gap-px bg-brand-border border border-brand-border">
-        <div className="bg-brand-bg p-6 sm:p-8">
-          <p className="text-[11px] sm:text-xs font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Registry Titles</p>
-          <h3 className="text-6xl sm:text-8xl font-black text-white font-sans tracking-tighter leading-none mt-5">{totalGames}</h3>
+      {/* The column count is set by a container query, not a viewport
+          breakpoint. This band is the widest thing on the page and its content
+          is fixed-size — 88px figures and a `6 / 37` line — so what decides
+          whether four columns fit is the band's own width, not the window's.
+          A viewport `lg` got this wrong in both directions: four columns were
+          laid out from 1024px, which is narrower than four cells of this
+          content need, and the "6 / 37" was pushed out past the padding.
+
+          1136px is that measurement, not a guess. Completion Rate is the binding
+          cell: "16%" at the full 88px figure is 178px, and with the gap and the
+          "6 / 37" line it wants 224px of content room — 280px of cell, ×4 plus
+          the three 1px rules and the band's own 1px border. Below the threshold
+          the band drops to 2×2, where every cell is twice as wide and nothing
+          can overflow. The query sits on a wrapper because a container queries
+          its ancestors, not itself. */}
+      <div className="@container">
+        <div className="grid grid-cols-2 @min-[1136px]:grid-cols-4 auto-rows-fr gap-px bg-brand-border border border-brand-border">
+        <div className="bg-brand-bg p-5 sm:p-7">
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Registry Titles</p>
+          <h3 className="text-[3.5rem] sm:text-[5.5rem] font-black text-white font-sans tracking-tighter leading-none mt-4">{totalGames}</h3>
         </div>
 
         {/* Engagement as breadth, not volume. Counted on the same
@@ -452,11 +470,11 @@ export const AnalyticsView: React.FC = React.memo(() => {
             disagree with the "N of M played" line under Most Played. The "of"
             is the point: the gap between the two figures is the untouched
             library, which is the thing this metric exists to expose. */}
-        <div className="bg-brand-bg p-6 sm:p-8">
-          <p className="text-[11px] sm:text-xs font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Played Titles</p>
-          <div className="flex items-baseline justify-between gap-3 mt-5">
-            <h3 className="text-6xl sm:text-8xl font-black text-white font-sans tracking-tighter leading-none">{playtime.playedCount}</h3>
-            <span className="text-sm sm:text-base text-brand-muted uppercase shrink-0">
+        <div className="bg-brand-bg p-5 sm:p-7">
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Played Titles</p>
+          <div className="flex items-baseline justify-between gap-3 mt-4">
+            <h3 className="text-[3.5rem] sm:text-[5.5rem] font-black text-white font-sans tracking-tighter leading-none">{playtime.playedCount}</h3>
+            <span className="text-xs sm:text-sm text-brand-muted uppercase shrink-0">
               <span className="text-white font-bold">{totalGames}</span> total
             </span>
           </div>
@@ -466,27 +484,38 @@ export const AnalyticsView: React.FC = React.memo(() => {
             Distribution below, so the figure here and the histogram there can
             never average different sets. An em dash rather than 0.0 when nothing
             is rated: a zero would be a claim about taste, not an absence of it. */}
-        <div className="bg-brand-bg p-6 sm:p-8">
-          <p className="text-[11px] sm:text-xs font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Avg Rating</p>
-          <div className="flex items-baseline gap-2 mt-5">
-            <h3 className="text-6xl sm:text-8xl font-black text-white font-sans tracking-tighter leading-none">
+        <div className="bg-brand-bg p-5 sm:p-7">
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Avg Rating</p>
+          <div className="flex items-baseline gap-2 mt-4">
+            <h3 className="text-[3.5rem] sm:text-[5.5rem] font-black text-white font-sans tracking-tighter leading-none">
               {ratings.average === null ? "—" : ratings.average.toFixed(1)}
             </h3>
-            <span className="text-base sm:text-lg font-black uppercase text-brand-muted">/10</span>
+            <span className="text-sm sm:text-base font-black uppercase text-brand-muted">/10</span>
           </div>
         </div>
 
-        <div className="bg-brand-bg p-6 sm:p-8">
-          <p className="text-[11px] sm:text-xs font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Completion Rate</p>
-          <div className="flex items-baseline justify-between gap-3 mt-5">
-            <h3 className="text-5xl sm:text-7xl font-black text-brand-accent font-sans tracking-tighter leading-none">{completionRate}%</h3>
-            <span className="text-sm sm:text-base text-brand-muted uppercase shrink-0">
+        {/* The accent is the one thing that separates this figure from the
+            other three, so it needs no bar to say so. The bar was also the only
+            cell carrying a second row, which made this the one cell whose
+            content did not line up with its neighbours.
+
+            Same figure size as the rest of the row, so the four read as one set
+            of comparable numbers rather than three measurements and a
+            statistic. */}
+        <div className="bg-brand-bg p-5 sm:p-7">
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Completion Rate</p>
+          <div className="flex items-baseline justify-between gap-2 mt-4">
+            {/* Full-size %: it is part of the figure, not a unit hung off it, and
+                at 0.4em it read as a diminutive of a number rather than the
+                number itself. The cost is that "16%" is now the widest figure
+                in the row and the cell has to be wider — which is what the
+                container query on the band below is for. */}
+            <h3 className="text-[3.5rem] sm:text-[5.5rem] font-black text-brand-accent font-sans tracking-tighter leading-none">{completionRate}%</h3>
+            <span className="text-xs sm:text-sm text-brand-muted uppercase shrink-0">
               <span className="text-white font-bold">{completedGames}</span> / {totalGames}
             </span>
           </div>
-          <div className="h-1.5 bg-zinc-900 mt-5">
-            <div className="h-full bg-brand-accent" style={{ width: `${completionRate}%` }} />
-          </div>
+        </div>
         </div>
       </div>
 

@@ -74,13 +74,18 @@ const StatCard = React.memo(({ title, value, action, className = "", onSelect }:
                   {idx > 0 && <span className="w-1" />}
                   {/* Number and unit never split: a wrapping flex row used to
                       strand the accent unit on its own line under the figure. */}
-                  {/* The figure size lives on the wrapper, not the number, so the
-                      unit's `em` resolves against the figure. Put it on the
-                      number and the unit inherits the row's 16px instead — which
-                      rendered "H" at 6px. */}
+                  {/* The figure size lives on the wrapper, not the number, so
+                      both halves of the pair resolve against the same size.
+                      Put it on the number and the unit inherits the row's 16px
+                      instead — which rendered "H" at 6px. */}
                   <span className="inline-flex items-baseline whitespace-nowrap shrink-0 text-[3.25rem] sm:text-[5.5rem] xl:text-6rem font-black tracking-tighter leading-none">
                     <span className="text-white">{numberVal}</span>
-                    <span className="text-brand-accent text-[0.22em] uppercase leading-none self-baseline">{unitVal}</span>
+                    {/* Full size, on the figure's own scale. The unit used to sit
+                        at 0.22em, which made "188" read as the number and the "H"
+                        as a footnote hanging off it; at the figure's size the two
+                        read as one quantity, with the accent carrying the unit
+                        rather than qualifying the number. */}
+                    <span className="text-brand-accent uppercase leading-none self-baseline">{unitVal}</span>
                   </span>
                 </React.Fragment>
               );
