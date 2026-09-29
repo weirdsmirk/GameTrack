@@ -3,11 +3,15 @@ import { useGameTrackStore } from "../store";
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
 } from "recharts";
-import { STATUSES } from "../constants";
+import { STATUSES, mergeCustomPlatforms, platformIdMatches } from "../constants";
 import { formatPlaytimePrecise } from "../utils/time";
 
 /** How many calendar months the chart covers, current month included. */
 const COMPLETED_MONTH_SPAN = 6;
+
+/** How many titles the Most Played list ranks. Six fills the panel at its
+    current height without the rows crowding each other. */
+const MOST_PLAYED_COUNT = 6;
 
 /** The top of the personal-rating scale — 1-10, as the app stores and prints
     it. Declared once so the histogram cannot drift from the pickers. */
@@ -71,7 +75,7 @@ const STATUS_BAR_COLORS: Record<string, string> = {
 
 export const AnalyticsView: React.FC = React.memo(() => {
   const { 
-    games, summary, lastAnalyticsFetch, fetchAnalytics
+    games, summary, lastAnalyticsFetch, fetchAnalytics, customPlatforms
   } = useGameTrackStore();
 
   useEffect(() => {
@@ -157,14 +161,41 @@ export const AnalyticsView: React.FC = React.memo(() => {
   const completedGames = composition.rows.find((r) => r.key === "completed")?.count ?? 0;
   const completionRate = totalGames > 0 ? Math.round((completedGames / totalGames) * 100) : 0;
 
-  // Most played titles (top 6 by tracked hours)
-  const mostPlayed = React.useMemo(() => {
-    return [...games]
-      .filter(g => g.hide_playtime !== 1 && (g.playtime || 0) > 0)
-      .sort((a, b) => (b.playtime || 0) - (a.playtime || 0))
-      .slice(0, 6);
-  }, [games]);
-  const maxPlayedHours = Math.max(1, ...mostPlayed.map(g => g.playtime || 0));
+  // ── Most played ───────────────────────────────────────────────────
+  // The ranking is tracked hours and nothing else. `hide_playtime` titles are
+  // dropped rather than shown as a bar with a hidden figure, which is the same
+  // reason the hour total above excludes them — so the share quoted underneath
+  // is measured against that same total and the two cannot disagree.
+  const playtime = React.useMemo(() => {
+    const visible = games
+      .filter((g) => g.hide_playtime !== 1 && (g.playtime || 0) > 0)
+      .sort((a, b) => (b.playtime || 0) - (a.playtime || 0));
+    const listed = visible.slice(0, MOST_PLAYED_COUNT);
+    const listedHours = listed.reduce((s, g) => s + (g.playtime || 0), 0);
+    // How concentrated the library's hours are: how many titles it takes to
+    // reach half of them. A library spread across dozens of games needs a large
+    // number here; one dominated by a handful needs a very small one, and the
+    // two look identical in a ranked list until you say so.
+    let running = 0;
+    let halfAt = 0;
+    for (const g of visible) {
+      running += g.playtime || 0;
+      halfAt += 1;
+      if (running >= (totalPlaytime || 0) / 2) break;
+    }
+    return {
+      listed,
+      maxHours: Math.max(1, ...listed.map((g) => g.playtime || 0)),
+      playedCount: visible.length,
+      listedHours,
+      // Null rather than a number when the library has no tracked hours at all,
+      // so the panel never claims a share of nothing.
+      listedPct: totalPlaytime > 0 ? Math.round((listedHours / totalPlaytime) * 100) : null,
+      halfAt: totalPlaytime > 0 ? halfAt : null,
+      avgHours: visible.length > 0 ? totalPlaytime / visible.length : null,
+    };
+  }, [games, totalPlaytime]);
+  const mostPlayed = playtime.listed;
 
   // Completed titles, most recently finished first (top 8)
   const completedList = React.useMemo(() => {
@@ -173,6 +204,82 @@ export const AnalyticsView: React.FC = React.memo(() => {
       .sort((a, b) => (b.date_completed || 0) - (a.date_completed || 0))
       .slice(0, 8);
   }, [games]);
+
+  // ── Platform distribution ──────────────────────────────────────────
+  // Built-in platforms plus the user's own tags, so a custom platform is named
+  // rather than shown as the raw slug it is stored as.
+  const platforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
+
+  const platformRows = React.useMemo(() => {
+    const totals = new Map<string, { id: string; label: string; titles: number; hours: number }>();
+    const bump = (id: string, label: string) => {
+      const key = id.toLowerCase();
+      const found = totals.get(key);
+      if (found) return found;
+      const row = { id: key, label, titles: 0, hours: 0 };
+      totals.set(key, row);
+      return row;
+    };
+    let associations = 0;
+    let multiPlatform = 0;
+    let unplatformed = 0;
+    for (const g of games) {
+      // `owned_platforms` holds free strings, and the same platform can arrive
+      // as "Steam" or "steam", so every value is matched through
+      // `platformIdMatches` before it is bucketed. An unmatched value still
+      // gets a row of its own rather than being dropped — a title carrying a
+      // tag the app has never heard of is still an owned title.
+      const ids = (g.owned_platforms || []).map((raw) => {
+        const match = platforms.find((p) => platformIdMatches(p.id, raw));
+        return match ? match.id : raw.trim().toLowerCase();
+      });
+      if (ids.length === 0) unplatformed += 1;
+      if (ids.length > 1) multiPlatform += 1;
+      associations += ids.length;
+      // A title on several platforms has its playtime SPLIT between them rather
+      // than credited in full to each. Crediting it whole is what made the
+      // genre chart this panel replaced total 2.11x the library's real hours;
+      // splitting is what keeps this column summing to exactly the Total
+      // Playtime figure on the strip above. Titles are still counted in full on
+      // every platform they are on, because a title owned on three platforms
+      // really is owned on three — that count is ownership, not a share of one.
+      const share = ids.length
+        ? (g.hide_playtime === 1 ? 0 : g.playtime || 0) / ids.length
+        : 0;
+      for (const id of ids) {
+        const known = platforms.find((p) => p.id === id);
+        const row = bump(id, known ? known.label : id);
+        row.titles += 1;
+        row.hours += share;
+      }
+    }
+    const rows = [...totals.values()].sort(
+      (a, b) => b.titles - a.titles || a.label.localeCompare(b.label)
+    );
+    // Rounding that adds up. Rounding each row on its own put this column at
+    // 188 hours against a library total of 187 — splitting leaves fractions
+    // everywhere, and three independent roundings gained an hour the library
+    // does not have. Largest-remainder instead: floor every row, then hand the
+    // leftover hours to whichever rows lost the most. The column now sums to
+    // exactly the Total Playtime figure on the strip above it.
+    const rounded = rows.map((r) => {
+      const whole = Math.floor(r.hours);
+      return { ...r, displayHours: whole, remainder: r.hours - whole };
+    });
+    let budget = Math.round(totalPlaytime) - rounded.reduce((s, r) => s + r.displayHours, 0);
+    for (const r of [...rounded].sort((a, b) => b.remainder - a.remainder)) {
+      if (budget <= 0) break;
+      r.displayHours += 1;
+      budget -= 1;
+    }
+    return {
+      rows: rounded,
+      associations,
+      multiPlatform,
+      unplatformed,
+      maxTitles: Math.max(1, ...rows.map((r) => r.titles)),
+    };
+  }, [games, platforms, totalPlaytime]);
 
   // ── Rating distribution ───────────────────────────────────────────
   // 1-10, the scale every other surface in the app prints as `/10`.
@@ -357,7 +464,10 @@ export const AnalyticsView: React.FC = React.memo(() => {
         </div>
       </div>
 
-      {/* Row 1: Completions (wide) + Status Distribution (narrow) */}
+      {/* Row 1: the completions chart, alone across the full width. It is the
+          only plotted series on the page and the only one with a time axis, so
+          it reads as the trend it is rather than as a panel competing for
+          attention with a table of counts beside it. */}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
 
         {/* Completions, last six calendar months. Counted purely from recorded
@@ -365,8 +475,8 @@ export const AnalyticsView: React.FC = React.memo(() => {
             status and playtime are both excluded. The Y axis is left to scale
             itself from zero, but `allowDecimals` is off so a count of 3 can
             never render as 2.5. */}
-        <div className="xl:col-span-3 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
-          <div className="flex items-center justify-between gap-3">
+        <div className="xl:col-span-5 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
+          <div className="flex items-center justify-between gap-3 border-b border-brand-border pb-4">
             <h3 className="text-xs font-black uppercase tracking-widest text-white">Games Completed — Last 6 Months</h3>
             <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-brand-muted">
               N = {completedTotal} Completed
@@ -433,12 +543,22 @@ export const AnalyticsView: React.FC = React.memo(() => {
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
 
+      {/* Row 2: Status and Platform, unevenly. Both answer a question about the
+          same collection, so they belong side by side; the three-track split
+          keeps them from reading as a matched pair of equal-weight tables, and
+          gives the denser status panel the room it needs. `items-start` lets the
+          platform panel hug its content — a library with many platform tags
+          grows taller than its neighbour rather than being flattened to match,
+          which is what makes the row read as a bento instead of two equal
+          boxes. */}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
         {/* Status Distribution — the library read two ways: what state each
             title is in, and whether it has ever been launched. The second
             question is the one the status split cannot answer on its own. */}
-        <div className="xl:col-span-2 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
-          <div className="flex items-center justify-between gap-3">
+        <div className="xl:col-span-3 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
+          <div className="flex items-center justify-between gap-3 border-b border-brand-border pb-4">
             <h3 className="text-xs font-black uppercase tracking-widest text-white">Status Distribution</h3>
             <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-brand-muted">
               N = {totalGames} Titles
@@ -538,6 +658,62 @@ export const AnalyticsView: React.FC = React.memo(() => {
           </div>
         </div>
 
+        {/* Platform Distribution — ownership against usage. The title count says
+            what is on the shelf; the hours say what actually gets played, and on
+            this library the two disagree. */}
+        <div className="xl:col-span-2 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
+          <div className="flex items-center justify-between gap-3 border-b border-brand-border pb-4">
+            <h3 className="text-xs font-black uppercase tracking-widest text-white">Platform Distribution</h3>
+            <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-brand-muted">
+              N = {platformRows.rows.length} Platforms
+            </span>
+          </div>
+
+          {platformRows.rows.length === 0 ? (
+            <div className="w-full h-48 flex items-center justify-center border border-brand-border/30 bg-zinc-950/20 text-xs uppercase text-brand-muted">
+              No platform tags recorded
+            </div>
+          ) : (
+            <div className="pt-2 space-y-3.5">
+              {platformRows.rows.map((p) => (
+                <div key={p.id} className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest">
+                    <span className="text-zinc-300 font-black truncate min-w-0">{p.label}</span>
+                    <span className="text-brand-muted shrink-0">
+                      {p.titles} TITLES · {p.displayHours} HRS
+                    </span>
+                  </div>
+                  <div className="h-2 bg-zinc-900 border border-brand-border/50">
+                    <div
+                      className="h-full transition-all"
+                      style={{
+                        width: `${(p.titles / platformRows.maxTitles) * 100}%`,
+                        backgroundColor: "var(--brand-accent)",
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+
+              {/* The reconciliation, because the figures above deliberately do
+                  not add up to the library and should not pretend otherwise.
+                  39 titles across 37 games is not an error — it is two titles
+                  owned on more than one platform. */}
+              <p className="pt-1 text-[9px] uppercase tracking-wider text-brand-muted leading-relaxed">
+                // {platformRows.associations} titles across {totalGames} games
+                {platformRows.multiPlatform > 0 && (
+                  <> · {platformRows.multiPlatform} on more than one platform</>
+                )}
+                {platformRows.unplatformed > 0 && (
+                  <> · {platformRows.unplatformed} with no platform</>
+                )}
+                <> · playtime split across each title&apos;s platforms, summing to{" "}
+                {Math.round(totalPlaytime)} hrs</>
+              </p>
+            </div>
+          )}
+        </div>
+
       </div>
 
       {/* Row 2: Most Played (narrow) + Completed Titles (wide) */}
@@ -545,7 +721,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
 
         {/* Most Played Titles */}
         <div className="xl:col-span-2 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 border-b border-brand-border pb-4">
             <h3 className="text-xs font-black uppercase tracking-widest text-white">Most Played Titles</h3>
           </div>
           <div className="h-72 w-full pt-4">
@@ -554,24 +730,59 @@ export const AnalyticsView: React.FC = React.memo(() => {
                 No playtime tracked yet
               </div>
             ) : (
-              <div className="flex flex-col justify-center h-full space-y-3.5">
-                {mostPlayed.map((g, i) => (
-                  <div key={g.id} className="space-y-1">
-                    <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest">
-                      <span className="text-zinc-300 font-black truncate">
-                        <span className="text-brand-muted mr-2">{String(i + 1).padStart(2, "0")}</span>
-                        {g.title}
-                      </span>
-                      <span className="text-brand-accent font-black shrink-0">{formatPlaytimePrecise(g.playtime)}</span>
+              <div className="flex flex-col justify-center h-full">
+                <div className="space-y-3.5">
+                  {mostPlayed.map((g, i) => (
+                    <div key={g.id} className="space-y-1">
+                      <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest">
+                        <span className="text-zinc-300 font-black truncate min-w-0">
+                          <span className="text-brand-muted mr-2">{String(i + 1).padStart(2, "0")}</span>
+                          {g.title}
+                        </span>
+                        {/* Hours stay the figure the row is ranked and read by;
+                            the grade rides beside it, muted, as context rather
+                            than a second ranking. An em dash, not a zero, for
+                            unrated — the same mark the details modal uses. */}
+                        <span className="shrink-0 flex items-baseline gap-2.5">
+                          <span className="text-brand-muted">
+                            {g.personal_rating != null ? `${g.personal_rating}/10` : "—"}
+                          </span>
+                          <span className="text-brand-accent font-black">
+                            {formatPlaytimePrecise(g.playtime)}
+                          </span>
+                        </span>
+                      </div>
+                      {/* Same bar as every other row on the page: a solid accent
+                          fill in the 8px bordered track. This one was 6px tall
+                          and drawn at 80% opacity, so it read as a lighter,
+                          thinner mark than the status, platform and launch bars
+                          directly above and below it. */}
+                      <div className="h-2 bg-zinc-900 border border-brand-border/50">
+                        <div
+                          className="h-full transition-all"
+                          style={{
+                            width: `${((g.playtime || 0) / playtime.maxHours) * 100}%`,
+                            backgroundColor: "var(--brand-accent)",
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-1.5 bg-zinc-900 border border-brand-border/50">
-                      <div
-                        className="h-full bg-brand-accent/80"
-                        style={{ width: `${((g.playtime || 0) / maxPlayedHours) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+
+                {/* What a ranked list cannot show about itself: whether the hours
+                    are spread across the library or piled into a few titles.
+                    A top-six list looks the same either way. */}
+                {playtime.listedPct !== null && (
+                  <p className="pt-4 text-[9px] uppercase tracking-wider text-brand-muted leading-relaxed">
+                    // Top {MOST_PLAYED_COUNT} of {playtime.playedCount} played hold{" "}
+                    <span className="text-brand-accent">{playtime.listedPct}%</span> of{" "}
+                    {Math.round(totalPlaytime)} hrs
+                    {playtime.halfAt !== null && (
+                      <> · half your hours sit in {playtime.halfAt} titles</>
+                    )}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -579,13 +790,13 @@ export const AnalyticsView: React.FC = React.memo(() => {
 
         {/* Completed Titles */}
         <div className="xl:col-span-3 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 border-b border-brand-border pb-4">
             <h3 className="text-xs font-black uppercase tracking-widest text-white">Completed Titles</h3>
           </div>
 
           {/* Completed titles roster */}
           <div className="pt-2">
-            <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest border-b border-brand-border/40 pb-3">
+            <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest border-b border-brand-border pb-4">
               <span className="text-brand-muted font-bold">COMPLETED REGISTRY</span>
               <span className="text-brand-accent font-black">{completedGames} TITLE{completedGames === 1 ? "" : "S"}</span>
             </div>
@@ -613,7 +824,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
           rather than a subset of it. */}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
         <div className="xl:col-span-5 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3 border-b border-brand-border pb-4">
             <h3 className="text-xs font-black uppercase tracking-widest text-white">Rating Distribution</h3>
             <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-brand-muted">
               N = {ratings.rated} Rated · {ratings.unrated} Unrated
