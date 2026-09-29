@@ -16,7 +16,7 @@ import AuthModal from "./components/AuthModal";
 import GameDetailsModal from "./components/GameDetailsModal";
 import AddGameModal from "./components/AddGameModal";
 import { ActivePlayingConflictModal } from "./components/ActivePlayingConflictModal";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Settings as SettingsIcon } from "lucide-react";
 import PageLoader from "./components/PageLoader";
 import { Buttons } from "./components/Buttons";
 import { useMediaQuery } from "./hooks/useMediaQuery";
@@ -422,14 +422,16 @@ export default function App() {
             air above it) and pt-10 from md, which puts the row's top edge on the
             view's <h1> line rather than floating it above the title.
 
-            `md:items-center` is what puts the open menu and the toggle on one
-            line from md up. Below md there is no row to align — the menu is out
-            of flow, hanging off the bottom — so the items never share a
-            baseline and the toggle stays exactly where it was. */}
+            `items-start`, not `items-center`, and that is deliberate: the panel
+            is taller than the toggle, so centring the row would re-centre the
+            toggle whenever the panel mounted and drop it 4px — the whole
+            cluster visibly settling on click. Anchoring both to the row's top
+            edge means the toggle's position cannot depend on the panel at all,
+            so no change to the panel's height or content can move it again. */}
         <nav
           ref={navRef}
           aria-label="Primary"
-          className="fixed inset-x-0 top-0 z-40 flex justify-end items-start md:items-center gap-2 px-6 md:px-12 pt-8 md:pt-10 pointer-events-none"
+          className="fixed inset-x-0 top-0 z-40 flex justify-end items-start gap-2 px-6 md:px-12 pt-8 md:pt-10 pointer-events-none"
         >
           {/* Menu — one component, two shapes. On a phone it is a full-width
               panel hanging off the nav's bottom edge, because a column of four
@@ -482,14 +484,22 @@ export default function App() {
                     and item is the gap that made the box look twice as wide as
                     its contents. `border` rather than `border-b` here — the base
                     sets a bottom-only rule for the phone panel, and both agree
-                    on the bottom edge, so no override is needed. */}
+                    on the bottom edge, so no override is needed.
+
+                    The entrance follows the axis the panel actually sits on: a
+                    short slide down on a phone, where it hangs below the nav,
+                    and a short slide in from the right on desktop, where it
+                    unfolds out of the toggle beside it. The old unconditional
+                    `y: -10` was correct for the popover-below shape and read as
+                    the whole cluster settling once the panel moved onto the
+                    toggle's line. */}
                 <motion.div
                   key="menu-panel"
                   id="primary-menu"
                   ref={panelRef}
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10, transition: { duration: 0.12 } }}
+                  initial={{ opacity: 0, ...(hasKeyboard ? { x: 10 } : { y: -10 }) }}
+                  animate={{ opacity: 1, x: 0, y: 0 }}
+                  exit={{ opacity: 0, ...(hasKeyboard ? { x: 10 } : { y: -10 }), transition: { duration: 0.12 } }}
                   transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                   className="absolute inset-x-0 top-full z-20 mt-1.5 bg-brand-bg border-b border-brand-border pointer-events-auto
                     md:static md:mt-0 md:shrink-0 md:border"
@@ -551,13 +561,28 @@ export default function App() {
                             variant={isActive ? "primary" : "tab"}
                             onClick={() => setActiveTab(tab.id)}
                             aria-current={isActive ? "page" : undefined}
-                            className="w-full md:w-auto py-3.5 md:py-3 text-left md:px-5 flex items-center justify-center md:justify-start whitespace-nowrap"
+                            className="w-full md:w-auto py-3.5 md:py-2 text-left md:px-5 flex items-center justify-center md:justify-start whitespace-nowrap"
                           >
                             <span className="truncate min-w-0">{tab.label}</span>
                           </Buttons>
                         </div>
                       );
                     })}
+                    {/* Settings as a glyph rather than a word. It is the one item
+                        in the row that is an action and not a destination, and it
+                        is also the only one whose label is longer than its own
+                        cell — as text it set the row's rhythm and made the four
+                        destinations look like a column of equal-weight choices
+                        when one of them is not. The gear says the same thing in a
+                        square, and the row reads as four places plus a control.
+
+                        Centred in its cell rather than left-aligned like the
+                        labels, and narrower (`md:px-4` against their `md:px-5`
+                        plus the word), so the glyph sits on the same optical
+                        centre the text items start from. `aria-label` carries the
+                        name, since the visible text is gone — the icon is
+                        `aria-hidden`, so the accessible name is the label and
+                        not the SVG's contents. */}
                     <div className="border-t border-brand-border md:border-t-0 md:border-l">
                       <Buttons
                         variant="tab"
@@ -565,9 +590,11 @@ export default function App() {
                           setMenuOpen(false);
                           setSettingsOpen(true);
                         }}
-                        className="w-full md:w-auto py-3.5 md:py-3 text-left md:px-5 flex items-center justify-center md:justify-start whitespace-nowrap"
+                        aria-label="Settings"
+                        title="Settings"
+                        className="w-full md:w-auto py-3.5 md:py-2 flex items-center justify-center md:px-4"
                       >
-                        <span className="truncate min-w-0">SETTINGS</span>
+                        <SettingsIcon className="w-[18px] h-[18px]" aria-hidden />
                       </Buttons>
                     </div>
                   </div>
