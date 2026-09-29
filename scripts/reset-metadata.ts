@@ -131,11 +131,15 @@ async function processRows(
   }
 }
 
+/** Filename-safe UTC stamp, reused by both the id backup and the file backup. */
+function stampFor(label: string): string {
+  return `${label}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+}
+
 /** Snapshot the current ids so a re-run always has something to fall back on. */
 function backupIds(rows: { id: number; title: string; igdb_id: number | null }[], label: string): void {
   if (!rows.some((row) => row.igdb_id != null)) return;
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const file = path.join(DATA_DIR, `igdb-id-backup-${label}-${stamp}.json`);
+  const file = path.join(DATA_DIR, `igdb-id-backup-${label}-${stampFor(label)}.json`);
   fs.writeFileSync(file, JSON.stringify(rows, null, 2), { mode: 0o600 });
   console.log(`Backed up previous ${label} ids to ${file}`);
 }
@@ -156,10 +160,38 @@ async function run(): Promise<void> {
   // Every stored id today may be a RAWG id, so wipe them before re-assigning —
   // otherwise stale values can collide with freshly matched IGDB ids. The ids
   // are backed up first (and the IGDB credential check above already passed).
-  // otherwise stale values can collide with freshly matched IGDB ids. The ids
-  // are backed up first (and the IGDB credential check above already passed).
   backupIds(games, "games");
   backupIds(wishlist, "wishlist");
+
+  /* The wipe below and the re-link that follows are minutes apart, because
+     every row costs an IGDB round trip. A Ctrl-C in that gap used to leave
+     every row in the library with igdb_id = NULL — the RAWG-era links were
+     already gone and the new ones had not been written yet, so there was
+     nothing to fall back on and no script to put them back. Two guards close
+     that window:
+       1. `db.backup()` writes a byte-complete copy of the file next to it, so
+          there is something to restore from even if this process dies hard.
+       2. The SIGINT/SIGTERM handler below puts the in-memory snapshot back, so
+          a normal Ctrl-C is a no-op rather than a data-loss event. */
+  const snapshot = path.join(DATA_DIR, `igdb-reset-${stampFor("pre")}.db`);
+  await db.backup(snapshot);
+  console.log(`Backed up the database to ${snapshot}\n`);
+
+  const restoreIds = db.prepare("UPDATE games SET igdb_id = @igdb_id WHERE id = @id");
+  const restoreWishlistIds = db.prepare("UPDATE wishlist SET igdb_id = @igdb_id WHERE id = @id");
+  const undo = db.transaction((rows: Row[], stmt: typeof restoreIds) => {
+    for (const row of rows) stmt.run({ id: row.id, igdb_id: row.igdb_id });
+  });
+  const abort = (signal: string) => {
+    console.error(`\n${signal} received — restoring the pre-run IGDB ids.`);
+    undo(games, restoreIds);
+    undo(wishlist, restoreWishlistIds);
+    console.error("Restored. Nothing was lost. (To revert to the file backup, copy the .db above back over data/gametrack.db.)");
+    process.exit(130);
+  };
+  process.once("SIGINT", () => abort("SIGINT"));
+  process.once("SIGTERM", () => abort("SIGTERM"));
+
   db.prepare("UPDATE games SET igdb_id = NULL").run();
   db.prepare("UPDATE wishlist SET igdb_id = NULL").run();
 
