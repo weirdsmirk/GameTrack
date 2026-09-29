@@ -151,17 +151,30 @@ export function bindingKeys(code: string | undefined, action: ShortcutAction): s
 /**
  * The action a keypress triggers, or null if it triggers none.
  *
- * Overrides win over defaults, and the list is scanned in order, so a user who
- * has bound CENTRAL to KeyQ gets that even though KeyQ is not anyone's default.
- * Defaults can never shadow an override because an override is a map lookup
- * that returns before the scan reaches it.
+ * Two passes, overrides first. The comment this replaces claimed overrides
+ * always win, but the single ordered scan could not deliver that: it resolved
+ * `bindings[id] || defaultCode` per action in menu order, so a row earlier in
+ * the list won any collision. Binding DISCOVER to Digit1 — CENTRAL's default —
+ * meant ALT+1 still went to CENTRAL and the override silently did nothing.
+ *
+ * The two passes make the documented contract true regardless of menu order:
+ * every explicit binding is consulted before any default, and a default only
+ * fires for a code nobody has claimed. `setShortcut` in the store already
+ * evicts a code from any other row when it is taken, so a collision is not
+ * reachable through the UI — but `loadBindings` reads localStorage directly and
+ * normalises field-by-field without de-duplicating, so a hand-edited or
+ * pre-existing binding map could hold one, and the resolution has to be correct
+ * on its own terms.
  */
 export function resolveShortcutAction(
   bindings: ShortcutBindings,
   code: string
 ): ShortcutActionId | null {
   for (const action of SHORTCUT_ACTIONS) {
-    if ((bindings[action.id] || action.defaultCode) === code) return action.id;
+    if (bindings[action.id] === code) return action.id;
+  }
+  for (const action of SHORTCUT_ACTIONS) {
+    if (bindings[action.id] === undefined && action.defaultCode === code) return action.id;
   }
   return null;
 }

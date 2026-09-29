@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { useGameTrackStore } from "../store";
+import { useShallow } from "zustand/react/shallow";
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
 } from "recharts";
@@ -74,7 +75,10 @@ const STATUS_BAR_COLORS: Record<string, string> = {
 export const AnalyticsView: React.FC = React.memo(() => {
   const { 
     games, summary, lastAnalyticsFetch, fetchAnalytics, customPlatforms
-  } = useGameTrackStore();
+  } = useGameTrackStore(useShallow((s) => ({
+    games: s.games, summary: s.summary, lastAnalyticsFetch: s.lastAnalyticsFetch,
+    fetchAnalytics: s.fetchAnalytics, customPlatforms: s.customPlatforms,
+  })));
 
   useEffect(() => {
     if (!summary || Date.now() - lastAnalyticsFetch > 60_000) fetchAnalytics();

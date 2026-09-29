@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useGameTrackStore } from "../store";
+import { useShallow } from "zustand/react/shallow";
 import { motion, AnimatePresence } from "motion/react";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { 
-  Upload, Download, Trash2, Loader2, Settings, Joystick, RefreshCw, Link2, Unlink, ExternalLink, X, Check, Info
+  Upload, Download, FileText, Trash2, Loader2, Settings, Joystick, RefreshCw, Link2, Unlink, ExternalLink, X, Check, Info
 } from "lucide-react";
 import { THEMES } from "../themes";
 import { formatDateShort } from "../utils/time";
@@ -12,11 +13,21 @@ import { Buttons } from "./Buttons";
 export const SettingsModal: React.FC = React.memo(() => {
   const { 
     isSettingsOpen, setSettingsOpen, setShortcutsOpen,
-    wipeLibrary, showToast, importLibraryJSON, exportLibraryJSON,
+    wipeLibrary, showToast, importLibraryJSON, exportLibraryJSON, exportGamesAs,
     steamSettings, fetchSteamSettings, saveSteamSettings, syncSteamLibrary,
     customizations, updateCustomizations,
     customPlatforms, addCustomPlatform, removeCustomPlatform,
-  } = useGameTrackStore();
+  } = useGameTrackStore(useShallow((s) => ({
+    isSettingsOpen: s.isSettingsOpen, setSettingsOpen: s.setSettingsOpen,
+    setShortcutsOpen: s.setShortcutsOpen, wipeLibrary: s.wipeLibrary,
+    showToast: s.showToast, importLibraryJSON: s.importLibraryJSON,
+    exportLibraryJSON: s.exportLibraryJSON, exportGamesAs: s.exportGamesAs,
+    steamSettings: s.steamSettings, fetchSteamSettings: s.fetchSteamSettings,
+    saveSteamSettings: s.saveSteamSettings, syncSteamLibrary: s.syncSteamLibrary,
+    customizations: s.customizations, updateCustomizations: s.updateCustomizations,
+    customPlatforms: s.customPlatforms, addCustomPlatform: s.addCustomPlatform,
+    removeCustomPlatform: s.removeCustomPlatform,
+  })));
 
   const [customTagInput, setCustomTagInput] = useState("");
 
@@ -590,6 +601,30 @@ export const SettingsModal: React.FC = React.memo(() => {
                       {exportingLibrary ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                       Export Library JSON
                     </button>
+                    {/* CSV and Markdown, off the same in-memory library the JSON
+                        backup comes from. These are for looking at your data
+                        elsewhere — a spreadsheet or a note — not for restoring,
+                        which is JSON only. Two secondary buttons beside the
+                        primary, not a second primary, so the backup path stays
+                        the obvious one. */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => exportGamesAs("csv")}
+                        className="flex items-center justify-center gap-2 py-2.5 bg-transparent border border-brand-border hover:border-zinc-700 text-white text-[11px] font-black uppercase tracking-wider rounded-none transition-all cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-brand-accent" />
+                        CSV
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => exportGamesAs("md")}
+                        className="flex items-center justify-center gap-2 py-2.5 bg-transparent border border-brand-border hover:border-zinc-700 text-white text-[11px] font-black uppercase tracking-wider rounded-none transition-all cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-brand-accent" />
+                        Markdown
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-2">

@@ -224,8 +224,6 @@ export const getStatusBadgeColor = (status: string): string => {
   }
 };
 
-/** Solid square marker colors per status — used by the small corner status
- *  badges on Library cards. */
 /**
  * Status colour as text only, for places that show the status as a word
  * rather than a badge or a swatch — e.g. the poster hover row, where the
@@ -246,6 +244,8 @@ export const getStatusTextColor = (status: string): string => {
   }
 };
 
+/** Solid square marker colors per status — used by the small corner status
+ *  badges on Library cards. */
 export const getStatusMarkerColor = (status: string): string => {
   switch (status) {
     case "playing":
@@ -260,20 +260,13 @@ export const getStatusMarkerColor = (status: string): string => {
   }
 };
 
-export const getStatusBorderColor = (status: string): string => {
-  switch (status) {
-    case "backlog":
-      return "border border-brand-border hover:border-brand-accent/40 focus:border-brand-accent";
-    case "playing":
-      return "border-2 border-emerald-500/70 shadow-[0_0_22px_var(--status-glow-emerald)] hover:shadow-[0_0_35px_var(--status-glow-emerald-strong)] hover:scale-[1.01]";
-    case "completed":
-      return "border-2 border-brand-accent shadow-[0_0_22px_var(--brand-glow)] hover:shadow-[0_0_35px_var(--brand-glow-strong)] hover:scale-[1.01]";
-    case "endless":
-      return "border-2 border-fuchsia-500/70 shadow-[0_0_22px_var(--status-glow-fuchsia)] hover:shadow-[0_0_35px_var(--status-glow-fuchsia-strong)] hover:scale-[1.01]";
-    default:
-      return "border border-brand-border hover:border-brand-accent/40 focus:border-brand-accent";
-  }
-};
+// getStatusBorderColor was deleted here. It had no call sites, and it was the
+// one status-colour helper whose palette contradicted the other four — it
+// mapped `playing` to emerald and `completed` to brand-accent, the exact drift
+// the notes on getStatusBadgeColor/getStatusTextColor and AnalyticsView's
+// status colours both warn about. Dead code that disagrees with live code is
+// worse than no code: the next person to reach for a "status border colour"
+// helper would have found two answers and no way to tell which was current.
 
 // ── Discover genre filter ──────────────────────────────────────────
 // Our dropdown labels are not IGDB genre names, so every option maps to the

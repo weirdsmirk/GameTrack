@@ -12,18 +12,18 @@ installApiAuth();
 // If anything inside the app throws during boot, lift the boot screen and
 // show a minimal terminal-style error instead of a stuck loading screen.
 class BootBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
+  override state = { failed: false };
 
   static getDerivedStateFromError() {
     return { failed: true };
   }
 
-  componentDidCatch(error: unknown) {
+  override componentDidCatch(error: unknown) {
     document.getElementById("boot-screen")?.remove();
     console.error("GameTrack crashed:", error);
   }
 
-  render() {
+  override render() {
     if (this.state.failed) {
       return (
         <div className="h-screen w-screen flex items-center justify-center bg-brand-bg">

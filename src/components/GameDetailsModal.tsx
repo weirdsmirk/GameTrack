@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useGameTrackStore } from "../store";
+import { useShallow } from "zustand/react/shallow";
 import {
   X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2, ChevronDown, Check
 } from "lucide-react";
@@ -66,7 +67,14 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     syncGameSynopsis, resetGamePoster, resetGameMetadata,
     showToast, customPlatforms, customizations,
     games, openPlayingConflict,
-  } = useGameTrackStore();
+  } = useGameTrackStore(useShallow((s) => ({
+    selectedGame: s.selectedGame, setSelectedGame: s.setSelectedGame,
+    updateGame: s.updateGame, deleteGame: s.deleteGame,
+    syncGameSynopsis: s.syncGameSynopsis, resetGamePoster: s.resetGamePoster,
+    resetGameMetadata: s.resetGameMetadata, showToast: s.showToast,
+    customPlatforms: s.customPlatforms, customizations: s.customizations,
+    games: s.games, openPlayingConflict: s.openPlayingConflict,
+  })));
 
   const availablePlatforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
 
@@ -879,7 +887,12 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                         onClick={() => {
                           setEditStatus(s.value);
                           if (s.value === "completed" && !dateCompleted) {
-                            setDateCompleted(new Date().toISOString().slice(0, 10));
+                            // formatDateInputValue, not toISOString — see the note
+                            // on it at the top of this file. The save path parses
+                            // this field as local midnight, so writing a UTC date
+                            // here stored the previous day for anyone west of
+                            // Greenwich completing a game in the evening.
+                            setDateCompleted(formatDateInputValue(new Date()));
                           }
                         }}
                         className={`h-9 sm:h-10 px-3 rounded-none border text-[11px] font-black uppercase tracking-wider cursor-pointer transition-all flex items-center justify-center ${
@@ -898,9 +911,15 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 <label className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Platform Tag checklist</label>
                 <div className="flex flex-wrap gap-1.5">
                   {availablePlatforms.map((plat) => (
+                    /* The checkbox is sr-only, so the focus ring has to come from
+                       the wrapper: `focus-within` is what makes the focused tag
+                       visible. Without it, tabbing through the platform list
+                       moved an invisible focus and there was no way to tell
+                       which tag you were about to toggle. `peer` handles the
+                       checked state so it cannot drift from the input. */
                     <label
                       key={plat.id}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-none border text-[11px] font-black uppercase tracking-wider cursor-pointer transition-colors ${
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-none border text-[11px] font-black uppercase tracking-wider cursor-pointer transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-brand-accent focus-within:ring-offset-2 focus-within:ring-offset-brand-bg ${
                         selectedPlatforms.includes(plat.id)
                           ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
                           : "bg-transparent border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"

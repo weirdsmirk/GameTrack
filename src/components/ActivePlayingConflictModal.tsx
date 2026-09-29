@@ -1,11 +1,21 @@
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useGameTrackStore } from "../store";
+import { useShallow } from "zustand/react/shallow";
 import { Gamepad2 } from "lucide-react";
 import { useModalA11y } from "../hooks/useModalA11y";
 
 export const ActivePlayingConflictModal: React.FC = React.memo(() => {
-  const { playingConflict, closePlayingConflict, showToast } = useGameTrackStore();
+  // Selector, not the whole store: this modal is mounted permanently alongside
+  // the other overlays, so a whole-store subscription meant every toast push in
+  // the app re-rendered it.
+  const { playingConflict, closePlayingConflict, showToast } = useGameTrackStore(
+    useShallow((s) => ({
+      playingConflict: s.playingConflict,
+      closePlayingConflict: s.closePlayingConflict,
+      showToast: s.showToast,
+    }))
+  );
   const modalRef = useModalA11y(Boolean(playingConflict));
   const [processing, setProcessing] = useState(false);
 

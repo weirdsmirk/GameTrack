@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useGameTrackStore } from "../store";
+import { useShallow } from "zustand/react/shallow";
 import { Plus, Gamepad, Calendar, List, ChevronDown, X, Star, Heart } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useModalA11y } from "../hooks/useModalA11y";
@@ -12,7 +13,13 @@ export const AddGameModal: React.FC = React.memo(() => {
     isAddGameOpen, setAddGameOpen, addGame, updateGame, showToast,
     games, wishlist, addToWishlist, customPlatforms, openPlayingConflict,
     customizations
-  } = useGameTrackStore();
+  } = useGameTrackStore(useShallow((s) => ({
+    isAddGameOpen: s.isAddGameOpen, setAddGameOpen: s.setAddGameOpen,
+    addGame: s.addGame, updateGame: s.updateGame, showToast: s.showToast,
+    games: s.games, wishlist: s.wishlist, addToWishlist: s.addToWishlist,
+    customPlatforms: s.customPlatforms, openPlayingConflict: s.openPlayingConflict,
+    customizations: s.customizations,
+  })));
   const showCriticScores = customizations.showRatingBadge;
 
   const availablePlatforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
@@ -247,9 +254,11 @@ export const AddGameModal: React.FC = React.memo(() => {
   const modalRef = useModalA11y(isAddGameOpen);
 
   // Fresh form on every open — never show the previous entry's leftovers.
+  // resetForm is intentionally not a dependency: it is recreated each render,
+  // so listing it would reset the form on every keystroke. The dep that
+  // matters is the open flag.
   useEffect(() => {
     if (isAddGameOpen) resetForm();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAddGameOpen]);
 
   useEffect(() => {

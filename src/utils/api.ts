@@ -11,11 +11,23 @@
  * installApiAuth() patches window.fetch a single time so all existing and
  * future same-origin /api calls (store, modals, uploads, SSE-proof GETs)
  * carry the header without touching every call site.
+ *
+ * The two exported helpers that used to live here — setApiToken and apiFetch —
+ * are gone. apiFetch was a second, identical copy of the patching installApiAuth
+ * does automatically, with no call sites. setApiToken had none either, and was
+ * never exposed on `window`, so the "run it once in the browser console"
+ * workflow its own doc comment described was unreachable. Set the token
+ * directly instead:
+ *
+ *   localStorage.setItem("gametrack_api_token", "<token>")
+ *
+ * which is what the module has always read.
  */
 
 const TOKEN_STORAGE_KEY = "gametrack_api_token";
 
-export function getApiToken(): string {
+/** Not exported: only installApiAuth below needs it. */
+function getApiToken(): string {
   try {
     const stored = localStorage.getItem(TOKEN_STORAGE_KEY);
     if (stored && stored.trim()) return stored.trim();
@@ -23,37 +35,6 @@ export function getApiToken(): string {
     /* storage unavailable — fall through to build-time default */
   }
   return (import.meta.env.VITE_API_TOKEN as string | undefined)?.trim() || "";
-}
-
-/** Explicit setter for deployments (run once in the browser console). */
-export function setApiToken(token: string): void {
-  try {
-    if (token && token.trim()) localStorage.setItem(TOKEN_STORAGE_KEY, token.trim());
-    else localStorage.removeItem(TOKEN_STORAGE_KEY);
-  } catch {
-    /* ignore */
-  }
-}
-
-/** Same signature as fetch — injects the bearer header for /api requests. */
-export function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const token = getApiToken();
-  if (!token) return fetch(input, init);
-  const url =
-    typeof input === "string"
-      ? input
-      : input instanceof URL
-        ? input.href
-        : input.url;
-  if (!url.startsWith("/api")) return fetch(input, init);
-  if (input instanceof Request) {
-    const headers = new Headers(input.headers);
-    if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
-    return fetch(new Request(input, { headers }), init);
-  }
-  const headers = new Headers(init?.headers);
-  if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(input, { ...init, headers });
 }
 
 let installed = false;

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { useShallow } from "zustand/react/shallow";
 import { useGameTrackStore } from "./store";
 import { TABS } from "./tabs";
 import { resolveShortcutAction } from "./shortcuts";
@@ -12,7 +13,6 @@ import DiscoverView from "./components/DiscoverView";
 import WishlistView from "./components/WishlistView";
 import SettingsModal from "./components/SettingsModal";
 import ShortcutsModal from "./components/ShortcutsModal";
-import AuthModal from "./components/AuthModal";
 import GameDetailsModal from "./components/GameDetailsModal";
 import AddGameModal from "./components/AddGameModal";
 import { ActivePlayingConflictModal } from "./components/ActivePlayingConflictModal";
@@ -29,6 +29,14 @@ import { getLegalDoc, LegalView } from "./components/LegalView";
 const GATE_MAX_WAIT_MS = 2500;
 
 export default function App() {
+  /* useShallow, not a bare `useGameTrackStore()`. Subscribing to the whole store
+     meant every write re-rendered App and therefore the entire tree plus all six
+     modals — including on every toast push and dismiss, every trending append,
+     and every debounced filter keystroke. `React.memo` on the views could not
+     help, because the subscription itself had changed. Each call site now gets
+     exactly the fields it reads, and useShallow keeps the returned object
+     referentially stable so this does not reintroduce the same problem with a
+     fresh object on every store write. */
   const {
     activeTab, setActiveTab, fetchGames, fetchAnalytics,
     fetchTrending, fetchDiscoverLists,
@@ -40,7 +48,20 @@ export default function App() {
     customizations, updateCustomizations,
     games, loadingAnalytics, loadingWishlist, loadingLists, loadingDiscover,
     trendingGames, discoverSearchResults, discoverQuery, wishlist,
-  } = useGameTrackStore();
+  } = useGameTrackStore(useShallow((s) => ({
+    activeTab: s.activeTab, setActiveTab: s.setActiveTab, fetchGames: s.fetchGames,
+    fetchAnalytics: s.fetchAnalytics, fetchTrending: s.fetchTrending,
+    fetchDiscoverLists: s.fetchDiscoverLists, setSettingsOpen: s.setSettingsOpen,
+    setShortcutsOpen: s.setShortcutsOpen, fetchSteamSettings: s.fetchSteamSettings,
+    fetchWishlist: s.fetchWishlist, fetchCustomPlatforms: s.fetchCustomPlatforms,
+    loadingGames: s.loadingGames, fetchCustomizations: s.fetchCustomizations,
+    showToast: s.showToast, customizations: s.customizations,
+    updateCustomizations: s.updateCustomizations, games: s.games,
+    loadingAnalytics: s.loadingAnalytics, loadingWishlist: s.loadingWishlist,
+    loadingLists: s.loadingLists, loadingDiscover: s.loadingDiscover,
+    trendingGames: s.trendingGames, discoverSearchResults: s.discoverSearchResults,
+    discoverQuery: s.discoverQuery, wishlist: s.wishlist,
+  })));
   const [pathname, setPathname] = useState(() => window.location.pathname);
   // The app has no router; Link pushes history state and fires popstate, so
   // re-read the path when that happens instead of reloading the document.
@@ -156,7 +177,13 @@ export default function App() {
     fetchCustomizations();
     if (s.trendingGames.length === 0 || Date.now() - s.lastTrendingFetch > 300_000) fetchTrending();
     if (!s.discoverLists || Date.now() - s.lastListsFetch > 300_000) fetchDiscoverLists();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Intentionally mount-only, with the dep list deliberately omitted: every
+    // call above is read from getState() rather than from a dep, and adding
+    // them would re-run this effect on each write it triggers — a fetch loop.
+    // (This was an `eslint-disable-next-line react-hooks/exhaustive-deps`;
+    // there is no ESLint in this project, so the comment was only ever
+    // documentation pretending to be a directive. `npm run lint` was a
+    // duplicate of `typecheck` and has been removed.)
   }, []);
 
   useEffect(() => {
@@ -346,6 +373,20 @@ export default function App() {
   return (
     <>
       <div className="flex h-screen w-full bg-brand-bg overflow-hidden text-zinc-300 font-sans selection:bg-brand-accent/30 selection:text-brand-accent relative">
+        {/* Skip link. Without it, a keyboard user starts at the top of <main>
+            and has to tab through every focusable element in the current view
+            (~45 on a populated Library) to reach the menu button, because the
+            nav is rendered after <main> in the DOM. It is the first focusable
+            thing on the page and normally invisible; it only paints when
+            focused. `-translate-y-full` plus `focus:translate-y-0` rather than
+            `sr-only`, because sr-only keeps the element at a 1px clip and a
+            focused skip link has to be visible to be useful. */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[200] focus:px-4 focus:py-2.5 focus:bg-brand-accent focus:text-brand-accent-ink focus:font-black focus:text-[11px] focus:uppercase focus:tracking-widest focus:outline-none focus:ring-2 focus:ring-white"
+        >
+          Skip to content
+        </a>
 
         {/* No ambient glow behind the app. Two 150px-blurred accent blobs at 4%
             and 2% used to sit here, `fixed` and behind everything; at that
@@ -357,7 +398,17 @@ export default function App() {
         {/* Main workspace — full width, top navigation. The nav bar is hidden
             over the hero, so content keeps its original top offset and the
             title owns the top of the screen until the bar slides in. */}
-        <main ref={mainRef} className="flex-1 flex flex-col min-w-0 min-h-0 bg-brand-bg overflow-y-auto scroll-smooth antialiased">
+        {/* tabIndex={-1} so the skip link's target can actually receive focus.
+            A fragment target without it is scroll-only: the browser moves the
+            viewport but sequential focus still resumes from the link, so the
+            skip link would appear not to work. The class drops the focus ring
+            the default outline would otherwise draw around the whole pane. */}
+        <main
+          ref={mainRef}
+          id="main-content"
+          tabIndex={-1}
+          className="flex-1 flex flex-col min-w-0 min-h-0 bg-brand-bg overflow-y-auto scroll-smooth antialiased focus:outline-none"
+        >
           <div className="w-full px-6 md:px-12 pt-10 pb-10 overflow-x-hidden shrink-0 relative">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
@@ -697,7 +748,6 @@ export default function App() {
         <AddGameModal />
         <SettingsModal />
         <ShortcutsModal />
-        <AuthModal />
         <ActivePlayingConflictModal />
         <Toast />
 

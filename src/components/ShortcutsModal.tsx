@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useGameTrackStore } from "../store";
+import { useShallow } from "zustand/react/shallow";
 import {
   SHORTCUT_ACTIONS, FIXED_SHORTCUTS, bindingKeys, isBindable, isRebound,
   type ShortcutActionId,
@@ -25,8 +26,16 @@ import { KeyRow } from "./KeyRow";
  * "1" is not what the handler matches. Capture sidesteps the whole question.
  */
 export const ShortcutsModal: React.FC = React.memo(() => {
+  // Selector, not the whole store — see ActivePlayingConflictModal for why the
+  // permanently-mounted modals must not subscribe to everything.
   const { isShortcutsOpen, setShortcutsOpen, shortcuts, setShortcut, resetShortcuts } =
-    useGameTrackStore();
+    useGameTrackStore(useShallow((s) => ({
+      isShortcutsOpen: s.isShortcutsOpen,
+      setShortcutsOpen: s.setShortcutsOpen,
+      shortcuts: s.shortcuts,
+      setShortcut: s.setShortcut,
+      resetShortcuts: s.resetShortcuts,
+    })));
 
   const modalRef = useModalA11y(isShortcutsOpen);
 

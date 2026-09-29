@@ -10,6 +10,7 @@ import { Platform, slugifyPlatformLabel, mergeCustomPlatforms, igdbGenreNamesFor
 import {
   loadBindings, saveBindings, type ShortcutBindings, type ShortcutActionId
 } from "./shortcuts";
+import { gamesToCsv, gamesToMarkdown } from "./utils/export";
 
 export interface ToastAction {
   label: string;
@@ -196,6 +197,16 @@ interface GameTrackState {
   /** Genre the currently loaded trending list was fetched with. */
   trendingGenre: string;
   loadingDiscover: boolean;
+  /**
+   * Trending and Search are two independent in-flight requests, so they each
+   * own a flag. They used to share the single `loadingDiscover`, which meant
+   * whichever settled first cleared it while the other was still running: the
+   * infinite-scroll sentinel in DiscoverView then saw `!loadingDiscover` with a
+   * request outstanding and could fire a duplicate load-more. `loadingDiscover`
+   * is kept as their OR for the view, so nothing there had to change.
+   */
+  loadingTrending: boolean;
+  loadingSearch: boolean;
   discoverError: string | null;
   trendingPage: number;
   searchPage: number;
@@ -234,6 +245,8 @@ interface GameTrackState {
   importLibraryJSON: (jsonData: unknown) => Promise<{ success: boolean; imported?: number; error?: string }>;
   wipeLibrary: () => Promise<boolean>;
   exportLibraryJSON: () => Promise<boolean>;
+  /** CSV/Markdown for reading the library elsewhere. Not a backup format. */
+  exportGamesAs: (format: "csv" | "md") => boolean;
   toasts: ToastItem[];
   showToast: (
     message: string,
@@ -260,9 +273,6 @@ interface GameTrackState {
   searchFocusToken: number;
   requestSearchFocus: () => void;
 
-  isAuthOpen: boolean;
-  setAuthOpen: (open: boolean) => void;
-
   customizations: CustomizationSettings;
   fetchCustomizations: () => Promise<void>;
   updateCustomizations: (partial: Partial<CustomizationSettings>) => void;
@@ -285,7 +295,10 @@ const TAB_KEY = "gametrack_active_tab";
 const VALID_TABS = ["dashboard", "library", "discover", "analytics"] as const;
 
 function getInitialTab(): GameTrackState["activeTab"] {
-  const stored = typeof window !== "undefined" && window.localStorage ? localStorage.getItem(TAB_KEY) : null;
+  // Via safeGetItem: this runs at module load, and merely *touching*
+  // window.localStorage throws SecurityError in a sandboxed iframe — which
+  // would take the whole store (and therefore the app) down at import time.
+  const stored = safeGetItem(TAB_KEY);
   return (VALID_TABS as readonly string[]).includes(stored || "") ? stored as GameTrackState["activeTab"] : "dashboard";
 }
 
@@ -294,7 +307,7 @@ const DEFAULT_FILTERS = { status: "", platform: "", sort: "recent", search: "", 
 
 function loadSavedFilters(): GameTrackState["filters"] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(FILTERS_KEY) || "");
+    const parsed = JSON.parse(safeGetItem(FILTERS_KEY) || "");
     return {
       status: typeof parsed.status === "string" ? parsed.status : DEFAULT_FILTERS.status,
       platform: typeof parsed.platform === "string" ? parsed.platform : DEFAULT_FILTERS.platform,
@@ -320,7 +333,7 @@ const DEFAULT_CUSTOMIZATIONS: CustomizationSettings = {
 
 function loadSavedCustomizations(): CustomizationSettings {
   try {
-    const parsed = JSON.parse(localStorage.getItem(CUSTOMIZATIONS_KEY) || "");
+    const parsed = JSON.parse(safeGetItem(CUSTOMIZATIONS_KEY) || "");
     return {
       theme: isThemeId(parsed.theme) ? parsed.theme : DEFAULT_CUSTOMIZATIONS.theme,
       libraryColumns: [3, 4, 5, 6, 7].includes(parsed.libraryColumns) ? parsed.libraryColumns : 5,
@@ -347,7 +360,7 @@ const ANALYTICS_CACHE_KEY = "gametrack_analytics_cache";
 
 function loadCachedAnalytics() {
   try {
-    const raw = localStorage.getItem(ANALYTICS_CACHE_KEY);
+    const raw = safeGetItem(ANALYTICS_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (
@@ -378,7 +391,7 @@ const DISCOVER_CACHE_KEY = "gametrack_discover_cache";
 
 function loadCachedDiscover() {
   try {
-    const raw = localStorage.getItem(DISCOVER_CACHE_KEY);
+    const raw = safeGetItem(DISCOVER_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (
@@ -417,7 +430,7 @@ function saveDiscoverCache(snapshot: {
   discoverLists: DiscoverLists | null;
 }) {
   try {
-    localStorage.setItem(DISCOVER_CACHE_KEY, JSON.stringify({
+    safeSetItem(DISCOVER_CACHE_KEY, JSON.stringify({
       ...snapshot,
       trendingPageSize: TRENDING_PAGE_SIZE,
     }));
@@ -426,12 +439,87 @@ function saveDiscoverCache(snapshot: {
   }
 }
 
+/* Storage helpers. Every localStorage touch in this store goes through these
+   because each one can throw and most callers were not written to expect it:
+   setItem throws QuotaExceededError when the origin is full and
+   SecurityError outright in Safari private mode and sandboxed iframes, and
+   merely *touching* window.localStorage throws in a sandboxed iframe. In
+   `updateCustomizations` — the single highest-traffic write in the app — that
+   throw happened before the set(), so toggling a theme in private mode did
+   nothing visible and surfaced as an unhandled exception. Persistence is
+   best-effort by definition; state is the source of truth and must always
+   update even when the write fails. */
+function safeSetItem(key: string, value: string): void {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem(key, value);
+    }
+  } catch {
+    /* quota exceeded, private mode, or storage blocked — state still updates */
+  }
+}
+
+function safeGetItem(key: string): string | null {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      return window.localStorage.getItem(key);
+    }
+  } catch {
+    /* storage blocked — fall through to the "nothing saved" default */
+  }
+  return null;
+}
+
+function safeRemoveItem(key: string): void {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    /* storage blocked — nothing to clean up */
+  }
+}
+
+/* Serialization chain for customization PUTs — see updateCustomizations. A
+   single writer queue means requests reach the server in the order the user made
+   them, so the last write is genuinely the last choice rather than whichever
+   network response happened to resolve first. */
+let customizationWrite: Promise<Response | null> = Promise.resolve(null);
+
+/* In-flight /api/games load and its request generation — see fetchGames.
+   `gamesRequestId` is bumped per request; a response whose id is not the
+   current one is discarded rather than written, which is what stops a slow
+   pre-import fetch from erasing the rows an import just added. */
+let gamesFetchInFlight: Promise<void> | null = null;
+let gamesRequestId = 0;
+
+/**
+ * Set one or both Discover loading flags and keep the derived `loadingDiscover`
+ * as their OR. The two requests are independent — clearing the shared flag
+ * from whichever finished first is what let the infinite-scroll sentinel see an
+ * idle loader while a request was still open, and fire a duplicate load-more.
+ */
+type StoreSet = (
+  partial:
+    | Partial<GameTrackState>
+    | ((state: GameTrackState) => Partial<GameTrackState>)
+) => void;
+
+function setDiscoverLoading(
+  set: StoreSet,
+  flags: { trending?: boolean; search?: boolean }
+): void {
+  set((state) => {
+    const loadingTrending = flags.trending ?? state.loadingTrending;
+    const loadingSearch = flags.search ?? state.loadingSearch;
+    return { loadingTrending, loadingSearch, loadingDiscover: loadingTrending || loadingSearch };
+  });
+}
+
 export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   activeTab: getInitialTab(),
   setActiveTab: (tab) => {
-    if (tab !== "wishlist") {
-      if (typeof window !== "undefined" && window.localStorage) localStorage.setItem(TAB_KEY, tab);
-    }
+    if (tab !== "wishlist") safeSetItem(TAB_KEY, tab);
     set({ activeTab: tab, selectedGame: null });
   },
   selectedGame: null,
@@ -481,7 +569,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         ...get().customizations,
         ...data,
       } as CustomizationSettings;
-      localStorage.setItem(CUSTOMIZATIONS_KEY, JSON.stringify(next));
+      safeSetItem(CUSTOMIZATIONS_KEY, JSON.stringify(next));
       set({ customizations: next });
       if (isThemeId(next.theme)) applyTheme(next.theme);
     } catch (err) {
@@ -489,17 +577,42 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     }
   },
   updateCustomizations: (partial) => {
-    const next = { ...get().customizations, ...partial };
-    localStorage.setItem(CUSTOMIZATIONS_KEY, JSON.stringify(next));
+    const previous = get().customizations;
+    const next = { ...previous, ...partial };
+    safeSetItem(CUSTOMIZATIONS_KEY, JSON.stringify(next));
     set({ customizations: next });
     if (partial.theme && isThemeId(partial.theme)) {
       applyThemeWithReboot(partial.theme);
     }
-    void fetch("/api/settings/customizations", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(next),
-    }).catch((err) => console.error("Failed to persist customization settings:", err));
+
+    /* Optimistic, so it needs both a rollback and an ordering guarantee.
+       The old version fired an untracked fire-and-forget PUT: a failure left
+       the UI showing a change that was never saved with nothing but a console
+       line, and two toggles in quick succession could land out of order so the
+       server kept the older snapshot while the client showed the newer one.
+       `customizationWrite` chains every PUT so requests apply in order, and a
+       network rejection resets the chain so one failure cannot wedge every
+       later save behind a permanently rejected promise. */
+    const write = customizationWrite
+      .then(() => fetch("/api/settings/customizations", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      }))
+      .catch(() => null);
+
+    customizationWrite = write.then((res) => {
+      // No success toast: these toggles are frequent and a confirmation per
+      // click would be noise. The failure path is the one that needs a voice,
+      // because the UI is about to disagree with the server.
+      if (res && !res.ok) {
+        safeSetItem(CUSTOMIZATIONS_KEY, JSON.stringify(previous));
+        set({ customizations: previous });
+        if (next.theme && isThemeId(next.theme)) applyTheme(next.theme);
+        get().showToast("Couldn't save theme settings", "error", "Your change was reverted");
+      }
+      return res;
+    });
   },
 
   games: [],
@@ -508,40 +621,56 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   gamesError: null,
   filters: loadSavedFilters(),
   setFilter: (key, value) => {
+    // safeSetItem swallows its own failures, so no try/catch is needed here.
     set((state) => {
       const filters = { ...state.filters, [key]: value };
-      try {
-        localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
-      } catch {
-        /* ignore */
-      }
+      safeSetItem(FILTERS_KEY, JSON.stringify(filters));
       return { filters };
     });
   },
   resetFilters: () => {
-    try {
-      localStorage.removeItem(FILTERS_KEY);
-    } catch {
-      /* ignore */
-    }
+    safeRemoveItem(FILTERS_KEY);
     set({ filters: DEFAULT_FILTERS });
   },
 
   fetchGames: async (force = false) => {
     // Skip refetches within 60s of the last successful load — Tab switches,
-    // boot preloads and component remounts all land on this guard.
-    if (!force && get().games.length > 0 && Date.now() - get().lastGamesFetch < 60_000) return;
+    // boot preloads and component remounts all land on this guard. Keyed on
+    // lastGamesFetch alone (not on games.length) so an *empty* library is still
+    // cached; the old `length > 0` clause meant a fresh install refetched
+    // /api/games on every single LibraryView mount.
+    if (!force && get().lastGamesFetch > 0 && Date.now() - get().lastGamesFetch < 60_000) return;
+    // One request at a time. boot, LibraryView, importLibraryJSON and
+    // syncSteamLibrary all call this, and the last two do it *while* a boot
+    // fetch may still be open — so without this the pre-import response could
+    // land last and overwrite the freshly imported rows.
+    if (gamesFetchInFlight && !force) return gamesFetchInFlight;
+    if (gamesFetchInFlight) await gamesFetchInFlight;
     set({ loadingGames: true, gamesError: null });
+    // Monotonic request id: if two do end up overlapping, only the newest
+    // response is allowed to write, so a slow older response cannot clobber it.
+    const requestId = ++gamesRequestId;
+    gamesFetchInFlight = (async () => {
+      try {
+        const res = await fetch("/api/games");
+        if (!res.ok) throw new Error("Failed to fetch games");
+        const data = await res.json();
+        if (requestId === gamesRequestId) {
+          set({ games: data, lastGamesFetch: Date.now() });
+        }
+      } catch (err: unknown) {
+        if (requestId === gamesRequestId) {
+          set({ gamesError: getErrorMessage(err) || "Error loading games" });
+          get().showToast(getErrorMessage(err) || "Error loading games", "error");
+        }
+      } finally {
+        if (requestId === gamesRequestId) set({ loadingGames: false });
+      }
+    })();
     try {
-      const res = await fetch("/api/games");
-      if (!res.ok) throw new Error("Failed to fetch games");
-      const data = await res.json();
-      set({ games: data, lastGamesFetch: Date.now() });
-    } catch (err: unknown) {
-      set({ gamesError: getErrorMessage(err) || "Error loading games" });
-      get().showToast(getErrorMessage(err) || "Error loading games", "error");
+      await gamesFetchInFlight;
     } finally {
-      set({ loadingGames: false });
+      if (requestId === gamesRequestId) gamesFetchInFlight = null;
     }
   },
 
@@ -612,21 +741,10 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         body: JSON.stringify({ ids }),
       });
       if (!res.ok) {
-        if (res.status === 404) {
-          let count = 0;
-          for (const id of ids) {
-            const singleRes = await fetch(`/api/games/${id}`, { method: "DELETE" });
-            if (singleRes.ok) count++;
-          }
-          const idSet = new Set(ids);
-          set((state) => ({
-            games: state.games.filter((g) => !idSet.has(g.id)),
-            selectedGame: state.selectedGame && idSet.has(state.selectedGame.id) ? null : state.selectedGame,
-          }));
-          get().showToast(`Deleted ${count} ${count === 1 ? "game" : "games"}`, "info");
-          get().fetchAnalytics();
-          return true;
-        }
+        // No 404 fallback. POST /api/games/bulk-delete has no 404 branch — it
+        // answers 200 or 500 — so this block was ~15 unreachable lines that
+        // N+1'd a per-id delete loop if it ever did fire, and reported "Deleted
+        // N games" from a count nothing verified.
         const data = await res.json().catch(() => null);
         throw new Error(data?.error || "Failed to delete games");
       }
@@ -694,24 +812,23 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   // CDN artwork, IGDB-linked rows refetch the IGDB cover, anything else is
   // blanked (the UI renders the curated fallback for empty poster URLs).
   resetGamePoster: async (id) => {
-    const game = get().games.find((g) => g.id === id) ??
-      (get().selectedGame?.id === id ? get().selectedGame : undefined);
-    let poster: string | null;
-    if (game?.steam_appid != null) {
-      poster = `https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${game.steam_appid}/library_600x900.jpg`;
-    } else if (game?.igdb_id != null) {
-      poster = await get().syncGamePoster(id, game.igdb_id);
-    } else {
-      poster = "";
+    // The server owns the canonical artwork URL and, importantly, clears
+    // metadata_custom. Doing this as a client-side PUT of the poster URL marked
+    // the row as hand-edited, which permanently opted it out of Steam sync —
+    // the exact opposite of what "reset" means. See the route for the full story.
+    try {
+      const res = await fetch(`/api/games/${id}/reset-poster`, { method: "POST" });
+      if (!res.ok) throw await getApiError(res, "Failed to reset poster");
+      const data: Game = await res.json();
+      set((state) => ({
+        games: state.games.map((g) => (g.id === id ? data : g)),
+        selectedGame: state.selectedGame?.id === id ? data : state.selectedGame,
+      }));
+      return data.poster_url;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Failed to reset poster", "error");
+      return null;
     }
-    if (poster === null) return null; // IGDB fetch failed — keep current poster
-    // Steam/blank paths go through updateGame directly; syncGamePoster already
-    // persisted + updated the store for the IGDB path.
-    if (game?.igdb_id == null || game?.steam_appid != null) {
-      const ok = await get().updateGame(id, { poster_url: poster });
-      if (!ok) return null;
-    }
-    return poster;
   },
 
   // Restore every metadata field (title/year/genres/synopsis/score/poster) to
@@ -741,6 +858,8 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   discoverGenre: cachedDiscover?.trendingGenre ?? "",
   trendingGenre: cachedDiscover?.trendingGenre ?? "",
   loadingDiscover: false,
+  loadingTrending: false,
+  loadingSearch: false,
   discoverError: null,
   trendingPage: cachedDiscover?.trendingPage ?? 1,
   searchPage: 1,
@@ -782,7 +901,9 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     // being dropped by a busy-guard — that guard is what deadlocked genre
     // switches (the switch's fetch was discarded while a load-more was
     // running, leaving an empty feed nothing would ever refill).
-    if (loadMore && get().loadingDiscover) return;
+    // Scoped to this request's own flag: a search in flight must not block a
+    // trending page, or vice versa.
+    if (loadMore && get().loadingTrending) return;
     // Still cooling down after a 429 — retrying now would only throttle harder.
     if (Date.now() < get().discoverCooldownUntil) return;
     const nextPage = loadMore ? get().trendingPage + 1 : 1;
@@ -798,7 +919,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     const controller = new AbortController();
     trendingController = controller;
 
-    set({ loadingDiscover: true, discoverError: null });
+    set({ loadingTrending: true, discoverError: null });
     try {
       // Genre filtering runs server-side over the whole ranked pool, so every
       // page delivered here already matches the active filter. The page size
@@ -850,7 +971,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         discoverError: loadMore ? null : "Could not reach the game registry. The discovery service is temporarily unavailable. Please try again in a moment.",
       });
     } finally {
-      if (!controller.signal.aborted) set({ loadingDiscover: false });
+      if (!controller.signal.aborted) setDiscoverLoading(set, { trending: false });
     }
   },
 
@@ -882,8 +1003,8 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       hasMoreSearch: true,
       discoverCooldownUntil: 0,
       discoverError: null,
-      loadingDiscover: false,
     });
+    setDiscoverLoading(set, { trending: false, search: false });
     if (!get().discoverQuery.trim()) void get().fetchTrending(false);
   },
 
@@ -893,12 +1014,14 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       // Clearing the box aborts any in-flight search and releases the loader.
       searchController?.abort();
       searchController = null;
-      set({ discoverSearchResults: [], discoverQuery: "", searchPage: 1, hasMoreSearch: true, discoverError: null, loadingDiscover: false });
+      set({ discoverSearchResults: [], discoverQuery: "", searchPage: 1, hasMoreSearch: true, discoverError: null });
+      setDiscoverLoading(set, { search: false });
       return;
     }
     if (Date.now() < get().discoverCooldownUntil) return;
     const nextPage = loadMore ? get().searchPage + 1 : 1;
     if (loadMore && !get().hasMoreSearch) return;
+    if (loadMore && get().loadingSearch) return;
 
     // Sequence requests: a new search aborts the previous in-flight one so a
     // slow stale response can never overwrite fresher results.
@@ -906,7 +1029,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     const controller = new AbortController();
     searchController = controller;
 
-    set({ loadingDiscover: true, discoverError: null });
+    set({ loadingSearch: true, discoverError: null });
     try {
       // Genre filtering happens server-side against the whole search pool, so
       // results never shrink to a handful of matches in the loaded window.
@@ -946,7 +1069,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
           : "Search failed — the game registry is temporarily unreachable. Please try again in a moment.",
       });
     } finally {
-      if (!controller.signal.aborted) set({ loadingDiscover: false });
+      if (!controller.signal.aborted) setDiscoverLoading(set, { search: false });
     }
   },
 
@@ -1107,19 +1230,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         body: JSON.stringify({ ids }),
       });
       if (!res.ok) {
-        if (res.status === 404) {
-          let count = 0;
-          for (const id of ids) {
-            const singleRes = await fetch(`/api/wishlist/${id}`, { method: "DELETE" });
-            if (singleRes.ok) count++;
-          }
-          const idSet = new Set(ids);
-          set((state) => ({
-            wishlist: state.wishlist.filter((item) => !idSet.has(item.id)),
-          }));
-          if (!silent) get().showToast(`Removed ${count} ${count === 1 ? "item" : "items"} from wishlist`, "info");
-          return true;
-        }
+        // Same dead 404 branch as deleteGames — bulk-delete never returns 404.
         const data = await res.json().catch(() => null);
         throw new Error(data?.error || "Failed to remove wishlist items");
       }
@@ -1186,7 +1297,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       });
 
       try {
-        localStorage.setItem(ANALYTICS_CACHE_KEY, JSON.stringify({
+        safeSetItem(ANALYTICS_CACHE_KEY, JSON.stringify({
           savedAt: ts,
           summary: data.summary,
           genreAnalytics: data.genreAnalytics,
@@ -1286,13 +1397,17 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
 
       // Drop cached analytics/discover snapshots so stale data from the wiped
       // library can't resurface afterwards (or leak into a fresh library).
-      if (typeof window !== "undefined" && window.localStorage) {
-        localStorage.removeItem(ANALYTICS_CACHE_KEY);
-        localStorage.removeItem(DISCOVER_CACHE_KEY);
-      }
+      safeRemoveItem(ANALYTICS_CACHE_KEY);
+      safeRemoveItem(DISCOVER_CACHE_KEY);
 
       set({ games: [], selectedGame: null, suggestions: [] });
-      get().showToast("Library wiped", "success", "All local data cleared");
+      // The copy has to match what DELETE /api/wipe actually does: it empties
+      // the `games` table and nothing else. Wishlist, custom platform tags, the
+      // Steam link, theme customisations and uploaded poster files all survive,
+      // and this is a destructive action — claiming "all local data cleared"
+      // was a straight lie that would also mislead anyone reasoning about
+      // whether a recovery still exists.
+      get().showToast("Library wiped", "success", "All games deleted — wishlist and settings kept");
       get().fetchAnalytics();
       return true;
     } catch (err: unknown) {
@@ -1320,6 +1435,43 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       get().showToast(getErrorMessage(err) || "Library export failed", "error");
       return false;
     }
+  },
+
+  /* CSV and Markdown, for reading the library somewhere other than this app.
+     The README advertised both and src/utils/export.ts implemented them with
+     full CSV-injection hardening, but nothing in the UI ever called them —
+     68 lines of unreachable code for a feature the docs promised. Wired up
+     here rather than deleted, because the promise is the honest thing to keep.
+
+     Built from the in-memory `games` list, which the store already holds, so
+     there is no second request. The object URL is revoked immediately after the
+     click, matching exportLibraryJSON. */
+  exportGamesAs: (format) => {
+    const games = get().games;
+    if (games.length === 0) {
+      get().showToast("Nothing to export", "error", "Your library is empty");
+      return false;
+    }
+    const stamp = new Date().toISOString().slice(0, 10);
+    const csv = format === "csv";
+    const contents = csv ? gamesToCsv(games) : gamesToMarkdown(games);
+    const blob = new Blob([contents], {
+      type: csv ? "text/csv;charset=utf-8" : "text/markdown;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `gametrack-library-${stamp}.${csv ? "csv" : "md"}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    get().showToast(
+      `Library exported as ${csv ? "CSV" : "Markdown"}`,
+      "success",
+      `${games.length} ${games.length === 1 ? "game" : "games"}`
+    );
+    return true;
   },
 
   // ── Toasts (queue) ─────────────────────────────────────────────
@@ -1486,8 +1638,4 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   // ── Search focus ─────────────────────────────────────────────
   searchFocusToken: 0,
   requestSearchFocus: () => set((state) => ({ searchFocusToken: state.searchFocusToken + 1 })),
-
-  // ── Local Auth (cosmetic) ────────────────────────────────────
-  isAuthOpen: false,
-  setAuthOpen: (open) => set({ isAuthOpen: open }),
 }));
