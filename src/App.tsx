@@ -493,6 +493,42 @@ export default function App() {
                     `y: -10` was correct for the popover-below shape and read as
                     the whole cluster settling once the panel moved onto the
                     toggle's line. */}
+                {/* The top and bottom rules are pseudo-elements from md up, so
+                    they are drawn on the panel's edges without consuming any of
+                    its height. As real borders they cost 1px each, which left
+                    every cell 36px inside a 38px panel — two short of the 38px
+                    toggle beside it, and no amount of padding arithmetic could
+                    close that, because the height was being spent on the frame
+                    rather than the content. `md:border-l` is a real border: it
+                    costs width, which the row has plenty of.
+
+                    `md:border-l` and not `md:border-x`, deliberately. The
+                    settings box at the end of the row carries its own 1px frame
+                    on all four sides, so a right border here would sit
+                    immediately beside the box's own right edge and the two read
+                    as a single 2px stroke. Letting the box's right border be the
+                    panel's right edge makes the outermost line one border instead
+                    of two, and the box still closes on all four sides because
+                    nothing else draws that edge.
+
+                    `md:relative` is the only positioning here from md up, and it
+                    has to be the only one: the rules are absolutely positioned
+                    and need this box as their containing block. An earlier
+                    `md:static` survived alongside it, and with two position
+                    utilities on one element the winner is whichever the
+                    stylesheet happens to list later — not the one written later
+                    — so the rules anchored to the nav and were drawn nowhere near
+                    the panel. `relative` also leaves the panel a flex item,
+                    which is all `static` was ever needed for.
+
+                    This note lives out here, not inside the `className` string
+                    above. A C-style block comment written between the
+                    attribute's quotes is not a comment — it is literal text in
+                    the class list, and every word of it is a candidate class
+                    name. One of these paragraphs contains a bare "border", so the
+                    panel silently grew a 1px frame on all four sides: a phantom
+                    top and right edge, a panel one pixel too tall, and a right
+                    edge that read as 2px where it met the settings box. */}
                 <motion.div
                   key="menu-panel"
                   id="primary-menu"
@@ -502,7 +538,9 @@ export default function App() {
                   exit={{ opacity: 0, ...(hasKeyboard ? { x: 10 } : { y: -10 }), transition: { duration: 0.12 } }}
                   transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                   className="absolute inset-x-0 top-full z-20 mt-1.5 bg-brand-bg border-b border-brand-border pointer-events-auto
-                    md:static md:mt-0 md:shrink-0 md:border"
+                    md:mt-0 md:shrink-0 md:relative md:border-l md:border-b-0
+                    md:before:absolute md:before:inset-x-0 md:before:top-0 md:before:h-px md:before:bg-brand-border md:before:content-['']
+                    md:after:absolute md:after:inset-x-0 md:after:bottom-0 md:after:h-px md:after:bg-brand-border md:after:content-['']"
                 >
                   {/* Five items, four destinations then settings. Settings is an
                       action rather than a place, so it takes the same slot as
@@ -561,29 +599,52 @@ export default function App() {
                             variant={isActive ? "primary" : "tab"}
                             onClick={() => setActiveTab(tab.id)}
                             aria-current={isActive ? "page" : undefined}
-                            className="w-full md:w-auto py-3.5 md:py-2 text-left md:px-5 flex items-center justify-center md:justify-start whitespace-nowrap"
+                            className="w-full md:w-auto py-3.5 md:h-[38px] text-left md:px-5 flex items-center justify-center md:justify-start whitespace-nowrap"
                           >
                             <span className="truncate min-w-0">{tab.label}</span>
                           </Buttons>
                         </div>
                       );
                     })}
-                    {/* Settings as a glyph rather than a word. It is the one item
-                        in the row that is an action and not a destination, and it
-                        is also the only one whose label is longer than its own
-                        cell — as text it set the row's rhythm and made the four
-                        destinations look like a column of equal-weight choices
-                        when one of them is not. The gear says the same thing in a
-                        square, and the row reads as four places plus a control.
+                    {/* Settings as a glyph in a square box of its own. It is the
+                        one item in the row that is an action and not a
+                        destination, and as a word it set the row's rhythm and
+                        made the four destinations look like equal-weight choices
+                        when one of them is not. A boxed gear says the same thing
+                        in a fraction of the width, and the row reads as four
+                        places plus a control.
 
-                        Centred in its cell rather than left-aligned like the
-                        labels, and narrower (`md:px-4` against their `md:px-5`
-                        plus the word), so the glyph sits on the same optical
-                        centre the text items start from. `aria-label` carries the
-                        name, since the visible text is gone — the icon is
-                        `aria-hidden`, so the accessible name is the label and
-                        not the SVG's contents. */}
-                    <div className="border-t border-brand-border md:border-t-0 md:border-l">
+                        The box is on this wrapper, not on the button, for the
+                        same reason the row's rules are: `tab` and `primary` both
+                        set `border-transparent`, and utility order rather than
+                        class order decides, so a border colour on the button
+                        itself renders invisible. The wrapper has no competing
+                        declaration.
+
+                        Sized `w-[38px] h-[38px]` — the same 38px as the cells
+                        and as the toggle, so the box is flush with them on all
+                        three sides and is genuinely square rather than only
+                        roughly so. It carries no horizontal margin: the earlier
+                        `md:mx-1` opened a gap that read as an empty column
+                        between the gear and the panel's edge, which looked like a
+                        fifth, empty item in the row.
+
+                        The wrapper carries the width because the button inside it
+                        is `w-full` in the base variant: sizing the button instead
+                        would be circular against the wrapper's own auto width,
+                        and it collapses to a few pixels. It keeps the same
+                        `py-3.5` the text cells have, because on a phone the box
+                        is neither square nor sized and without that padding the
+                        glyph would be the entire row height. Note the wrapper
+                        keeps `border-t` on desktop rather than cancelling it the
+                        way the row's rules do: `md:border` here is all four sides
+                        at once, and a `md:border-t-0` would win on source order
+                        and take the top edge off the box.
+
+                        `aria-label` carries the name, since the visible text is
+                        gone; the icon is `aria-hidden`, so the accessible name
+                        is the label and not the SVG's contents. */}
+                    <div className="border-t border-brand-border md:w-[38px] md:h-[38px] md:border flex items-center justify-center">
                       <Buttons
                         variant="tab"
                         onClick={() => {
@@ -592,7 +653,7 @@ export default function App() {
                         }}
                         aria-label="Settings"
                         title="Settings"
-                        className="w-full md:w-auto py-3.5 md:py-2 flex items-center justify-center md:px-4"
+                        className="w-full h-full py-3.5 md:py-0 flex items-center justify-center"
                       >
                         <SettingsIcon className="w-[18px] h-[18px]" aria-hidden />
                       </Buttons>
