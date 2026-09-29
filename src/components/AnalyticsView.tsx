@@ -9,6 +9,10 @@ import { formatPlaytimePrecise } from "../utils/time";
 /** How many calendar months the chart covers, current month included. */
 const COMPLETED_MONTH_SPAN = 6;
 
+/** The top of the personal-rating scale — 1-10, as the app stores and prints
+    it. Declared once so the histogram cannot drift from the pickers. */
+const RATING_SCALE_MAX = 10;
+
 /** One calendar month on the completion chart. */
 type CompletedMonth = {
   /** Three-letter month, used verbatim as the axis tick. */
@@ -168,6 +172,60 @@ export const AnalyticsView: React.FC = React.memo(() => {
       .filter(g => g.status === "completed")
       .sort((a, b) => (b.date_completed || 0) - (a.date_completed || 0))
       .slice(0, 8);
+  }, [games]);
+
+  // ── Rating distribution ───────────────────────────────────────────
+  // 1-10, the scale every other surface in the app prints as `/10`.
+  //
+  // Every title lands in exactly one of two places — a rating bucket or
+  // unrated — so the figures here always add up to the library. That matters
+  // more than usual here: with a large unrated majority, a distribution drawn
+  // from rated titles alone reads as a verdict on the whole collection when it
+  // is a verdict on a fraction of it.
+  const ratings = React.useMemo(() => {
+    const counts = new Array<number>(RATING_SCALE_MAX + 1).fill(0);
+    let rated = 0;
+    let unrated = 0;
+    let sum = 0;
+    for (const g of games) {
+      const raw = g.personal_rating;
+      // The pickers only offer 1-10, so anything else is unrateable data. Rounded
+      // and clamped into the scale rather than dropped, so no title can vanish
+      // from the panel and leave the counts quietly short.
+      const value = raw == null ? 0 : Math.min(RATING_SCALE_MAX, Math.max(1, Math.round(raw)));
+      if (raw == null || raw <= 0) {
+        unrated += 1;
+        continue;
+      }
+      counts[value] = (counts[value] ?? 0) + 1;
+      rated += 1;
+      sum += raw;
+    }
+    const buckets = counts.slice(1).map((count, i) => ({ value: i + 1, count }));
+    // Scaled against the tallest bucket, not the library, so the shape across
+    // the scale stays legible when unrated titles outnumber rated ones 3 to 1.
+    const maxCount = Math.max(1, ...buckets.map((b) => b.count));
+    const ratedValues = buckets.filter((b) => b.count > 0);
+    // Seeded with a zero-count bucket rather than `buckets[0]`, so the peak is
+    // well-defined even when every rating is unrated.
+    let peak = { value: 0, count: 0 };
+    for (const b of buckets) if (b.count > peak.count) peak = b;
+    const total = games.length || 1;
+    return {
+      buckets,
+      maxCount,
+      rated,
+      unrated,
+      ratedPct: Math.round((rated / total) * 100),
+      unratedPct: 100 - Math.round((rated / total) * 100),
+      // Null rather than zero when nothing is rated: an average of 0/10 would
+      // be a claim about taste rather than an absence of data.
+      average: rated > 0 ? sum / rated : null,
+      peak,
+      floor: ratedValues.length ? Math.min(...ratedValues.map((b) => b.value)) : null,
+      ceiling: ratedValues.length ? Math.max(...ratedValues.map((b) => b.value)) : null,
+      spread: ratedValues.filter((b) => b.value >= 9).reduce((s, b) => s + b.count, 0),
+    };
   }, [games]);
 
   // ── Completions, last six calendar months ─────────────────────────
@@ -548,6 +606,101 @@ export const AnalyticsView: React.FC = React.memo(() => {
           </div>
         </div>
 
+      </div>
+
+      {/* Rating Distribution — full width. A histogram of ten buckets needs the
+          room, and it is the only panel here whose subject is the whole library
+          rather than a subset of it. */}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+        <div className="xl:col-span-5 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs font-black uppercase tracking-widest text-white">Rating Distribution</h3>
+            <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-brand-muted">
+              N = {ratings.rated} Rated · {ratings.unrated} Unrated
+            </span>
+          </div>
+
+          {totalGames === 0 ? (
+            <div className="w-full h-48 flex items-center justify-center border border-brand-border/30 bg-zinc-950/20 text-xs uppercase text-brand-muted">
+              No titles registered yet
+            </div>
+          ) : (
+            <div className="pt-2">
+              {/* Coverage first, and above the histogram, because it sets the
+                  denominator. The bars below are scaled to the tallest bucket,
+                  which is what makes the shape readable — and that same scaling
+                  is exactly what would turn the shape into a verdict on the whole
+                  library if this bar were not sitting above it. */}
+              <div className="flex h-2.5 w-full shrink-0 border border-brand-border/50 overflow-hidden">
+                <div
+                  className="h-full shrink-0 transition-all"
+                  style={{ width: `${ratings.ratedPct}%`, backgroundColor: "var(--brand-accent)" }}
+                  title={`Rated: ${ratings.rated} titles (${ratings.ratedPct}%)`}
+                />
+                <div
+                  className="h-full shrink-0 transition-all"
+                  style={{ width: `${ratings.unratedPct}%`, backgroundColor: "var(--zinc-500-val)" }}
+                  title={`Unrated: ${ratings.unrated} titles (${ratings.unratedPct}%)`}
+                />
+              </div>
+              <div className="mt-1.5 flex items-baseline justify-between gap-3 text-[11px] uppercase tracking-widest">
+                <span className="text-zinc-300 font-black">
+                  Rated <span className="text-brand-muted">{ratings.ratedPct}%</span>
+                </span>
+                <span className="text-zinc-300 font-black">
+                  Unrated <span className="text-brand-muted">{ratings.unratedPct}%</span>
+                </span>
+              </div>
+
+              {/* The histogram. Every value on the scale gets a column, including
+                  the empty ones — a gap at 3 is part of the shape, and a chart
+                  that dropped empty buckets would hide the very thing it is
+                  measuring. */}
+              <div className="mt-5 grid grid-cols-10 gap-2 h-40">
+                {ratings.buckets.map((b) => (
+                  <div key={b.value} className="flex flex-col min-w-0">
+                    <div className="flex-1 flex flex-col justify-end gap-1">
+                      <span className="text-center text-[9px] font-black text-brand-muted">
+                        {b.count || ""}
+                      </span>
+                      <div
+                        className="w-full shrink-0 transition-all"
+                        style={{
+                          // 88 rather than 100: the count label sits above the bar
+                          // inside the same box, and a full-height bar pushes it
+                          // out of the panel.
+                          height: `${(b.count / ratings.maxCount) * 88}%`,
+                          backgroundColor: b.count ? "var(--brand-accent)" : "transparent",
+                        }}
+                      />
+                    </div>
+                    <div className="mt-1.5 text-center text-[10px] font-black uppercase tracking-wider text-brand-muted">
+                      {b.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* The reading, in the app's own comment voice: what the average is
+                  worth, where the ratings pile up, and — the part a count alone
+                  cannot tell you — whether the bottom of the scale is ever used. */}
+              <p className="mt-4 text-[9px] uppercase tracking-wider text-brand-muted leading-relaxed">
+                {ratings.rated === 0 ? (
+                  "// No titles rated yet"
+                ) : (
+                  <>
+                    // Avg {ratings.average?.toFixed(1)}/10 across {ratings.rated} rated · peak{" "}
+                    <span className="text-brand-accent">{ratings.peak.value}</span> · {ratings.spread} of{" "}
+                    {ratings.rated} rated {ratings.spread === 1 ? "is" : "are"} 9 or higher
+                    {ratings.floor !== null && ratings.floor > 1 && (
+                      <> · nothing rated below {ratings.floor}</>
+                    )}
+                  </>
+                )}
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
     </div>
