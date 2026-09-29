@@ -88,7 +88,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
     return games.reduce((sum, g) => sum + (g.hide_playtime === 1 ? 0 : (g.playtime || 0)), 0);
   }, [games]);
 
-  const avgPlaytime = totalGames > 0 ? (totalPlaytime / totalGames).toFixed(1) : "0";
+
 
   // ── Library composition ───────────────────────────────────────────
   // One pass over the library, because the status split and the launch-state
@@ -423,30 +423,47 @@ export const AnalyticsView: React.FC = React.memo(() => {
           baseline however their labels wrap — at the narrowest four-column width
           a two-word label still folds on the tracked caps, and without the
           reservation its figure drops a line below its neighbours. The labels
-          are held to two words so none of them can outrun its cell, and they
-          borrow the dashboard's vocabulary rather than inventing a second one
-          for the same two figures. Same language as the app — square corners,
-          1px brand-border, tracked caps, black Inter figures, accent reserved
-          for the one figure that is a ratio. */}
+          are held to two words so none of them can outrun its cell. Same
+          language as the app — square corners, 1px brand-border, tracked caps,
+          black Inter figures, accent reserved for the one figure that is a
+          ratio.
+
+          One figure per question, so the strip answers four different things:
+          how big the library is, how much of it has actually been played, what
+          the owner thinks of it, and how much is finished. The two it replaced
+          were both about hours, which made them half-sayings of one fact. */}
       <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr gap-px bg-brand-border border border-brand-border">
         <div className="bg-brand-bg p-5 sm:p-6">
           <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Registry Titles</p>
           <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none mt-4">{totalGames}</h3>
         </div>
 
+        {/* Engagement as breadth, not volume. Counted on the same
+            hide-playtime-aware rule as the hour figures, so this cannot
+            disagree with the "N of M played" line under Most Played. The "of"
+            is the point: the gap between the two figures is the untouched
+            library, which is the thing this metric exists to expose. */}
         <div className="bg-brand-bg p-5 sm:p-6">
-          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Total Playtime</p>
-          <div className="flex items-baseline gap-2 mt-4">
-            <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none">{Math.round(totalPlaytime)}</h3>
-            <span className="text-sm sm:text-base font-black uppercase text-brand-muted">HRS</span>
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Played Titles</p>
+          <div className="flex items-baseline justify-between gap-3 mt-4">
+            <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none">{playtime.playedCount}</h3>
+            <span className="text-xs sm:text-sm text-brand-muted uppercase shrink-0">
+              <span className="text-white font-bold">{totalGames}</span> total
+            </span>
           </div>
         </div>
 
+        {/* Taste, over rated titles only. Read from the same memo as the Rating
+            Distribution below, so the figure here and the histogram there can
+            never average different sets. An em dash rather than 0.0 when nothing
+            is rated: a zero would be a claim about taste, not an absence of it. */}
         <div className="bg-brand-bg p-5 sm:p-6">
-          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Avg Playtime</p>
+          <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Avg Rating</p>
           <div className="flex items-baseline gap-2 mt-4">
-            <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none">{avgPlaytime}</h3>
-            <span className="text-sm sm:text-base font-black uppercase text-brand-muted">HRS/GAME</span>
+            <h3 className="text-5xl sm:text-7xl font-black text-white font-sans tracking-tighter leading-none">
+              {ratings.average === null ? "—" : ratings.average.toFixed(1)}
+            </h3>
+            <span className="text-sm sm:text-base font-black uppercase text-brand-muted">/10</span>
           </div>
         </div>
 
@@ -585,7 +602,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
                   {composition.rows.map((s) => (
                     <div
                       key={s.key}
-                      className="h-full shrink-0"
+                      className="h-full shrink-0 transition-all hover:brightness-125"
                       style={{ width: `${s.pct}%`, backgroundColor: s.color }}
                       title={`${s.label}: ${s.count} titles (${s.pct}%)`}
                     />
@@ -594,14 +611,14 @@ export const AnalyticsView: React.FC = React.memo(() => {
 
                 <div className="flex-1 min-h-0 flex flex-col justify-center space-y-3.5 pt-6 pb-3">
                   {composition.rows.map((s) => (
-                    <div key={s.key} className="space-y-1.5">
+                    <div key={s.key} className="group/row space-y-1.5">
                       <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest">
-                        <span className="text-zinc-300 font-black">{s.label}</span>
-                        <span className="text-brand-muted">{s.count} TITLES · {s.pct}%</span>
+                        <span className="text-zinc-300 font-black transition-colors group-hover/row:text-white">{s.label}</span>
+                        <span className="text-brand-muted transition-colors group-hover/row:text-brand-accent">{s.count} TITLES · {s.pct}%</span>
                       </div>
-                      <div className="h-2 bg-zinc-900 border border-brand-border/50">
+                      <div className="h-2 bg-zinc-900 border border-brand-border/50 transition-colors group-hover/row:border-brand-accent/40">
                         <div
-                          className="h-full transition-all"
+                          className="h-full transition-all group-hover/row:brightness-125"
                           style={{ width: `${s.pct}%`, backgroundColor: s.color }}
                         />
                       </div>
@@ -634,12 +651,12 @@ export const AnalyticsView: React.FC = React.memo(() => {
                   </div>
                   <div className="flex h-2.5 w-full shrink-0 border border-brand-border/50 overflow-hidden">
                     <div
-                      className="h-full shrink-0 transition-all"
+                      className="h-full shrink-0 transition-all hover:brightness-125"
                       style={{ width: `${composition.neverLaunchedPct}%`, backgroundColor: "var(--zinc-500-val)" }}
                       title={`Never launched: ${composition.neverLaunched} titles (${composition.neverLaunchedPct}%)`}
                     />
                     <div
-                      className="h-full shrink-0 transition-all"
+                      className="h-full shrink-0 transition-all hover:brightness-125"
                       style={{ width: `${100 - composition.neverLaunchedPct}%`, backgroundColor: "var(--brand-accent)" }}
                       title={`Launched: ${composition.launched} titles (${100 - composition.neverLaunchedPct}%)`}
                     />
@@ -676,16 +693,16 @@ export const AnalyticsView: React.FC = React.memo(() => {
           ) : (
             <div className="pt-2 space-y-3.5">
               {platformRows.rows.map((p) => (
-                <div key={p.id} className="space-y-1.5">
+                <div key={p.id} className="group/row space-y-1.5">
                   <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest">
-                    <span className="text-zinc-300 font-black truncate min-w-0">{p.label}</span>
-                    <span className="text-brand-muted shrink-0">
+                    <span className="text-zinc-300 font-black truncate min-w-0 transition-colors group-hover/row:text-white">{p.label}</span>
+                    <span className="text-brand-muted shrink-0 transition-colors group-hover/row:text-brand-accent">
                       {p.titles} TITLES · {p.displayHours} HRS
                     </span>
                   </div>
-                  <div className="h-2 bg-zinc-900 border border-brand-border/50">
+                  <div className="h-2 bg-zinc-900 border border-brand-border/50 transition-colors group-hover/row:border-brand-accent/40">
                     <div
-                      className="h-full transition-all"
+                      className="h-full transition-all group-hover/row:brightness-125"
                       style={{
                         width: `${(p.titles / platformRows.maxTitles) * 100}%`,
                         backgroundColor: "var(--brand-accent)",
@@ -716,11 +733,16 @@ export const AnalyticsView: React.FC = React.memo(() => {
 
       </div>
 
-      {/* Row 2: Most Played (narrow) + Completed Titles (wide) */}
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
+      {/* Row 2: Most Played and Completed Titles, as two equal halves. The row
+          uses its own two-column grid rather than the five-column one above:
+          with five tracks the pair can only split 2/5 and 3/5, and these two
+          answer the same question — what you have spent time on — so they read
+          as equals rather than as a panel and a satellite. Grid stretch then
+          gives them a shared height as well as a shared width. */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
         {/* Most Played Titles */}
-        <div className="xl:col-span-2 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
+        <div className="border border-brand-border bg-transparent p-6 rounded-none space-y-4">
           <div className="flex items-center gap-2 border-b border-brand-border pb-4">
             <h3 className="text-xs font-black uppercase tracking-widest text-white">Most Played Titles</h3>
           </div>
@@ -733,9 +755,9 @@ export const AnalyticsView: React.FC = React.memo(() => {
               <div className="flex flex-col justify-center h-full">
                 <div className="space-y-3.5">
                   {mostPlayed.map((g, i) => (
-                    <div key={g.id} className="space-y-1">
+                    <div key={g.id} className="group/row space-y-1">
                       <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest">
-                        <span className="text-zinc-300 font-black truncate min-w-0">
+                        <span className="text-zinc-300 font-black truncate min-w-0 transition-colors group-hover/row:text-white">
                           <span className="text-brand-muted mr-2">{String(i + 1).padStart(2, "0")}</span>
                           {g.title}
                         </span>
@@ -757,9 +779,9 @@ export const AnalyticsView: React.FC = React.memo(() => {
                           and drawn at 80% opacity, so it read as a lighter,
                           thinner mark than the status, platform and launch bars
                           directly above and below it. */}
-                      <div className="h-2 bg-zinc-900 border border-brand-border/50">
+                      <div className="h-2 bg-zinc-900 border border-brand-border/50 transition-colors group-hover/row:border-brand-accent/40">
                         <div
-                          className="h-full transition-all"
+                          className="h-full transition-all group-hover/row:brightness-125"
                           style={{
                             width: `${((g.playtime || 0) / playtime.maxHours) * 100}%`,
                             backgroundColor: "var(--brand-accent)",
@@ -788,8 +810,9 @@ export const AnalyticsView: React.FC = React.memo(() => {
           </div>
         </div>
 
-        {/* Completed Titles */}
-        <div className="xl:col-span-3 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
+        {/* Completed Titles — the registry it started as: which titles are
+            finished, most recent first. */}
+        <div className="border border-brand-border bg-transparent p-6 rounded-none space-y-4">
           <div className="flex items-center gap-2 border-b border-brand-border pb-4">
             <h3 className="text-xs font-black uppercase tracking-widest text-white">Completed Titles</h3>
           </div>
@@ -797,7 +820,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
           {/* Completed titles roster */}
           <div className="pt-2">
             <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest border-b border-brand-border pb-4">
-              <span className="text-brand-muted font-bold">COMPLETED REGISTRY</span>
+              <span className="text-brand-accent font-bold">COMPLETED REGISTRY</span>
               <span className="text-brand-accent font-black">{completedGames} TITLE{completedGames === 1 ? "" : "S"}</span>
             </div>
             {completedList.length === 0 ? (
@@ -807,9 +830,13 @@ export const AnalyticsView: React.FC = React.memo(() => {
             ) : (
               <ul className="mt-3 space-y-2">
                 {completedList.map((g) => (
-                  <li key={g.id} className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest py-1 border-b border-brand-border/20">
-                    <span className="text-zinc-300 font-bold truncate">{g.title}</span>
-                    <span className="text-brand-muted shrink-0">{g.date_completed ? new Date(g.date_completed).toLocaleDateString(undefined, { month: "short", year: "2-digit" }).toUpperCase() : "NO DATE"}</span>
+                  <li key={g.id} className="group/row flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest py-1 border-b border-brand-border/20">
+                    <span className="text-zinc-300 font-bold truncate transition-colors group-hover/row:text-white">{g.title}</span>
+                    {/* Day first. `month: "short", year: "2-digit"` rendered
+                        every row as "SEP 26", "JUL 26", "JUN 26" — all ending
+                        in 26, which reads as the 26th of the month rather than
+                        the year. Leading with the day makes it unambiguous. */}
+                    <span className="text-brand-muted shrink-0 transition-colors group-hover/row:text-brand-accent">{g.date_completed ? new Date(g.date_completed).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" }).toUpperCase() : "NO DATE"}</span>
                   </li>
                 ))}
               </ul>
@@ -844,12 +871,12 @@ export const AnalyticsView: React.FC = React.memo(() => {
                   library if this bar were not sitting above it. */}
               <div className="flex h-2.5 w-full shrink-0 border border-brand-border/50 overflow-hidden">
                 <div
-                  className="h-full shrink-0 transition-all"
+                  className="h-full shrink-0 transition-all hover:brightness-125"
                   style={{ width: `${ratings.ratedPct}%`, backgroundColor: "var(--brand-accent)" }}
                   title={`Rated: ${ratings.rated} titles (${ratings.ratedPct}%)`}
                 />
                 <div
-                  className="h-full shrink-0 transition-all"
+                  className="h-full shrink-0 transition-all hover:brightness-125"
                   style={{ width: `${ratings.unratedPct}%`, backgroundColor: "var(--zinc-500-val)" }}
                   title={`Unrated: ${ratings.unrated} titles (${ratings.unratedPct}%)`}
                 />
@@ -869,13 +896,13 @@ export const AnalyticsView: React.FC = React.memo(() => {
                   measuring. */}
               <div className="mt-5 grid grid-cols-10 gap-2 h-40">
                 {ratings.buckets.map((b) => (
-                  <div key={b.value} className="flex flex-col min-w-0">
+                  <div key={b.value} className="group/row flex flex-col min-w-0">
                     <div className="flex-1 flex flex-col justify-end gap-1">
-                      <span className="text-center text-[9px] font-black text-brand-muted">
+                      <span className="text-center text-[9px] font-black text-brand-muted transition-colors group-hover/row:text-brand-accent">
                         {b.count || ""}
                       </span>
                       <div
-                        className="w-full shrink-0 transition-all"
+                        className="w-full shrink-0 transition-all group-hover/row:brightness-125"
                         style={{
                           // 88 rather than 100: the count label sits above the bar
                           // inside the same box, and a full-height bar pushes it
@@ -885,7 +912,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
                         }}
                       />
                     </div>
-                    <div className="mt-1.5 text-center text-[10px] font-black uppercase tracking-wider text-brand-muted">
+                    <div className="mt-1.5 text-center text-[10px] font-black uppercase tracking-wider text-brand-muted transition-colors group-hover/row:text-white">
                       {b.value}
                     </div>
                   </div>

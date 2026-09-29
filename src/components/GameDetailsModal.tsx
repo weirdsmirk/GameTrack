@@ -25,6 +25,20 @@ import { PosterImage } from "./PosterImage";
  * grey boxes and the row said nothing about what those statuses look like
  * everywhere else in the app.
  */
+/**
+ * `YYYY-MM-DD` for a `<input type="date">`, in LOCAL time.
+ *
+ * `toISOString()` is the obvious one-liner and it is wrong here: it renders the
+ * UTC date, so in any timezone behind UTC an evening completion came back as
+ * the previous day. The save path already parses the field as local midnight
+ * (`new Date(value + "T00:00:00")`), so reading it in local time too makes
+ * load and save the same instant and the round-trip stops drifting.
+ */
+const formatDateInputValue = (d: Date): string => {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
 const NEUTRAL_STATUS_TONE = {
   on: "bg-zinc-500/25 border-zinc-400 text-zinc-100",
   off: "bg-zinc-900/60 border-zinc-700 text-zinc-400 hover:text-zinc-100 hover:border-zinc-400",
@@ -106,7 +120,15 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
     setTitle(selectedGame.title);
     setYear(selectedGame.year?.toString() || "");
-    setDateCompleted(selectedGame.date_completed ? new Date(selectedGame.date_completed).toISOString().slice(0, 10) : "");
+    // Formatted in LOCAL time, not `toISOString()`. The save below writes
+    // `new Date(value + "T00:00:00")`, which is local midnight, so the value
+    // read back has to be the local date too. Reading it as UTC and writing it
+    // back as local slid every completion one day earlier on each save: a title
+    // stored at 2026-09-16T18:30Z showed 2026-09-16 in the field and re-saved
+    // as 2026-09-15T18:30Z.
+    setDateCompleted(
+      selectedGame.date_completed ? formatDateInputValue(new Date(selectedGame.date_completed)) : ""
+    );
     setGenres(selectedGame.genres?.join(", ") || "");
     setSynopsis(selectedGame.synopsis);
     synopsisDirtyRef.current = false;

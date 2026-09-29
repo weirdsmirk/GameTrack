@@ -90,8 +90,12 @@ describe("AnalyticsView runtime", () => {
     // The telemetry labels are title case in the DOM and uppercased by CSS, so
     // assistive tech is not handed a shouted label. Matched case-insensitively
     // so a casing decision does not break this test.
-    expect(screen.getByText(/registry titles/i)).toBeTruthy();
-    expect(screen.getByText(/total playtime/i)).toBeTruthy();
+    // Exact strings, not regex: a loose /played titles/i also matches the
+    // "Most Played Titles" panel heading further down the page.
+    expect(screen.getByText("Registry Titles")).toBeTruthy();
+    expect(screen.getByText("Played Titles")).toBeTruthy();
+    expect(screen.getByText("Avg Rating")).toBeTruthy();
+    expect(screen.getByText("Completion Rate")).toBeTruthy();
     expect(screen.getByText("Games Completed — Last 6 Months")).toBeTruthy();
     expect(screen.getByText("Status Distribution")).toBeTruthy();
     expect(screen.getByText("Most Played Titles")).toBeTruthy();
