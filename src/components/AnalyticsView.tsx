@@ -614,9 +614,9 @@ export const AnalyticsView: React.FC = React.memo(() => {
                     <div key={s.key} className="group/row space-y-1.5">
                       <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest">
                         <span className="text-zinc-300 font-black transition-colors group-hover/row:text-white">{s.label}</span>
-                        <span className="text-brand-muted transition-colors group-hover/row:text-brand-accent">{s.count} TITLES · {s.pct}%</span>
+                        <span className="text-brand-muted">{s.count} TITLES · {s.pct}%</span>
                       </div>
-                      <div className="h-2 bg-zinc-900 border border-brand-border/50 transition-colors group-hover/row:border-brand-accent/40">
+                      <div className="h-2 bg-zinc-900 border border-brand-border/50">
                         <div
                           className="h-full transition-all group-hover/row:brightness-125"
                           style={{ width: `${s.pct}%`, backgroundColor: s.color }}
@@ -696,11 +696,11 @@ export const AnalyticsView: React.FC = React.memo(() => {
                 <div key={p.id} className="group/row space-y-1.5">
                   <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest">
                     <span className="text-zinc-300 font-black truncate min-w-0 transition-colors group-hover/row:text-white">{p.label}</span>
-                    <span className="text-brand-muted shrink-0 transition-colors group-hover/row:text-brand-accent">
+                    <span className="text-brand-muted shrink-0">
                       {p.titles} TITLES · {p.displayHours} HRS
                     </span>
                   </div>
-                  <div className="h-2 bg-zinc-900 border border-brand-border/50 transition-colors group-hover/row:border-brand-accent/40">
+                  <div className="h-2 bg-zinc-900 border border-brand-border/50">
                     <div
                       className="h-full transition-all group-hover/row:brightness-125"
                       style={{
@@ -779,7 +779,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
                           and drawn at 80% opacity, so it read as a lighter,
                           thinner mark than the status, platform and launch bars
                           directly above and below it. */}
-                      <div className="h-2 bg-zinc-900 border border-brand-border/50 transition-colors group-hover/row:border-brand-accent/40">
+                      <div className="h-2 bg-zinc-900 border border-brand-border/50">
                         <div
                           className="h-full transition-all group-hover/row:brightness-125"
                           style={{
@@ -836,7 +836,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
                         every row as "SEP 26", "JUL 26", "JUN 26" — all ending
                         in 26, which reads as the 26th of the month rather than
                         the year. Leading with the day makes it unambiguous. */}
-                    <span className="text-brand-muted shrink-0 transition-colors group-hover/row:text-brand-accent">{g.date_completed ? new Date(g.date_completed).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" }).toUpperCase() : "NO DATE"}</span>
+                    <span className="text-brand-muted shrink-0">{g.date_completed ? new Date(g.date_completed).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" }).toUpperCase() : "NO DATE"}</span>
                   </li>
                 ))}
               </ul>
@@ -898,7 +898,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
                 {ratings.buckets.map((b) => (
                   <div key={b.value} className="group/row flex flex-col min-w-0">
                     <div className="flex-1 flex flex-col justify-end gap-1">
-                      <span className="text-center text-[9px] font-black text-brand-muted transition-colors group-hover/row:text-brand-accent">
+                      <span className="text-center text-[9px] font-black text-brand-muted">
                         {b.count || ""}
                       </span>
                       <div
