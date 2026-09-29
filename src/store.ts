@@ -7,6 +7,9 @@ import {
 } from "./types";
 import { isThemeId, applyTheme, applyThemeWithReboot } from "./themes";
 import { Platform, slugifyPlatformLabel, mergeCustomPlatforms, igdbGenreNamesFor } from "./constants";
+import {
+  loadBindings, saveBindings, type ShortcutBindings, type ShortcutActionId
+} from "./shortcuts";
 
 export interface ToastAction {
   label: string;
@@ -263,6 +266,17 @@ interface GameTrackState {
   customizations: CustomizationSettings;
   fetchCustomizations: () => Promise<void>;
   updateCustomizations: (partial: Partial<CustomizationSettings>) => void;
+
+  /**
+   * Rebound keyboard shortcuts, keyed by action id. Only overrides are stored:
+   * an action the user has not touched is absent, and the handler falls back to
+   * the shipped default. Storing the full map instead would mean a change to a
+   * default in a future version silently doing nothing for anyone who had
+   * already saved a binding set.
+   */
+  shortcuts: ShortcutBindings;
+  setShortcut: (id: ShortcutActionId, code: string) => void;
+  resetShortcuts: () => void;
 }
 
 const TAB_KEY = "gametrack_active_tab";
@@ -435,6 +449,26 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   playingConflict: null,
   openPlayingConflict: (conflict) => set({ playingConflict: conflict }),
   closePlayingConflict: () => set({ playingConflict: null }),
+
+  shortcuts: loadBindings(),
+  setShortcut: (id, code) => {
+    // A binding that another action already owns is moved rather than
+    // duplicated: the user pressing a key that is live elsewhere almost always
+    // means "I meant this one instead", and two actions silently sharing a key
+    // would leave one of them dead with no indication of which.
+    const current = get().shortcuts;
+    const next: ShortcutBindings = { ...current };
+    for (const [otherId, otherCode] of Object.entries(next)) {
+      if (otherCode === code) delete next[otherId as ShortcutActionId];
+    }
+    next[id] = code;
+    saveBindings(next);
+    set({ shortcuts: next });
+  },
+  resetShortcuts: () => {
+    saveBindings({});
+    set({ shortcuts: {} });
+  },
 
   customizations: initialCustomizations,
   fetchCustomizations: async () => {

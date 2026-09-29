@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useGameTrackStore } from "./store";
 import { TABS } from "./tabs";
+import { resolveShortcutAction } from "./shortcuts";
 import Toast from "./components/Toast";
 import NotFoundView from "./components/NotFoundView";
 import DashboardView from "./components/DashboardView";
@@ -15,10 +16,9 @@ import AuthModal from "./components/AuthModal";
 import GameDetailsModal from "./components/GameDetailsModal";
 import AddGameModal from "./components/AddGameModal";
 import { ActivePlayingConflictModal } from "./components/ActivePlayingConflictModal";
-import { Menu, X, ArrowRight } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import PageLoader from "./components/PageLoader";
 import { Buttons } from "./components/Buttons";
-import { KeyRow } from "./components/KeyRow";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { preloadImages } from "./utils/image";
 import { Spinner } from "./components/Spinner";
@@ -27,20 +27,6 @@ import { getLegalDoc, LegalView } from "./components/LegalView";
 
 /** Longest the page gate will hold a view back waiting for its covers. */
 const GATE_MAX_WAIT_MS = 2500;
-
-/**
- * The right-hand slot of a menu row: the row's own Option digit from md up,
- * an arrow below it. Both are `shrink-0` and sit in the same place, so the
- * labels line up down the column at every width — the arrow is a plain
- * "this goes somewhere" mark that inherits the row's colour (black on the
- * filled row, muted on the rest).
- */
-const MenuHint = ({ digit }: { digit: string }) => (
-  <>
-    <ArrowRight className="w-4 h-4 shrink-0 md:hidden" />
-    <KeyRow keys={["ALT", digit]} className="hidden md:block" />
-  </>
-);
 
 export default function App() {
   const {
@@ -185,29 +171,22 @@ export default function App() {
 
     const onKey = (e: KeyboardEvent) => {
       const store = useGameTrackStore.getState();
-      // Option + , toggles the system settings panel (macOS-style preferences
-      // shortcut). Matched by physical code so it works even though Option
-      // remaps e.key to a punctuation character on US layouts, and preventDefault
-      // stops that character from landing in any focused input.
-      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === "Comma") {
-        e.preventDefault();
-        store.setSettingsOpen(!store.isSettingsOpen);
-        return;
-      }
-      // Option + 1..4 jumps to a page, in menu order. Matched by physical code
-      // for the same reason as the comma above: Option rewrites e.key, so
-      // Option+1 reports "¡" on a US layout and would never match "1". Reading
-      // the digit off the end of the code also covers the numpad for free, and
-      // indexing TABS is what ties the digit to the page's menu position — the
-      // cheat-sheet modal numbers its rows from the same list.
-      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
-        const isDigitKey = e.code.startsWith("Digit") || e.code.startsWith("Numpad");
-        // Anything that is not a plain 1-9 — NumpadDecimal, NumpadAdd, or a
-        // digit past the end of TABS — falls out as undefined here.
-        const tab = isDigitKey ? TABS[Number(e.code.slice(-1)) - 1] : undefined;
-        if (tab) {
+
+      // Rebindable shortcuts: Option plus a key, resolved from the binding map
+      // rather than a hardcoded digit. Every action is one lookup, so adding a
+      // destination or changing a default does not touch this handler. Matched
+      // by physical `code` for the reason in `shortcuts.ts` — Option rewrites
+      // `key`, so Option+1 reports "¡" on a US layout — and the modifiers are
+      // excluded explicitly so a user's Ctrl+Alt+digit is left to the browser.
+      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && !typing(e.target)) {
+        const action = resolveShortcutAction(store.shortcuts, e.code);
+        if (action) {
           e.preventDefault();
-          store.setActiveTab(tab.id);
+          if (action === "settings") {
+            store.setSettingsOpen(!store.isSettingsOpen);
+          } else {
+            store.setActiveTab(action);
+          }
           return;
         }
       }
@@ -443,25 +422,31 @@ export default function App() {
             air above it) and pt-10 from md, which puts the row's top edge on the
             view's <h1> line rather than floating it above the title.
 
-            The cluster's `md:px-12` right inset is load-bearing twice over: it
-            holds the controls off the viewport edge, and the menu reads the
-            same value as `md:right-12` to line its own right edge up with the
-            cluster. Change one and the other has to change with it. */}
+            `md:items-center` is what puts the open menu and the toggle on one
+            line from md up. Below md there is no row to align — the menu is out
+            of flow, hanging off the bottom — so the items never share a
+            baseline and the toggle stays exactly where it was. */}
         <nav
           ref={navRef}
           aria-label="Primary"
-          className="fixed inset-x-0 top-0 z-40 flex justify-end px-6 md:px-12 pt-8 md:pt-10 pointer-events-none"
+          className="fixed inset-x-0 top-0 z-40 flex justify-end items-start md:items-center gap-2 px-6 md:px-12 pt-8 md:pt-10 pointer-events-none"
         >
-          {/* Menu — one component, two shapes, both opening downward. On a
-              phone it is a full-width panel hanging off the nav's bottom edge,
-              because a column of four labels has nowhere to go at 390px. From
-              md up it is the same column inset from the left, dropping below
-              the toggle like any other preview.
+          {/* Menu — one component, two shapes. On a phone it is a full-width
+              panel hanging off the nav's bottom edge, because a column of four
+              labels has nowhere to go at 390px; it is absolutely positioned, so
+              it never takes part in the nav's layout and cannot push the toggle
+              around.
 
-              Either way it is absolutely positioned, so it never takes part in
-              the nav's layout and the two controls cannot be pushed around by
-              it — the click-jump this cluster used to have is gone by
-              construction rather than by an alignment workaround. */}
+              From md up the panel stops being positioned at all and becomes an
+              ordinary flex item of the nav, sitting immediately before the
+              toggle in DOM order. The row above it is `justify-end`, so the pair
+              is pushed to the right edge and the menu lands directly left of the
+              control, level with it. Placing it with the flex row rather than
+              with an offset is the point: an earlier version anchored it to
+              `left-12` to mirror the nav's gutter, which put it at the far left
+              of the screen on top of the page title, and the fix for that was
+              not a different magic number but letting the row do the placing.
+              Nothing here has to know how wide the toggle is. */}
           <AnimatePresence>
             {menuOpen && (
               <>
@@ -479,22 +464,23 @@ export default function App() {
                   className="md:hidden fixed inset-0 z-10 bg-black/70 pointer-events-auto"
                   aria-hidden="true"
                 />
-                {/* Dropdown below the control cluster, at every width. On a
-                    phone `inset-x-0` makes it a full-bleed panel hanging off
-                    the nav's bottom edge, because a column of four labels has
-                    nowhere to go at 390px. From md up it is inset from the left
-                    instead, so it drops straight down under the toggle the way
-                    any other preview does, with its right edge on the
-                    cluster's — `right-12` is the nav's own `md:px-12`, which is
-                    what keeps the two flush; `left-auto` releases the
-                    full-bleed `inset-x-0` the phone uses.
+                {/* The panel itself. `absolute` with `inset-x-0` and `top-full`
+                    is the phone shape: full-bleed, hanging off the nav's bottom
+                    edge. `md:static` releases both, which puts the panel back
+                    into the nav's flex row as a normal item — so it is placed
+                    by the row (right-aligned, immediately left of the toggle,
+                    vertically centred by `md:items-center`) rather than by an
+                    offset that would have to hardcode the toggle's width.
+                    `md:mt-0` drops the phone's gap under the nav edge. The
+                    nav's `gap-2` is the gap between the two on desktop, and
+                    inert on a phone where the panel is out of flow.
 
                     A framed box, but with no padding inside it: the border is
-                    the edge and the rows start against it, so the filled row
-                    runs the full width of the frame with no inset gutter. The
-                    6px of padding that used to sit between border and row is
-                    the gap that made the box look twice as wide as its
-                    contents. `border` rather than `border-b` here — the base
+                    the edge and the items start against it, so the filled item
+                    runs the full height or width of the frame with no inset
+                    gutter. The 6px of padding that used to sit between border
+                    and item is the gap that made the box look twice as wide as
+                    its contents. `border` rather than `border-b` here — the base
                     sets a bottom-only rule for the phone panel, and both agree
                     on the bottom edge, so no override is needed. */}
                 <motion.div
@@ -506,65 +492,82 @@ export default function App() {
                   exit={{ opacity: 0, y: -10, transition: { duration: 0.12 } }}
                   transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
                   className="absolute inset-x-0 top-full z-20 mt-1.5 bg-brand-bg border-b border-brand-border pointer-events-auto
-                    md:left-auto md:right-12 md:border"
+                    md:static md:mt-0 md:shrink-0 md:border"
                 >
-                  {/* One column, five rows — at every width: the four
-                      destinations, then settings. Settings is an action rather
-                      than a place, so it takes the same row as everything else
-                      instead of a box of its own; the menu is the only way in
-                      to it now, which is why there is a single control in the
-                      nav at every width.
+                  {/* Five items, four destinations then settings. Settings is an
+                      action rather than a place, so it takes the same slot as
+                      everything else instead of a box of its own; the menu is the
+                      only way in to it now, which is why there is a single
+                      control in the nav at every width.
 
-                      Each row is label-left, hint-right. The hint is the row's
+                      A single column on a phone, one horizontal row from md up.
+                      The split is the same breakpoint the panel itself uses to
+                      stop being full-bleed, because it is the same reason: below
+                      md a column is the only shape that fits, and from md up
+                      there is a pointer and room for a row. `md:flex-row` turns
+                      the same five children into the row, so the items and their
+                      order are defined once and only the axis changes.
+
+                      `md:w-max` lets the row size to its contents instead of
+                      stretching to the panel's width, and the buttons drop to
+                      `md:w-auto` to match — left as `w-full` inside a `w-max`
+                      row, each item would resolve its width against the row's
+                      own max-content width and the sizing would be circular.
+
+                      Each item is label-left, hint-right. The hint is the item's
                       own Option digit from md up, where there is a keyboard to
                       press it on; below md a phone has no Alt key, so it gets
                       an arrow instead — a key chord there would be a shortcut
                       nobody on that screen can take. Both occupy the same slot
-                      so the labels line up down the column either way.
+                      so the labels line up either way.
 
-                      Rows are separated by hairlines rather than boxed: with a
+                      Items are separated by hairlines rather than boxed: with a
                       label on the left and a hint on the right, a border around
-                      every row drew a box inside a box.
+                      every item drew a box inside a box. The rule follows the
+                      axis — `border-t` down the phone column, `md:border-l` along
+                      the row, with the horizontal half cancelled so the two
+                      never compound into a double line at the corner.
 
-                      The rules hang off a wrapper per row, not off the row. A
-                      border colour on the row itself loses — `tab`/`primary`
+                      The rules hang off a wrapper per item, not off the item. A
+                      border colour on the button itself loses — `tab`/`primary`
                       both set `border-transparent`, and utility order (not class
                       order) decides, so it renders invisible. `divide-y` on the
                       column does not help either: Tailwind v4 nests it in
                       `:where()`, which contributes no specificity at all, so
                       `divide-brand-border` ties with `border-transparent` and
                       loses on source order. A wrapper has no competing
-                      declaration. The rows keep their transparent 1px border so
-                      nothing changes size when one is selected. */}
-                  <div className="flex flex-col px-6 pb-6 pt-1 md:w-max md:min-w-[17rem] md:p-0">
+                      declaration. The buttons keep their transparent 1px border
+                      so nothing changes size when one is selected. */}
+                  <div className="flex flex-col px-6 pb-6 pt-1 md:flex-row md:w-max md:p-0">
                     {TABS.map((tab, i) => {
                       const isActive = activeTab === tab.id;
                       return (
-                        <div key={tab.id} className={i > 0 ? "border-t border-brand-border" : undefined}>
+                        <div
+                          key={tab.id}
+                          className={i > 0 ? "border-t border-brand-border md:border-t-0 md:border-l" : undefined}
+                        >
                           <Buttons
                             ref={i === 0 ? firstItemRef : undefined}
                             variant={isActive ? "primary" : "tab"}
                             onClick={() => setActiveTab(tab.id)}
                             aria-current={isActive ? "page" : undefined}
-                            className="w-full py-3.5 text-left md:px-5 flex items-center justify-between gap-4"
+                            className="w-full md:w-auto py-3.5 md:py-3 text-left md:px-5 flex items-center justify-center md:justify-start whitespace-nowrap"
                           >
                             <span className="truncate min-w-0">{tab.label}</span>
-                            <MenuHint digit={String(i + 1)} />
                           </Buttons>
                         </div>
                       );
                     })}
-                    <div className="border-t border-brand-border">
+                    <div className="border-t border-brand-border md:border-t-0 md:border-l">
                       <Buttons
                         variant="tab"
                         onClick={() => {
                           setMenuOpen(false);
                           setSettingsOpen(true);
                         }}
-                        className="w-full py-3.5 text-left md:px-5 flex items-center justify-between gap-4"
+                        className="w-full md:w-auto py-3.5 md:py-3 text-left md:px-5 flex items-center justify-center md:justify-start whitespace-nowrap"
                       >
                         <span className="truncate min-w-0">SETTINGS</span>
-                        <MenuHint digit="," />
                       </Buttons>
                     </div>
                   </div>

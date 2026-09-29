@@ -16,9 +16,19 @@ import React from "react";
  * font set on an ancestor is only inherited and loses to it. Without this class
  * these hints are the one place a monospace face survives in an app that is
  * Inter throughout.
+ *
+ * `dim` is a prop rather than something a caller cancels with its own
+ * `opacity-*` class: two opacity utilities in one class list are decided by
+ * stylesheet order, not by the order they were written, so passing
+ * `opacity-100` to cancel `opacity-50` would work only by accident of how
+ * Tailwind happened to emit them. This way there is never a second one.
  */
-export const KeyRow: React.FC<{ keys: string[]; className?: string }> = ({ keys, className = "" }) => (
-  <kbd className={`shrink-0 font-sans text-[10px] font-black uppercase tracking-wider opacity-50 ${className}`}>
+export const KeyRow: React.FC<{ keys: string[]; className?: string; dim?: boolean }> = ({
+  keys,
+  className = "",
+  dim = true,
+}) => (
+  <kbd className={`shrink-0 font-sans text-[10px] font-black uppercase tracking-wider ${dim ? "opacity-50" : "opacity-100"} ${className}`}>
     {keys.join(" ")}
   </kbd>
 );
