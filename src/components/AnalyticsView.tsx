@@ -49,11 +49,20 @@ const MonthTooltip = React.memo(
   }
 );
 
+/**
+ * Solid status colours for bars, keyed to the shared palette — the same four
+ * the Library badges and the details-modal status group use. This map had
+ * drifted: it gave `playing` emerald and `completed` the brand accent, which
+ * `constants.ts` explicitly rejects, because yellow there reads as "this is
+ * selected", not "you finished this". On the analytics page the same yellow
+ * also meant "the current completion rate", so the accent was carrying three
+ * unrelated jobs at once.
+ */
 const STATUS_BAR_COLORS: Record<string, string> = {
-  backlog: "var(--zinc-600-val)",
-  playing: "var(--emerald-400-val)",
-  completed: "var(--brand-accent)",
-  endless: "var(--fuchsia-400-val)",
+  backlog: "var(--zinc-500-val)",
+  playing: "var(--blue-500-val)",
+  completed: "var(--emerald-500-val)",
+  endless: "var(--fuchsia-500-val)",
 };
 
 export const AnalyticsView: React.FC = React.memo(() => {
@@ -66,23 +75,83 @@ export const AnalyticsView: React.FC = React.memo(() => {
   }, [fetchAnalytics, summary, lastAnalyticsFetch]);
 
   const totalGames = games.length;
-  const completedGames = games.filter(g => g.status === "completed").length;
-  const completionRate = totalGames > 0 ? Math.round((completedGames / totalGames) * 100) : 0;
-  
+
   const totalPlaytime = React.useMemo(() => {
     return games.reduce((sum, g) => sum + (g.hide_playtime === 1 ? 0 : (g.playtime || 0)), 0);
   }, [games]);
 
   const avgPlaytime = totalGames > 0 ? (totalPlaytime / totalGames).toFixed(1) : "0";
 
-  // Status distribution across the registry
-  const statusCounts = React.useMemo(() => {
-    const total = games.length || 1;
-    return STATUSES.map((s) => {
-      const count = games.filter(g => g.status === s.value).length;
-      return { status: s.value, label: s.label, count, pct: Math.round((count / total) * 100) };
-    }).filter((s) => s.count > 0);
+  // ── Library composition ───────────────────────────────────────────
+  // One pass over the library, because the status split and the launch-state
+  // split are two readings of the same rows and counting them separately is how
+  // the two halves of the panel drift apart.
+  //
+  // The status split on its own cannot say whether the collection has been
+  // touched: a backlog game with hours logged was tried and put down, which is
+  // a different thing from one that has never been launched. With this
+  // library, 17 of the 23 backlog titles have zero hours and 6 have hours —
+  // so "backlog" alone overstates how much is genuinely untouched. That split
+  // is the only figure in this panel that appears nowhere else on the page.
+  const composition = React.useMemo(() => {
+    const total = games.length;
+    if (total === 0) {
+      return {
+        rows: [] as { key: string; label: string; count: number; pct: number; color: string }[],
+        neverLaunched: 0,
+        launched: 0,
+        neverLaunchedPct: 0,
+        shelved: 0,
+        backlogUnlaunched: 0,
+      };
+    }
+    const knownLabels = new Set<string>(STATUSES.map((s) => s.value));
+    const counts = new Map<string, number>();
+    let neverLaunched = 0;
+    let shelved = 0;
+    let backlogUnlaunched = 0;
+    for (const g of games) {
+      counts.set(g.status, (counts.get(g.status) ?? 0) + 1);
+      const started = (g.playtime || 0) > 0;
+      if (started) {
+        if (g.status === "backlog") shelved += 1;
+      } else {
+        neverLaunched += 1;
+        if (g.status === "backlog") backlogUnlaunched += 1;
+      }
+    }
+    // A status outside the four the picker offers still has to be counted, or
+    // the rows would not add up to the library total and the panel would
+    // quietly disagree with the strip above it.
+    const unknown = [...counts.entries()]
+      .filter(([key]) => !knownLabels.has(key))
+      .map(([key, count]) => ({ key, label: key, count }));
+    const rows = [
+      ...STATUSES.map((s) => ({ key: s.value, label: s.label, count: counts.get(s.value) ?? 0 })),
+      ...unknown,
+    ]
+      .filter((r) => r.count > 0)
+      .map((r) => ({
+        ...r,
+        pct: Math.round((r.count / total) * 100),
+        color: STATUS_BAR_COLORS[r.key] ?? "var(--zinc-500-val)",
+      }));
+    const neverLaunchedPct = Math.round((neverLaunched / total) * 100);
+    return {
+      rows,
+      neverLaunched,
+      launched: total - neverLaunched,
+      neverLaunchedPct,
+      shelved,
+      backlogUnlaunched,
+    };
   }, [games]);
+
+  // The strip's completion figures are read back out of the composition rather
+  // than counted again, so the two panels cannot disagree. Same arithmetic,
+  // same denominator, one source.
+  const completedGames = composition.rows.find((r) => r.key === "completed")?.count ?? 0;
+  const completionRate = totalGames > 0 ? Math.round((completedGames / totalGames) * 100) : 0;
 
   // Most played titles (top 6 by tracked hours)
   const mostPlayed = React.useMemo(() => {
@@ -246,7 +315,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
             </span>
           </div>
           <div
-            className="h-72 w-full pt-4"
+            className="h-76 w-full pt-4"
             role="img"
             aria-label={`Games completed per month for the last ${COMPLETED_MONTH_SPAN} calendar months, ending ${completedMonths[completedMonths.length - 1]?.full}. ${completedMonths
               .map((m) => `${m.full}: ${m.count}`)
@@ -307,32 +376,105 @@ export const AnalyticsView: React.FC = React.memo(() => {
           </div>
         </div>
 
-        {/* Status Distribution */}
+        {/* Status Distribution — the library read two ways: what state each
+            title is in, and whether it has ever been launched. The second
+            question is the one the status split cannot answer on its own. */}
         <div className="xl:col-span-2 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-3">
             <h3 className="text-xs font-black uppercase tracking-widest text-white">Status Distribution</h3>
+            <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-brand-muted">
+              N = {totalGames} Titles
+            </span>
           </div>
-          <div className="h-72 w-full pt-4">
-            {statusCounts.length === 0 ? (
+          <div className="h-76 w-full pt-4">
+            {composition.rows.length === 0 ? (
               <div className="w-full h-full flex items-center justify-center border border-brand-border/30 bg-zinc-950/20 text-xs uppercase text-brand-muted">
                 No titles registered yet
               </div>
             ) : (
-              <div className="flex flex-col justify-center h-full space-y-4">
-                {statusCounts.map((s) => (
-                  <div key={s.status} className="space-y-1.5">
-                    <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest">
-                      <span className="text-zinc-300 font-black">{s.label}</span>
-                      <span className="text-brand-muted">{s.count} TITLES · {s.pct}%</span>
+              <div className="flex flex-col h-full">
+                {/* The whole library as one object. Four separate bars say how
+                    big each status is; they cannot say how the statuses sit
+                    against each other, which is the actual question. No gaps
+                    between segments, so it reads as one bar rather than four.
+
+                    `shrink-0` is load-bearing. This sits in a column flex
+                    container alongside a `flex-1` block, so without it the bar
+                    is a shrinkable item with no intrinsic content and the
+                    column quietly collapsed it to zero height — the bar was
+                    present in the DOM and invisible on screen. */}
+                <div className="flex h-2.5 w-full shrink-0 border border-brand-border/50 overflow-hidden">
+                  {composition.rows.map((s) => (
+                    <div
+                      key={s.key}
+                      className="h-full shrink-0"
+                      style={{ width: `${s.pct}%`, backgroundColor: s.color }}
+                      title={`${s.label}: ${s.count} titles (${s.pct}%)`}
+                    />
+                  ))}
+                </div>
+
+                <div className="flex-1 min-h-0 flex flex-col justify-center space-y-3.5 pt-6 pb-3">
+                  {composition.rows.map((s) => (
+                    <div key={s.key} className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest">
+                        <span className="text-zinc-300 font-black">{s.label}</span>
+                        <span className="text-brand-muted">{s.count} TITLES · {s.pct}%</span>
+                      </div>
+                      <div className="h-2 bg-zinc-900 border border-brand-border/50">
+                        <div
+                          className="h-full transition-all"
+                          style={{ width: `${s.pct}%`, backgroundColor: s.color }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-2 bg-zinc-900 border border-brand-border/50">
-                      <div
-                        className="h-full transition-all"
-                        style={{ width: `${s.pct}%`, backgroundColor: STATUS_BAR_COLORS[s.status] || "var(--zinc-500-val)" }}
-                      />
-                    </div>
+                  ))}
+                </div>
+
+                {/* Launch state — orthogonal to status, and the one figure here
+                    that appears nowhere else on the page. `hide_playtime` is not
+                    consulted: the question is whether hours exist, not what they
+                    are, so no hidden title's hours are implied by appearing
+                    here.
+
+                    One bar, not two rows with bars. A binary split is fully
+                    described by a single bar with its two ends named, and
+                    drawing the same two percentages a second time in shorter
+                    bars was saying nothing new. The full-strength rule above
+                    separates this from the status read: it is a different
+                    question, not a fifth status. */}
+                <div className="shrink-0 border-t border-brand-border pt-4 mt-1 space-y-2.5">
+                  <div className="flex items-baseline justify-between gap-3 text-[11px] uppercase tracking-widest">
+                    <span className="text-zinc-300 font-black">
+                      Never Launched{" "}
+                      <span className="text-brand-muted">{composition.neverLaunchedPct}%</span>
+                    </span>
+                    <span className="text-zinc-300 font-black">
+                      Launched{" "}
+                      <span className="text-brand-muted">{100 - composition.neverLaunchedPct}%</span>
+                    </span>
                   </div>
-                ))}
+                  <div className="flex h-2.5 w-full shrink-0 border border-brand-border/50 overflow-hidden">
+                    <div
+                      className="h-full shrink-0 transition-all"
+                      style={{ width: `${composition.neverLaunchedPct}%`, backgroundColor: "var(--zinc-500-val)" }}
+                      title={`Never launched: ${composition.neverLaunched} titles (${composition.neverLaunchedPct}%)`}
+                    />
+                    <div
+                      className="h-full shrink-0 transition-all"
+                      style={{ width: `${100 - composition.neverLaunchedPct}%`, backgroundColor: "var(--brand-accent)" }}
+                      title={`Launched: ${composition.launched} titles (${100 - composition.neverLaunchedPct}%)`}
+                    />
+                  </div>
+                  {/* Reconciles the two readings, so the panel explains itself:
+                      backlog is not one thing. */}
+                  {composition.shelved > 0 && (
+                    <p className="text-[9px] uppercase tracking-wider text-brand-muted leading-relaxed">
+                      // {composition.backlogUnlaunched} backlog unlaunched ·{" "}
+                      <span className="text-brand-accent">{composition.shelved} shelved</span> with hours logged
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>
