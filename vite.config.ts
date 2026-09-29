@@ -1,16 +1,10 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './src'),
-      },
-    },
     build: {
       target: 'es2022',
       minify: 'esbuild',
@@ -39,14 +33,10 @@ export default defineConfig(() => {
         }
       }
     },
-    server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modify — file watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {
-        ignored: ['**/gametrack_data.json', '**/gametrack_library.json', '**/gametrack.db*']
-      },
-    },
+    /* No `server` block: nothing reads it. `npm run dev` is `tsx server.ts`,
+       which builds its own inline Vite config (server.ts) with its own fs.deny
+       and watch.ignored, and `vite preview` reads `preview`, not `server`. The
+       block that was here configured a DISABLE_HMR env var that nothing in the
+       repo sets, and carried AI-Studio scaffold comments. */
   };
 });

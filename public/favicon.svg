@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!--
+    The app's own mark, in the app's own language: a solid accent square with a
+    black glyph inside. That is the same shape as the primary nav control (an
+    accent-filled square carrying a lucide icon, see src/App.tsx), so the tab
+    icon and the one control that opens the whole app read as the same object.
+
+    Colours are the theme tokens the app already ships: --brand-accent #FDE047
+    and --brand-accent-ink #000000. Hard-coded rather than var() because a
+    favicon cannot read the host page's custom properties, and a token that
+    silently failed to resolve would render a black square on a black tab.
+  -->
+  <rect width="64" height="64" fill="#FDE047"/>
+  <!-- Three rules, the menu glyph: the app's own "everything lives behind this
+       one control" idea rather than a wordmark that would not fit at 16px. -->
+  <g fill="#000000">
+    <rect x="14" y="19" width="36" height="5"/>
+    <rect x="14" y="29.5" width="36" height="5"/>
+    <rect x="14" y="40" width="36" height="5"/>
+  </g>
+</svg>

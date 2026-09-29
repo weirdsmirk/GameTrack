@@ -63,7 +63,7 @@ The SQLite database and uploaded posters are stored in `data/` by default. Set `
 Build the frontend and server:
 
 ```bash
-npm run build
+npm run build              # typechecks, then builds client and server bundles
 ```
 
 Start the production server:
@@ -72,11 +72,21 @@ Start the production server:
 npm run start
 ```
 
+`dist-server/server.cjs` is emitted with `--packages=external`, so it resolves
+its dependencies from `node_modules` at runtime and must stay at the project
+root. Moving `dist-server/` somewhere else — which is easy to do when
+containerising — breaks it with `Cannot find module 'dotenv/config'`.
+
+Note for a non-loopback deploy: the app is a personal single-user server. If you
+expose it beyond localhost, set `API_TOKEN` (the server refuses to start without
+it) and put it behind TLS. Plain-HTTP LAN access works, and no TLS means no
+HSTS, so a token sent over it is readable on the wire.
+
 ## Useful commands
 
 ```bash
 npm test                   # run tests
-npm run typecheck          # check TypeScript
+npm run typecheck          # check TypeScript (also runs as part of npm run build)
 npm run reset-metadata     # refresh library metadata from IGDB
 npm run fetch-igdb-posters # refresh IGDB posters
 npm run clean              # remove build output
@@ -91,3 +101,7 @@ npm run clean              # remove build output
 - `data/` contains local application data and is not committed.
 
 GameTrack is designed for personal, local use. Keep regular copies of the `data/` directory.
+
+`npm run reset-metadata` takes a full copy of the database next to it in `data/`
+before it starts rewriting anything, and restores the previous IGDB links if you
+interrupt it.

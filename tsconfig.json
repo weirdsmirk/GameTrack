@@ -16,11 +16,16 @@
     "noUnusedParameters": true,
     "forceConsistentCasingInFileNames": true,
     "noUncheckedIndexedAccess": true,
+    /* noImplicitReturns is deliberately NOT enabled: Express handlers are
+       `void`-returning by contract, so `if (!ok) return res.status(400)…` followed
+       by an implicit fall-through is the correct idiom here, not an oversight. */
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
     "resolveJsonModule": true,
     "jsx": "react-jsx",
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["src/**/*", "server/**/*", "vite.config.ts", "server.ts", "tests/**/*"],
+  "include": ["src/**/*", "server/**/*", "scripts/**/*", "vite.config.ts", "server.ts", "tests/**/*"],
   "exclude": ["node_modules", "dist", "dist-server", "coverage"]
 }

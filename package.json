@@ -6,15 +6,14 @@
   "type": "module",
   "license": "MIT",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist-server/server.cjs",
+    "prebuild": "npm run typecheck",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --target=node22 --sourcemap --outfile=dist-server/server.cjs",
     "start": "NODE_ENV=production node dist-server/server.cjs",
-    "preview": "vite preview",
     "clean": "rm -rf dist dist-server server.js server.cjs",
-    "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "reset-metadata": "tsx scripts/reset-metadata.ts",
     "fetch-igdb-posters": "tsx scripts/fetch-all-igdb-posters.ts",
