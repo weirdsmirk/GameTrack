@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
 } from "recharts";
 import { STATUSES, mergeCustomPlatforms, platformIdMatches } from "../constants";
-import { formatPlaytimePrecise } from "../utils/time";
+import { formatPlaytimePrecise, formatDateShort } from "../utils/time";
 
 /** How many calendar months the chart covers, current month included. */
 const COMPLETED_MONTH_SPAN = 6;
@@ -12,10 +12,6 @@ const COMPLETED_MONTH_SPAN = 6;
 /** How many titles the Most Played list ranks. Six fills the panel at its
     current height without the rows crowding each other. */
 const MOST_PLAYED_COUNT = 6;
-
-/** The top of the personal-rating scale — 1-10, as the app stores and prints
-    it. Declared once so the histogram cannot drift from the pickers. */
-const RATING_SCALE_MAX = 10;
 
 /** One calendar month on the completion chart. */
 type CompletedMonth = {
@@ -28,8 +24,10 @@ type CompletedMonth = {
   count: number;
 };
 
-/** Fixed abbreviations rather than `toLocaleDateString`, so the axis does not
-    reflow if the machine's locale renders a different month name. */
+/** Fixed month abbreviations for the completions axis. These are axis
+    categories, not dates: a month on a six-month time axis is a name, and
+    printing it as DD/MM/YY would imply a specific day the data does not have.
+    Hard-coded so the axis cannot reflow to a different width per locale. */
 const MONTH_ABBR = [
   "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
   "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
@@ -290,48 +288,22 @@ export const AnalyticsView: React.FC = React.memo(() => {
   // from rated titles alone reads as a verdict on the whole collection when it
   // is a verdict on a fraction of it.
   const ratings = React.useMemo(() => {
-    const counts = new Array<number>(RATING_SCALE_MAX + 1).fill(0);
     let rated = 0;
-    let unrated = 0;
     let sum = 0;
     for (const g of games) {
       const raw = g.personal_rating;
-      // The pickers only offer 1-10, so anything else is unrateable data. Rounded
-      // and clamped into the scale rather than dropped, so no title can vanish
-      // from the panel and leave the counts quietly short.
-      const value = raw == null ? 0 : Math.min(RATING_SCALE_MAX, Math.max(1, Math.round(raw)));
-      if (raw == null || raw <= 0) {
-        unrated += 1;
-        continue;
-      }
-      counts[value] = (counts[value] ?? 0) + 1;
+      // 0 and null both mean "not rated" — the pickers only offer 1-10, and the
+      // store stores an unrated title as 0.
+      if (raw == null || raw <= 0) continue;
       rated += 1;
       sum += raw;
     }
-    const buckets = counts.slice(1).map((count, i) => ({ value: i + 1, count }));
-    // Scaled against the tallest bucket, not the library, so the shape across
-    // the scale stays legible when unrated titles outnumber rated ones 3 to 1.
-    const maxCount = Math.max(1, ...buckets.map((b) => b.count));
-    const ratedValues = buckets.filter((b) => b.count > 0);
-    // Seeded with a zero-count bucket rather than `buckets[0]`, so the peak is
-    // well-defined even when every rating is unrated.
-    let peak = { value: 0, count: 0 };
-    for (const b of buckets) if (b.count > peak.count) peak = b;
-    const total = games.length || 1;
     return {
-      buckets,
-      maxCount,
       rated,
-      unrated,
-      ratedPct: Math.round((rated / total) * 100),
-      unratedPct: 100 - Math.round((rated / total) * 100),
       // Null rather than zero when nothing is rated: an average of 0/10 would
-      // be a claim about taste rather than an absence of data.
+      // be a claim about taste rather than an absence of data. The strip prints
+      // an em dash in that case.
       average: rated > 0 ? sum / rated : null,
-      peak,
-      floor: ratedValues.length ? Math.min(...ratedValues.map((b) => b.value)) : null,
-      ceiling: ratedValues.length ? Math.max(...ratedValues.map((b) => b.value)) : null,
-      spread: ratedValues.filter((b) => b.value >= 9).reduce((s, b) => s + b.count, 0),
     };
   }, [games]);
 
@@ -369,8 +341,8 @@ export const AnalyticsView: React.FC = React.memo(() => {
       //     way out, so these rows are real and counting them would report a
       //     completion the rest of the library does not claim.
       if (g.status !== "completed" || !g.date_completed) continue;
-      // Read in local time, matching `toLocaleDateString` everywhere else in
-      // the app — a UTC month boundary would file a late-evening completion in
+      // Read in local time, matching `formatDateShort` everywhere else in the
+      // app — a UTC month boundary would file a late-evening completion in
       // the wrong month for most of the world.
       const d = new Date(g.date_completed);
       const i = index.get(`${d.getFullYear()}-${d.getMonth()}`);
@@ -480,10 +452,10 @@ export const AnalyticsView: React.FC = React.memo(() => {
           </div>
         </div>
 
-        {/* Taste, over rated titles only. Read from the same memo as the Rating
-            Distribution below, so the figure here and the histogram there can
-            never average different sets. An em dash rather than 0.0 when nothing
-            is rated: a zero would be a claim about taste, not an absence of it. */}
+        {/* Taste, over rated titles only — the denominator is the titles that
+            actually carry a rating, not the library. An em dash rather than 0.0
+            when nothing is rated: a zero would be a claim about taste, not an
+            absence of it. */}
         <div className="bg-brand-bg p-5 sm:p-7">
           <p className="text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-brand-muted min-h-[2lh]">Avg Rating</p>
           <div className="flex items-baseline gap-2 mt-4">
@@ -874,7 +846,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
                         every row as "SEP 26", "JUL 26", "JUN 26" — all ending
                         in 26, which reads as the 26th of the month rather than
                         the year. Leading with the day makes it unambiguous. */}
-                    <span className="text-brand-muted shrink-0">{g.date_completed ? new Date(g.date_completed).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" }).toUpperCase() : "NO DATE"}</span>
+                    <span className="text-brand-muted shrink-0">{g.date_completed ? formatDateShort(g.date_completed) : "NO DATE"}</span>
                   </li>
                 ))}
               </ul>
@@ -882,101 +854,6 @@ export const AnalyticsView: React.FC = React.memo(() => {
           </div>
         </div>
 
-      </div>
-
-      {/* Rating Distribution — full width. A histogram of ten buckets needs the
-          room, and it is the only panel here whose subject is the whole library
-          rather than a subset of it. */}
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-        <div className="xl:col-span-5 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
-          <div className="flex items-center justify-between gap-3 border-b border-brand-border pb-4">
-            <h3 className="text-xs font-black uppercase tracking-widest text-white">Rating Distribution</h3>
-            <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-brand-muted">
-              N = {ratings.rated} Rated · {ratings.unrated} Unrated
-            </span>
-          </div>
-
-          {totalGames === 0 ? (
-            <div className="w-full h-48 flex items-center justify-center border border-brand-border/30 bg-zinc-950/20 text-xs uppercase text-brand-muted">
-              No titles registered yet
-            </div>
-          ) : (
-            <div className="pt-2">
-              {/* Coverage first, and above the histogram, because it sets the
-                  denominator. The bars below are scaled to the tallest bucket,
-                  which is what makes the shape readable — and that same scaling
-                  is exactly what would turn the shape into a verdict on the whole
-                  library if this bar were not sitting above it. */}
-              <div className="flex h-2.5 w-full shrink-0 border border-brand-border/50 overflow-hidden">
-                <div
-                  className="h-full shrink-0 transition-all hover:brightness-125"
-                  style={{ width: `${ratings.ratedPct}%`, backgroundColor: "var(--brand-accent)" }}
-                  title={`Rated: ${ratings.rated} titles (${ratings.ratedPct}%)`}
-                />
-                <div
-                  className="h-full shrink-0 transition-all hover:brightness-125"
-                  style={{ width: `${ratings.unratedPct}%`, backgroundColor: "var(--zinc-500-val)" }}
-                  title={`Unrated: ${ratings.unrated} titles (${ratings.unratedPct}%)`}
-                />
-              </div>
-              <div className="mt-1.5 flex items-baseline justify-between gap-3 text-[11px] uppercase tracking-widest">
-                <span className="text-zinc-300 font-black">
-                  Rated <span className="text-brand-muted">{ratings.ratedPct}%</span>
-                </span>
-                <span className="text-zinc-300 font-black">
-                  Unrated <span className="text-brand-muted">{ratings.unratedPct}%</span>
-                </span>
-              </div>
-
-              {/* The histogram. Every value on the scale gets a column, including
-                  the empty ones — a gap at 3 is part of the shape, and a chart
-                  that dropped empty buckets would hide the very thing it is
-                  measuring. */}
-              <div className="mt-5 grid grid-cols-10 gap-2 h-40">
-                {ratings.buckets.map((b) => (
-                  <div key={b.value} className="group/row flex flex-col min-w-0">
-                    <div className="flex-1 flex flex-col justify-end gap-1">
-                      <span className="text-center text-[9px] font-black text-brand-muted">
-                        {b.count || ""}
-                      </span>
-                      <div
-                        className="w-full shrink-0 transition-all group-hover/row:brightness-125"
-                        style={{
-                          // 88 rather than 100: the count label sits above the bar
-                          // inside the same box, and a full-height bar pushes it
-                          // out of the panel.
-                          height: `${(b.count / ratings.maxCount) * 88}%`,
-                          backgroundColor: b.count ? "var(--brand-accent)" : "transparent",
-                        }}
-                      />
-                    </div>
-                    <div className="mt-1.5 text-center text-[10px] font-black uppercase tracking-wider text-brand-muted transition-colors group-hover/row:text-white">
-                      {b.value}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* The reading, in the app's own comment voice: what the average is
-                  worth, where the ratings pile up, and — the part a count alone
-                  cannot tell you — whether the bottom of the scale is ever used. */}
-              <p className="mt-4 text-[9px] uppercase tracking-wider text-brand-muted leading-relaxed">
-                {ratings.rated === 0 ? (
-                  "// No titles rated yet"
-                ) : (
-                  <>
-                    // Avg {ratings.average?.toFixed(1)}/10 across {ratings.rated} rated · peak{" "}
-                    <span className="text-brand-accent">{ratings.peak.value}</span> · {ratings.spread} of{" "}
-                    {ratings.rated} rated {ratings.spread === 1 ? "is" : "are"} 9 or higher
-                    {ratings.floor !== null && ratings.floor > 1 && (
-                      <> · nothing rated below {ratings.floor}</>
-                    )}
-                  </>
-                )}
-              </p>
-            </div>
-          )}
-        </div>
       </div>
 
     </div>

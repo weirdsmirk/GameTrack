@@ -3,6 +3,7 @@ import { mapIgdbGame, getIgdbImageUrl, upgradeIgdbPosterUrl } from "../server/ig
 import { isNonGameApp } from "../server/steam";
 import { normalizePlatformIds } from "../src/constants";
 import { upgradeIgdbPosterUrl as clientUpgrade } from "../src/utils/image";
+import { formatDateShort } from "../src/utils/time";
 
 describe("mapIgdbGame", () => {
   it("emits the highest-quality WebP cover preset", () => {
@@ -86,5 +87,46 @@ describe("normalizePlatformIds", () => {
   it("tolerates nullish input", () => {
     expect(normalizePlatformIds(null)).toEqual([]);
     expect(normalizePlatformIds(undefined)).toEqual([]);
+  });
+});
+
+// Every date the app shows a person goes through this one function, so the
+// format is pinned here rather than trusted to four call sites. The old
+// implementation used toLocaleDateString, which made the output depend on the
+// machine's locale — the same library read 07/13/26 in one place and 13/07/26 in
+// another, and those two are ambiguous against each other.
+describe("formatDateShort", () => {
+  // Built from local getters, so a local Date avoids any UTC-shifting that
+  // would make these assertions depend on the machine's timezone.
+  it("prints DD/MM/YY", () => {
+    expect(formatDateShort(new Date(2026, 6, 13))).toBe("13/07/26");
+  });
+
+  it("zero-pads single digits so a column of dates aligns", () => {
+    expect(formatDateShort(new Date(2026, 0, 9))).toBe("09/01/26");
+    expect(formatDateShort(new Date(2026, 10, 1))).toBe("01/11/26");
+  });
+
+  it("puts the day first, not the month", () => {
+    // 03/04 is 3 April in DD/MM and would be 4 March in the US order. The day
+    // is 3 and the month is 4, so only one of the two orders can be right.
+    expect(formatDateShort(new Date(2026, 3, 3))).toBe("03/04/26");
+  });
+
+  it("accepts a timestamp as well as a Date", () => {
+    const d = new Date(2026, 6, 13);
+    expect(formatDateShort(d.getTime())).toBe("13/07/26");
+  });
+
+  it("returns an em dash rather than a wrong date for missing input", () => {
+    expect(formatDateShort(null)).toBe("—");
+    expect(formatDateShort(undefined)).toBe("—");
+    expect(formatDateShort(new Date("not a date"))).toBe("—");
+  });
+
+  it("does not roll a pre-2000 year into a two-digit year", () => {
+    // %y would render 1999 as "99", which reads as 2099. Anything outside the
+    // 2000-2099 window falls back to the full year.
+    expect(formatDateShort(new Date(1999, 5, 4))).toBe("04/06/1999");
   });
 });

@@ -3,7 +3,7 @@ import { useGameTrackStore } from "../store";
 import {
   X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2, ChevronDown, Check
 } from "lucide-react";
-import { formatPlaytimePrecise } from "../utils/time";
+import { formatPlaytimePrecise, formatDateShort } from "../utils/time";
 import { motion, AnimatePresence } from "motion/react";
 import { uploadPoster } from "../utils/image";
 import { useModalA11y } from "../hooks/useModalA11y";
@@ -995,7 +995,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">Completed</p>
                     <h5 className="text-sm sm:text-lg font-black text-white mt-2 leading-none uppercase">
                       {selectedGame.status === "completed" && selectedGame.date_completed
-                        ? new Date(selectedGame.date_completed).toLocaleDateString()
+                        ? formatDateShort(selectedGame.date_completed)
                         : "—"}
                     </h5>
                   </div>

@@ -5,7 +5,7 @@ import {
   Trophy, Calendar, Shuffle
 } from "lucide-react";
 import { motion } from "motion/react";
-import { formatPlaytime, formatPlaytimeLong, formatPlaytimePrecise } from "../utils/time";
+import { formatPlaytime, formatPlaytimeLong, formatPlaytimePrecise, formatDateShort } from "../utils/time";
 import { getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms } from "../constants";
 import { PosterImage } from "./PosterImage";
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -102,6 +102,30 @@ const StatCard = React.memo(({ title, value, action, className = "", onSelect }:
 });
 
 const formatStatus = (status: string) => getStatusLabel(status).toUpperCase();
+
+/**
+ * Splits a title into two rows at the word midpoint, for the Current Session
+ * panel.
+ *
+ * Deliberately not a CSS line clamp. A clamp breaks wherever the text happens to
+ * reach the edge, so a short title is one line, a medium one two, and a long one
+ * two-and-an-ellipsis — three different panel heights from the same component,
+ * and the panel is a row of hit targets, so the ragged edge is visible. Splitting
+ * on word count instead gives every title the same two rows, and the panel's
+ * height is then a fact rather than a consequence.
+ *
+ * An odd word count puts the extra word on the first row, so the second is never
+ * the longer of the pair and the block does not read as bottom-heavy. A
+ * single-word title gets a second empty row rather than a special case, so the
+ * one real line keeps the same offset from the panel's bottom edge as it would
+ * with a full-length name.
+ */
+const titleRows = (title: string): [string, string] => {
+  const words = title.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return [title.trim(), ""];
+  const mid = Math.ceil(words.length / 2);
+  return [words.slice(0, mid).join(" "), words.slice(mid).join(" ")];
+};
 
 export const DashboardView: React.FC = React.memo(() => {
   const {
@@ -253,53 +277,109 @@ export const DashboardView: React.FC = React.memo(() => {
         </div>
       )}
 
-      {/* Current Session — the game you're actively playing right now.
-          The card carries real height, so the two columns distribute rather
-          than stack against a bottom edge: `items-stretch` lets both fill the
-          box, the left spreads label / title / meta across it, and the right
-          stays a bottom-aligned cluster so the CTA baseline still lands on the
-          meta line. Height comes from `lg:min-h` rather than padding alone —
-          padding only ever adds air around the tallest child, and the left
-          column (a 60px title plus two lines) is always the tallest, so
-          without a floor the right column has nothing to distribute into and
-          the extra space collects in one gap. */}
+      {/* Current Session — the game you're actively playing right now, and the
+          panel itself is the control that opens it. There is no "View Details"
+          button any more: one target for the whole card is both a bigger target
+          and one less thing to read.
+
+          The genres line is gone with it. It was the only place the panel named
+          a category, and the card next to it is a poster wall that never does —
+          so this was the one panel where the taxonomy showed up, and it was
+          reading as filler under a title that does not need it.
+
+          The label moved to the title's corner and the accumulated time to the
+          opposite one, which puts the number a person came for on the left where
+          it is read first and leaves the title owning the bottom-right. Height
+          still comes from `lg:min-h`: with the title clamped to two lines the
+          panel has a known maximum, and the floor keeps a one-line title from
+          collapsing the box while the time column stands taller.
+
+          The hover is a neutral grey wash across the whole panel, and nothing
+          moves. It has to be a layer rather than a background utility, for the
+          reason spelled out at the element. Brightening was tried first and is
+          a no-op here: the panel is white, so a percentage up moves it somewhere
+          it cannot visibly go, and a percentage down reads as pressed rather
+          than highlighted. The press state is a deeper step of the same grey
+          rather than a second colour. No border: the accent outline was just
+          removed from the suggestion cards for the same reason, and one wide
+          panel does not need the extra edge. */}
       {activeGames.length > 0 ? (
         <div className="space-y-4">
-          {activeGames.map((game) => (
-            <div
+          {activeGames.map((game) => {
+            const rows = titleRows(game.title);
+            return (
+            /* The whole panel is the control. It is a <button>, not a div with a
+               button inside it: a panel-sized hit target has no honest equivalent
+               among the native elements, and nesting a real <button> inside one
+               is invalid HTML. So the panel is the button, and the type/role/time
+               inside it are spans — anything else would put a focusable or
+               interactive element inside a control. */
+            <button
               key={game.id}
-              className="bg-session-bg text-session-text px-8 sm:px-10 py-12 sm:py-14 lg:min-h-[280px] rounded-none flex flex-col sm:flex-row justify-between items-stretch gap-6 transition-all select-none"
+              type="button"
+              onClick={() => setSelectedGame(game)}
+              aria-label={`Open details for ${game.title}`}
+              className="group relative bg-session-bg text-session-text px-8 sm:px-10 py-10 sm:py-11 lg:min-h-[300px] rounded-none w-full text-left cursor-pointer select-none
+                flex flex-col sm:flex-row justify-between items-end gap-8
+                focus:outline-none focus-visible:outline-2 focus-visible:outline-session-text focus-visible:-outline-offset-4"
             >
-              <div className="flex flex-col justify-between gap-4">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext">
-                  CURRENT SESSION
-                </h3>
-                <h2 className="text-3xl sm:text-5xl lg:text-6xl font-black uppercase tracking-tighter leading-none text-session-text font-sans">
-                  {game.title}
-                </h2>
-                <p className="text-xs font-bold text-session-subtext tracking-wider max-w-lg uppercase">
-                  {game.genres?.slice(0, 3).join("  •  ") ?? ""}
+              {/* The hover tint is a separate layer rather than a background
+                  utility on the panel itself. A translucent background-color
+                  *replaces* the panel's white rather than compositing over it,
+                  so the panel would blend against the near-black page
+                  underneath and go dark on hover — the opposite of a highlight.
+                  A child layer is the only way to put a translucent colour over
+                  an opaque ground.
+
+                  Neutral, not accent. A yellow wash on a white panel is a
+                  colour the rest of the page never puts behind black type, and
+                  it made the panel look selected rather than hovered. Zinc is
+                  the same move as the rest of the app's surfaces: a shift in
+                  lightness, carrying no meaning of its own.
+
+                  It sits first in the DOM and the two content blocks below it
+                  are `relative`, because a positioned element paints above
+                  static ones and the tint would otherwise wash over the title. */}
+              <span
+                aria-hidden="true"
+                className="absolute inset-0 bg-zinc-200 opacity-0 transition-opacity duration-200 pointer-events-none group-hover:opacity-100 group-active:opacity-60"
+              />
+              {/* Playtime hard left, title block bottom-right, both standing on
+                  the panel's own bottom padding line. The flex lives on the
+                  button rather than on a wrapper inside it: a block-level button
+                  has a content-height box, so a `h-full` child had no definite
+                  height to resolve against and collapsed to auto — which is what
+                  left the pair floating in the middle of the panel. As a flex
+                  container the button's `items-end` puts both children on the
+                  same baseline at the bottom of the content box. */}
+              <div className="relative shrink-0">
+                <p className="text-[11px] tracking-widest text-session-subtext uppercase font-bold">
+                  Playtime
                 </p>
+                <div className="text-4xl sm:text-5xl font-black text-session-text tracking-tight mt-1">
+                  {game.hide_playtime === 1 ? "—" : formatPlaytimePrecise(game.playtime)}
+                </div>
               </div>
 
-              <div className="flex flex-col justify-end gap-3 text-left sm:text-right shrink-0">
-                <div>
-                  <p className="text-[11px] tracking-widest text-session-subtext uppercase font-bold">
-                    Accumulated
-                  </p>
-                  <div className="text-3xl sm:text-4xl font-black text-session-text tracking-tight mt-1">
-                    {game.hide_playtime === 1 ? "—" : formatPlaytimePrecise(game.playtime)}
-                  </div>
-                </div>
-                <button
-                  onClick={() => setSelectedGame(game)}
-                  className="self-start sm:self-end inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider bg-session-text text-session-bg hover:opacity-90 px-3.5 py-1.5 rounded-none transition-all cursor-pointer"
-                >
-                  View Details
-                </button>
+              <div className="relative flex flex-col items-start sm:items-end gap-4 text-left sm:text-right min-w-0">
+                <span className="text-xs font-bold uppercase tracking-widest text-session-subtext">
+                  CURRENT SESSION
+                </span>
+                {/* Two rows, always, split at the word midpoint — so a long name
+                    occupies the same two lines a short one does and the panel
+                    never changes height between sessions. Deliberately one
+                    colour: the accent on the first row was tried and read as
+                    two separate headlines rather than one name split across
+                    lines, and the split point is arbitrary anyway, so a colour
+                    change drew attention to where the break happened to fall. */}
+                <h2 className="text-5xl sm:text-7xl lg:text-[5.25rem] font-black uppercase tracking-tighter leading-none font-sans text-session-text">
+                  <span className="block">{rows[0]}</span>
+                  <span className="block">{rows[1]}</span>
+                </h2>
               </div>
-            </div>
-          ))}
+            </button>
+            );
+          })}
         </div>
       ) : (
         <div className="bg-session-bg text-session-text px-8 sm:px-10 py-12 sm:py-14 lg:min-h-[280px] rounded-none flex flex-col sm:flex-row justify-between items-stretch gap-6 transition-all select-none">
@@ -383,7 +463,14 @@ export const DashboardView: React.FC = React.memo(() => {
                revealed inside it on hover, so the default view is pure
                artwork — no caption strip, and no text sitting on the art
                until it is asked for. The scrim exists only for that hover
-               state, where type has to hold up over arbitrary artwork. */
+               state, where type has to hold up over arbitrary artwork.
+
+               No accent border on hover. Three posters sit side by side, and
+               each one flaring to a yellow outline made the row read as three
+               loud cards rather than one wall of art — and the outline competed
+               with the accent already in the title the hover reveals. The
+               border is still there and still accents on focus, so the card
+               keeps a visible edge as a keyboard target. */
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {visibleSuggestions.map((game, index) => {
                 const ownedPlatforms = (game.owned_platforms || [])
@@ -415,7 +502,7 @@ export const DashboardView: React.FC = React.memo(() => {
                   tabIndex={0}
                   role="button"
                   aria-label={`Open details for ${game.title}`}
-                  className="group relative border border-brand-border bg-zinc-950/30 hover:border-brand-accent transition-colors focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent cursor-pointer overflow-hidden"
+                  className="group relative border border-brand-border bg-zinc-950/30 transition-colors focus:outline-none focus-visible:outline-2 focus-visible:outline-brand-accent cursor-pointer overflow-hidden"
                 >
                   {/* True 2:3 poster — a 2:3 source fills this box exactly, so
                       object-cover never has to crop. The hover scale is on the
@@ -537,7 +624,7 @@ export const DashboardView: React.FC = React.memo(() => {
                         {game.hide_playtime === 1 ? "—" : formatPlaytimeLong(game.playtime)}
                       </span>
                       <p className="text-[11px] text-brand-muted uppercase font-bold">
-                        {new Date(game.updated_at).toLocaleDateString()}
+                        {formatDateShort(game.updated_at)}
                       </p>
                     </div>
                   </div>

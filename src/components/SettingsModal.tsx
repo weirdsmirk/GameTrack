@@ -6,6 +6,7 @@ import {
   Upload, Download, Trash2, Loader2, Settings, Joystick, RefreshCw, Link2, Unlink, ExternalLink, X, Check, Info
 } from "lucide-react";
 import { THEMES } from "../themes";
+import { formatDateShort } from "../utils/time";
 import { Buttons } from "./Buttons";
 
 export const SettingsModal: React.FC = React.memo(() => {
@@ -129,9 +130,16 @@ export const SettingsModal: React.FC = React.memo(() => {
     if (result?.ok) fetchSteamSettings();
   };
 
+  // The one place the app shows a time as well as a date, so the date half
+  // comes from the shared DD/MM/YY formatter and the time is appended rather
+  // than re-derived. `toLocaleString` here would have reintroduced the
+  // locale-dependent order the formatter exists to remove.
   const formatLastSync = (ts: number | null) => {
     if (!ts) return "NEVER";
-    return new Date(ts).toLocaleString();
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return "NEVER";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${formatDateShort(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
 
   return (

@@ -100,6 +100,19 @@ describe("AnalyticsView runtime", () => {
     expect(screen.getByText("Status Distribution")).toBeTruthy();
     expect(screen.getByText("Most Played Titles")).toBeTruthy();
     expect(screen.getByText("Completed Titles")).toBeTruthy();
+
+    // The rating histogram is gone, but Avg Rating is not: the strip's taste
+    // figure is the one place ratings are still reported. Both halves matter —
+    // removing the panel must not have taken the metric with it, and the metric
+    // must not have left the panel behind. `queryByText` returning null is the
+    // assertion for the first; `getByText` throwing is the second.
+    expect(screen.queryByText("Rating Distribution")).toBeNull();
+    expect(screen.queryByText(/^Rated \d+%$/)).toBeNull();
+    expect(screen.queryByText(/^Unrated \d+%$/)).toBeNull();
+    // The histogram's own footer line, which restated the average and the peak.
+    expect(screen.queryByText(/across \d+ rated/i)).toBeNull();
+    expect(screen.getByText("Avg Rating")).toBeTruthy();
+
     // Note: chart painting can't be asserted in jsdom (no layout engine), but
     // this test proves the view renders without throwing on real-shaped data.
   });
