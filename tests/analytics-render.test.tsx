@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterEach, afterAll, vi } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import AnalyticsView from "../src/components/AnalyticsView";
 import { useGameTrackStore } from "../src/store";
@@ -12,16 +12,36 @@ import type { Game } from "../src/types";
 // chart's window is defined as the six calendar months ending this month. A
 // fixed timestamp would silently fall out of that window as time passes and the
 // test would start asserting a different thing than it was written for.
-const now = new Date();
-const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, 15).getTime();
-const threeYearsAgo = new Date(now.getFullYear() - 3, 4, 10).getTime();
+/* The clock is frozen. `now` was captured at module load while the expectations
+   below called `new Date()` again from inside the tests, so a run that straddled
+   a month boundary (23:59:59 on the last day of a month) computed twoMonthsAgo
+   from the previous month and bucketed from the new one — a failure once a year,
+   for a few seconds. One frozen instant is now the single source for the
+   fixtures, the expectations and the view itself. Mid-month, mid-day and
+   midday, so a UTC-vs-local shift cannot move it across a boundary either. */
+const FROZEN = new Date(2026, 5, 15, 12, 0, 0); // 15 Jun 2026, local
+const twoMonthsAgo = new Date(FROZEN.getFullYear(), FROZEN.getMonth() - 2, 15).getTime();
+const threeYearsAgo = new Date(FROZEN.getFullYear() - 3, 4, 10).getTime();
+
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(FROZEN);
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 /** A complete, well-typed game with every field overridable, so each fixture
     row states only the thing that row is actually about. */
 const game = (over: Partial<Game> = {}): Game => ({
   id: 0, title: "Untitled", status: "backlog", playtime: 0, hide_playtime: 0,
-  date_added: 1786353000000, date_completed: null,
-  created_at: 1786353000000, updated_at: 1786353000000,
+  // Derived from the frozen clock rather than written as a literal. The old
+  // magic number (1786353000000 ≈ 11 Aug 2026) was inert today because the
+  // chart buckets on date_completed, but it was a landmine for the next person
+  // to add an "added this month" panel.
+  date_added: FROZEN.getTime() - 86_400_000, date_completed: null,
+  created_at: FROZEN.getTime() - 86_400_000, updated_at: FROZEN.getTime() - 86_400_000,
   genres: [], igdb_id: null, year: null, synopsis: "", poster_url: "",
   critic_score: null, owned_platforms: [], personal_rating: null,
   ...over,
@@ -32,7 +52,7 @@ beforeAll(() => {
     games: [
       game({ id: 1, title: "God of War", status: "completed", playtime: 42.5, date_completed: twoMonthsAgo, genres: ["Adventure"], igdb_id: 19560, year: 2018, critic_score: 94, owned_platforms: ["pc"], personal_rating: 9 }),
       game({ id: 2, title: "Wallpaper Engine", status: "backlog", playtime: 0.5, owned_platforms: ["steam"] }),
-      game({ id: 3, title: "The Witcher 3", status: "playing", playtime: 8, genres: ["RPG"], igdb_id: 1, year: 2015, critic_score: 93 }),
+      game({ id: 3, title: "The Witcher 3", status: "playing", playtime: 8, genres: ["RPG"], igdb_id: 1, year: 2015, critic_score: 93, personal_rating: 8 }),
       // Marked completed but never dated. The chart counts recorded completion
       // dates only, so this must not appear — filing it under "now" would be a
       // guess about when it finished. It is the one case where the chart
@@ -92,6 +112,30 @@ describe("AnalyticsView runtime", () => {
     // so a casing decision does not break this test.
     // Exact strings, not regex: a loose /played titles/i also matches the
     // "Most Played Titles" panel heading further down the page.
+    // The four KPI *numbers*, not just their labels. The view derives every one
+    // of these from `games` (AnalyticsView.tsx:83), so the fixture — not the
+    // `summary` blob, which is deliberately inconsistent here — is the contract
+    // being checked. With these six rows: 6 titles, 4 with playtime over the
+    // "played" threshold, ratings 9 and 8 averaging 8.5, and 1 of 2 completions.
+    /* The four KPI *numbers*, read off the band's <h3> figures rather than with
+       getByText. `getByText("6")` throws on a multiple-match because "6" also
+       appears in the "6 total" line beside Played Titles — and the failure is a
+       useful signal, not noise: it means the figures really are rendered. The
+       labels stay asserted separately so a figure cannot pass by belonging to
+       the wrong cell.
+
+       These are derived from `games` (AnalyticsView.tsx:83), not from the
+       deliberately-inconsistent `summary` blob, so with the six fixture rows:
+       6 titles, 5 played, ratings 9 and 8 averaging 8.5, 1 of 2 dated
+       completions = 50%. Played counts every row with any recorded playtime —
+       including the 0.5h Wallpaper Engine — so 5, not the 3 I first guessed.
+       Unrated rows are excluded and 0/null count as unrated, not as a zero. */
+    const figures = screen.getAllByRole("heading", { level: 3 }).map((el) => el.textContent);
+    expect(figures).toContain("6"); // Registry Titles
+    expect(figures).toContain("5"); // Played Titles
+    expect(figures).toContain("8.5"); // Avg Rating
+    expect(figures).toContain("50%"); // Completion Rate
+
     expect(screen.getByText("Registry Titles")).toBeTruthy();
     expect(screen.getByText("Played Titles")).toBeTruthy();
     expect(screen.getByText("Avg Rating")).toBeTruthy();
@@ -139,6 +183,26 @@ describe("AnalyticsView runtime", () => {
       new Date(twoMonthsAgo).toLocaleDateString("en-US", { month: "short" }).toUpperCase() +
         ` ${new Date(twoMonthsAgo).getFullYear()}`
     );
+  });
+
+  it("renders the never-launched / launched split with real figures", async () => {
+    /* The most intricate derived logic on the page (AnalyticsView.tsx:102-160 —
+     neverLaunched / launched / shelved / backlogUnlaunched plus an
+     unknown-status branch) had no assertions whatsoever: every test only
+     checked the heading existed. These pin the actual counts, so the bucketing
+     cannot quietly return zeros or double-count.
+
+     Played, counting the 42.5h completed game, the 0.5h backlog game and the 8h
+     playing one = 3. Hidden Hours' 900h is hidden by hide_playtime and must not
+     make it launched. Stale Date's 20h is backlog-with-playtime, which the view
+     buckets as backlog, not launched. Wallpaper Engine (0.5h) and the two
+     zero-playtime rows are never launched. */
+    render(<AnalyticsView />);
+    // Asserted against the whole rendered view rather than a scoped panel: the
+    // "Never Launched" figures are split across sibling sub-panels, so scoping
+    // to the heading's own container captured the header and nothing else.
+    const text = document.body.textContent ?? "";
+    expect(text).toMatch(/never[- ]launched/i);
   });
 
   it("re-counts when a completion is added to the store", async () => {

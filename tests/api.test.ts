@@ -12,25 +12,51 @@ process.env.GAMETRACK_DATA_DIR = TMP;
 process.env.PORT = "3210";
 process.env.NODE_ENV = "test";
 
+/* server.ts runs `import "dotenv/config"` at module load, so a developer with
+   API_TOKEN set in their real .env got a 403 from every call in this file —
+   23 of 27 tests red — and .env.example:24 actively recommends setting it. The
+   same load pulls in the real IGDB_CLIENT_ID / IGDB_CLIENT_SECRET /
+   STEAM_WEB_API_KEY, so the first person to add a test hitting /api/discover
+   would silently make a live network call with the developer's credentials and
+   get a different answer in CI. Neither belongs in a test process. */
+delete process.env.API_TOKEN;
+delete process.env.IGDB_CLIENT_ID;
+delete process.env.IGDB_CLIENT_SECRET;
+delete process.env.STEAM_WEB_API_KEY;
+
 const ORIGIN = "http://localhost:3210";
 const WITH_ORIGIN = { Origin: ORIGIN };
 
 let app: Express;
 let serverModule: typeof import("../server.ts");
 
+/* Ids captured from the test that creates them, rather than hard-coded 1 and 2.
+   The suite was order-coupled: those numbers only held if the seeding test ran
+   first, so `vitest run --sequence.shuffle` failed 5 tests. Captured ids make
+   each test depend on the fixture explicitly instead of on file order. */
+let gameId = 0; // "Test Game"   — owns igdb_id 777001
+let steamGameId = 0; // "Steam Game" — owns steam_appid 999991
+
 beforeAll(async () => {
-  // The SPA fallback serves dist/index.html in non-dev mode; create a minimal
-  // placeholder when no build exists so a clean checkout can run the suite.
-  const distIndex = path.join(__dirname, "..", "dist", "index.html");
-  if (!fs.existsSync(distIndex)) {
-    fs.mkdirSync(path.dirname(distIndex), { recursive: true });
-    fs.writeFileSync(distIndex, "<!doctype html><title>gametrack test build</title>\n");
-  }
+  // A minimal placeholder so the SPA-fallback test has something to serve on a
+  // clean checkout. It goes in the temp dir, NOT in the repo's dist/: the old
+  // version wrote into the real tree, so `npm test` created dist/index.html as a
+  // side effect and the SPA test then passed against a placeholder rather than a
+  // real `vite build` — a broken build was invisible to the suite, and the
+  // leftover file made an unbuilt dist/ look built.
+  const distIndex = path.join(TMP, "dist", "index.html");
+  fs.mkdirSync(path.dirname(distIndex), { recursive: true });
+  fs.writeFileSync(distIndex, "<!doctype html><title>gametrack test build</title>\n");
+  process.env.GAMETRACK_DIST_DIR = path.join(TMP, "dist");
+
   serverModule = await import("../server.ts");
   app = await serverModule.createApp(true);
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // db.close() was missing, so a crashed run leaked the temp dir.
+  const { default: db } = await import("../server/db");
+  db.close();
   fs.rmSync(TMP, { recursive: true, force: true });
 });
 
@@ -55,6 +81,25 @@ describe("API smoke tests", () => {
     expect(res.status).toBe(403);
   });
 
+  /* DNS rebinding: the attacker's page rebinds evil.com to 127.0.0.1, so its
+     requests are same-origin to itself. CORS does not apply and a GET carries
+     no Origin header — the origin gate above cannot catch it. Only a Host
+     check can, so that is what these assert. */
+  it("rejects a read request with a foreign Host header (DNS rebinding)", async () => {
+    const res = await request(app).get("/api/export").set("Host", "evil.example");
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects a read request with no Host header", async () => {
+    const res = await request(app).get("/api/games").set("Host", "");
+    expect(res.status).toBe(403);
+  });
+
+  it("still serves a read request on an allowlisted host", async () => {
+    const res = await request(app).get("/api/games").set("Host", `127.0.0.1:${process.env.PORT}`);
+    expect(res.status).toBe(200);
+  });
+
   it("rejects invalid JSON payloads cleanly", async () => {
     const res = await request(app)
       .post("/api/games")
@@ -73,7 +118,13 @@ describe("API smoke tests", () => {
     expect(res.status).toBe(400);
   });
 
-  it("POST /api/games -> 201, then duplicate igdb_id -> 409", async () => {
+  /* The two rows the id-dependent tests below operate on, seeded in beforeAll
+     rather than inside a test. Capturing the ids was not enough on its own: the
+     seeding *test* could still be shuffled to run after its dependents, so the
+     captured ids were 0. A beforeAll fixture runs before every test in the
+     block regardless of order, which is what actually makes the file
+     shuffle-safe. */
+  beforeAll(async () => {
     const first = await request(app)
       .post("/api/games")
       .set(WITH_ORIGIN)
@@ -81,18 +132,22 @@ describe("API smoke tests", () => {
     expect(first.status).toBe(201);
     expect(first.body.id).toBeGreaterThan(0);
     expect(first.body.genres).toEqual(["Action"]);
-
-    const dup = await request(app)
-      .post("/api/games")
-      .set(WITH_ORIGIN)
-      .send({ title: "Test Game Dupe", status: "backlog", igdb_id: 777001 });
-    expect(dup.status).toBe(409);
+    gameId = first.body.id;
 
     const dupSteam = await request(app)
       .post("/api/games")
       .set(WITH_ORIGIN)
       .send({ title: "Steam Game", status: "backlog", steam_appid: 999991 });
     expect(dupSteam.status).toBe(201);
+    steamGameId = dupSteam.body.id;
+  });
+
+  it("POST /api/games -> 201, then duplicate igdb_id -> 409", async () => {
+    const dup = await request(app)
+      .post("/api/games")
+      .set(WITH_ORIGIN)
+      .send({ title: "Test Game Dupe", status: "backlog", igdb_id: 777001 });
+    expect(dup.status).toBe(409);
 
     const dupSteam2 = await request(app)
       .post("/api/games")
@@ -102,16 +157,16 @@ describe("API smoke tests", () => {
   });
 
   it("PUT /api/games/:id enforces uniqueness (409) and rejects bad ids (400)", async () => {
-    // Game 2 ("Steam Game") trying to claim game 1's igdb_id -> unique violation
+    // The Steam game trying to claim the other game's igdb_id -> unique violation
     const res = await request(app)
-      .put("/api/games/2")
+      .put(`/api/games/${steamGameId}`)
       .set(WITH_ORIGIN)
       .send({ igdb_id: 777001 });
     expect(res.status).toBe(409);
 
     // Setting the same value it already owns is a no-op, not a conflict
     const same = await request(app)
-      .put("/api/games/1")
+      .put(`/api/games/${gameId}`)
       .set(WITH_ORIGIN)
       .send({ igdb_id: 777001 });
     expect(same.status).toBe(200);
@@ -120,7 +175,7 @@ describe("API smoke tests", () => {
     expect(badId.status).toBe(400);
 
     const ok = await request(app)
-      .put("/api/games/1")
+      .put(`/api/games/${gameId}`)
       .set(WITH_ORIGIN)
       .send({ status: "playing", playtime: 4.5 });
     expect(ok.status).toBe(200);
@@ -131,7 +186,7 @@ describe("API smoke tests", () => {
   it("partial PUT preserves fields that were omitted (zod defaults must not clobber)", async () => {
     // Seed distinctive values for every defaulted column.
     const seed = await request(app)
-      .put("/api/games/1")
+      .put(`/api/games/${gameId}`)
       .set(WITH_ORIGIN)
       .send({
         status: "completed",
@@ -145,7 +200,7 @@ describe("API smoke tests", () => {
 
     // A partial update touching none of the defaulted fields.
     const partial = await request(app)
-      .put("/api/games/1")
+      .put(`/api/games/${gameId}`)
       .set(WITH_ORIGIN)
       .send({ critic_score: 90 });
     expect(partial.status).toBe(200);
@@ -158,7 +213,7 @@ describe("API smoke tests", () => {
 
     // An explicitly sent field still updates, including explicit clears.
     const explicit = await request(app)
-      .put("/api/games/1")
+      .put(`/api/games/${gameId}`)
       .set(WITH_ORIGIN)
       .send({ status: "backlog", genres: [] });
     expect(explicit.status).toBe(200);
@@ -170,7 +225,7 @@ describe("API smoke tests", () => {
   it("status transitions auto-stamp and preserve date_completed", async () => {
     // Backlog → no completion date
     const backlog = await request(app)
-      .put("/api/games/1")
+      .put(`/api/games/${gameId}`)
       .set(WITH_ORIGIN)
       .send({ status: "backlog", date_completed: null });
     expect(backlog.status).toBe(200);
@@ -178,7 +233,7 @@ describe("API smoke tests", () => {
 
     // Completed → stamped automatically
     const completed = await request(app)
-      .put("/api/games/1")
+      .put(`/api/games/${gameId}`)
       .set(WITH_ORIGIN)
       .send({ status: "completed" });
     expect(completed.status).toBe(200);
@@ -187,7 +242,7 @@ describe("API smoke tests", () => {
 
     // Leaving completed preserves the historical completion date.
     const playing = await request(app)
-      .put("/api/games/1")
+      .put(`/api/games/${gameId}`)
       .set(WITH_ORIGIN)
       .send({ status: "playing" });
     expect(playing.status).toBe(200);
@@ -195,7 +250,7 @@ describe("API smoke tests", () => {
 
     // Re-completing keeps the existing date unless the user explicitly changes it.
     const completedAgain = await request(app)
-      .put("/api/games/1")
+      .put(`/api/games/${gameId}`)
       .set(WITH_ORIGIN)
       .send({ status: "completed" });
     expect(completedAgain.status).toBe(200);
@@ -205,21 +260,32 @@ describe("API smoke tests", () => {
   it("corrupted JSON text columns don't break GET /api/games", async () => {
     // Directly corrupt a row's genres column to simulate legacy damage.
     const { default: db } = await import("../server/db");
-    db.prepare("UPDATE games SET genres = '{broken json' WHERE id = 1").run();
+    db.prepare("UPDATE games SET genres = '{broken json' WHERE id = ?").run(gameId);
 
     const res = await request(app).get("/api/games");
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
-    const row = res.body.find((g: any) => g.id === 1);
+    const row = res.body.find((g: any) => g.id === gameId);
     expect(row).toBeDefined();
     expect(Array.isArray(row.genres)).toBe(true);
   });
 
-  it("DELETE /api/games/:id works", async () => {
-    const res = await request(app).delete("/api/games/2").set(WITH_ORIGIN);
+  it("DELETE /api/games/:id removes the row", async () => {
+    const created = await request(app)
+      .post("/api/games")
+      .set(WITH_ORIGIN)
+      .send({ title: "Delete Target", status: "backlog" });
+    expect(created.status).toBe(201);
+    const id = created.body.id;
+
+    const res = await request(app).delete(`/api/games/${id}`).set(WITH_ORIGIN);
     expect(res.status).toBe(200);
-    const gone = await request(app).get("/api/games/2");
-    expect(gone.status).toBe(404);
+
+    // Verified through GET /api/games, not GET /api/games/:id — there is no
+    // such route, so the old assertion was really testing the catch-all 404
+    // handler and would have passed even if DELETE were a no-op returning 200.
+    const list = await request(app).get("/api/games");
+    expect(list.body.map((g: { id: number }) => g.id)).not.toContain(id);
   });
 
   it("PUT /api/games/order persists the hand-arranged order and survives a partial PUT", async () => {
@@ -273,9 +339,14 @@ describe("API smoke tests", () => {
     await Promise.all(ids.map((id) => request(app).delete(`/api/games/${id}`).set(WITH_ORIGIN)));
   });
 
-  it("GET /api/games/:id -> 404 for missing", async () => {
+  // Renamed to say what it actually covers: there is no GET /api/games/:id
+  // route, so this asserts the API fallthrough answers JSON 404 rather than
+  // serving the SPA shell.
+  it("unknown ids under /api return a JSON 404, not the SPA", async () => {
     const res = await request(app).get("/api/games/99999");
     expect(res.status).toBe(404);
+    expect(res.body.error).toBeDefined();
+    expect(res.text).not.toContain("<!doctype html>");
   });
 
   it("POST /api/upload-poster rejects spoofed data URLs via magic bytes", async () => {
@@ -341,8 +412,13 @@ describe("API smoke tests", () => {
     expect(res.headers["content-type"]).toContain("application/json");
     const body = res.body;
     expect(Array.isArray(body)).toBe(true);
-    expect(body.length).toBeGreaterThanOrEqual(1);
-    const game = body[0];
+    // The seeded fixture rows, not "at least one row" — the old assertion
+    // passed on whatever happened to be left in the library, so a shuffle that
+    // ran the deleting tests first failed here and a genuinely empty export
+    // would not have been caught.
+    expect(body.length).toBeGreaterThanOrEqual(2);
+    const game = body.find((g: { id: number }) => g.id === gameId);
+    expect(game).toBeDefined();
     expect(game.title).toBeTruthy();
     expect(Array.isArray(game.genres)).toBe(true);
     expect(Array.isArray(game.owned_platforms)).toBe(true);
