@@ -612,7 +612,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     type="button"
                     title="Set a custom poster (image URL or device upload)"
                     onClick={() => setPosterModalOpen(true)}
-                    className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-transparent border border-brand-border text-white text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors pointer-events-auto select-none hover:bg-brand-accent/10 hover:text-brand-accent hover:border-brand-accent/50"
+                    className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-zinc-950 border border-brand-border text-white text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors pointer-events-auto select-none hover:bg-zinc-900 hover:border-brand-accent/50 hover:text-brand-accent"
                   >
                     <ImageUp className="w-3.5 h-3.5 shrink-0" />
                     <span className="truncate">Custom Poster</span>
@@ -623,7 +623,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                       title={selectedGame.steam_appid != null ? "Reset to the Steam poster" : "Reset to the default poster"}
                       aria-label={selectedGame.steam_appid != null ? "Reset to the Steam poster" : "Reset to the default poster"}
                       onClick={handleResetPoster}
-                      className="w-10 h-10 shrink-0 flex items-center justify-center bg-transparent border border-brand-border text-brand-muted transition-colors cursor-pointer pointer-events-auto hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/35"
+                      className="w-10 h-10 shrink-0 flex items-center justify-center bg-zinc-950 border border-brand-border text-brand-muted transition-colors cursor-pointer pointer-events-auto hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/50"
                     >
                       <RotateCcw className="w-3.5 h-3.5 shrink-0" />
                     </button>
@@ -640,7 +640,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   type="button"
                   title="Set a custom poster (image URL or device upload)"
                   onClick={() => setPosterModalOpen(true)}
-                  className="flex flex-1 items-center justify-center gap-1.5 px-3 py-2 bg-transparent border border-brand-border text-white text-[10px] font-black uppercase tracking-widest cursor-pointer select-none hover:bg-brand-accent/10 hover:text-brand-accent hover:border-brand-accent/50"
+                  className="flex flex-1 items-center justify-center gap-1.5 px-3 py-2 bg-zinc-950 border border-brand-border text-white text-[10px] font-black uppercase tracking-widest cursor-pointer select-none hover:bg-zinc-900 hover:border-brand-accent/50 hover:text-brand-accent"
                 >
                   <ImageUp className="w-3.5 h-3.5 shrink-0" />
                   Custom Poster
@@ -651,7 +651,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     title={selectedGame.steam_appid != null ? "Reset to the Steam poster" : "Reset to the default poster"}
                     aria-label={selectedGame.steam_appid != null ? "Reset to the Steam poster" : "Reset to the default poster"}
                     onClick={handleResetPoster}
-                    className="flex items-center justify-center w-10 h-10 bg-transparent border border-brand-border text-brand-muted cursor-pointer hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/35"
+                    className="flex items-center justify-center w-10 h-10 bg-zinc-950 border border-brand-border text-brand-muted cursor-pointer hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/50"
                   >
                     <RotateCcw className="w-3.5 h-3.5 shrink-0" />
                   </button>
