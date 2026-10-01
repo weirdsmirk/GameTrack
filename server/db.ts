@@ -45,6 +45,15 @@ db.exec(`
     poster_url TEXT DEFAULT '',
     critic_score INTEGER CHECK (critic_score IS NULL OR (critic_score >= 0 AND critic_score <= 100)),
     owned_platforms TEXT DEFAULT '[]',
+    /* Whether the title is in the user's personal collection. 'not_owned' covers
+       games they have played but do not hold a copy of — a friend's console, a
+       shared PC, someone else's disc — which still carry playtime, rating and
+       status like any other library row. Deliberately NOT derived from
+       `owned_platforms`: an empty platform list has always meant "platform
+       unknown" (AnalyticsView counts it as `unplatformed`), not "not mine", and
+       a not-owned title can legitimately carry the platform it was played on. */
+    ownership_status TEXT NOT NULL DEFAULT 'owned'
+      CHECK (ownership_status IN ('owned', 'not_owned')),
     status TEXT NOT NULL DEFAULT 'backlog'
       CHECK (status IN ('backlog', 'playing', 'completed', 'endless')),
     playtime REAL DEFAULT 0,
@@ -67,6 +76,7 @@ db.exec(`
   -- Indexes for common query patterns
   CREATE INDEX IF NOT EXISTS idx_games_date ON games(date_added DESC);
   CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
+  CREATE INDEX IF NOT EXISTS idx_games_ownership ON games(ownership_status);
 `);
 
 // ── Migrations (versioned via PRAGMA user_version) ──────────────────
@@ -75,7 +85,7 @@ db.exec(`
 // only after a block completes successfully; a failed migration fails loudly
 // at startup instead of being silently re-run every boot.
 
-const SCHEMA_VERSION = 15;
+const SCHEMA_VERSION = 16;
 
 function migrateTo(target: number) {
   const current = Number(db.pragma("user_version", { simple: true })) || 0;
@@ -304,6 +314,23 @@ function runMigration(version: number) {
     if (upgraded > 0) {
       console.log(`[db] Upgraded ${upgraded} poster URL(s) to WebP.`);
     }
+  }
+
+  if (version === 16) {
+    // Ownership status — distinguishes games in the personal collection from
+    // games that were only played (a friend's console, a shared PC, someone
+    // else's copy) but are not owned.
+    //
+    // NOT backfilled from `owned_platforms`. An empty platform list has always
+    // meant "platform unknown" in this app — AnalyticsView counts those titles
+    // as `unplatformed` — so treating them as un-owned would silently relabel
+    // part of the existing library on upgrade. Every pre-existing row is
+    // therefore owned, which is what a library row has meant up to now; the
+    // flag only ever gets set by the user afterwards.
+    if (!gameColumns.some((col) => col.name === "ownership_status")) {
+      db.exec("ALTER TABLE games ADD COLUMN ownership_status TEXT NOT NULL DEFAULT 'owned' CHECK (ownership_status IN ('owned', 'not_owned'))");
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS idx_games_ownership ON games(ownership_status)");
   }
 }
 

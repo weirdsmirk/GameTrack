@@ -63,7 +63,8 @@ function respondIgdbFailure(error: unknown, res: Response, fallback: string): Re
 interface GameRow {
   id: number; title: string; year: number | null; igdb_id: number | null;
   genres: string; synopsis: string; poster_url: string; critic_score: number | null;
-  owned_platforms: string; status: string; playtime: number; personal_rating: number | null;
+  owned_platforms: string; ownership_status: string;
+  status: string; playtime: number; personal_rating: number | null;
   date_added: number; date_completed: number | null; created_at: number; updated_at: number;
   hide_playtime: number; steam_appid: number | null; custom_order: number | null;
   metadata_custom: number;
@@ -94,6 +95,13 @@ function parseWishlistItem(row: unknown): WishlistItem | null {
 
 // ── Zod validation schemas ────────────────────────────────────────
 const VALID_STATUSES = ["backlog", "playing", "completed", "endless"] as const;
+/**
+ * Ownership of the physical/digital copy, independent of `owned_platforms`.
+ * `not_owned` is a first-class library state: the title is played and fully
+ * tracked (playtime, rating, status, dates) but is not part of the collection —
+ * a friend's console, a shared PC, someone else's disc.
+ */
+const VALID_OWNERSHIP_STATUSES = ["owned", "not_owned"] as const;
 
 /**
  * Upper bound for any accepted epoch-millisecond timestamp. A real clock cannot
@@ -124,6 +132,7 @@ const GameSchema = z.object({
   ).optional().default(""),
   critic_score: z.number().int().min(0).max(100).nullable().optional(),
   owned_platforms: z.array(z.string().max(100)).max(50).optional().default([]),
+  ownership_status: z.enum(VALID_OWNERSHIP_STATUSES).default("owned"),
   playtime: z.number().min(0).max(100_000).optional().default(0),
   personal_rating: z.number().int().min(0).max(10).nullable().optional(),
   /* Epoch-millisecond timestamps. Bounded at both ends on purpose: a bare
