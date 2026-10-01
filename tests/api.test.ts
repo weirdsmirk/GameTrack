@@ -268,6 +268,18 @@ describe("API smoke tests", () => {
     const row = res.body.find((g: any) => g.id === gameId);
     expect(row).toBeDefined();
     expect(Array.isArray(row.genres)).toBe(true);
+
+    // /api/analytics reads the same column through json_each, which *raises* on
+    // malformed JSON rather than returning nothing. It has to answer 200 on this
+    // row too, so the damage is left in place and asserted against.
+    const analytics = await request(app).get("/api/analytics");
+    expect(analytics.status).toBe(200);
+    expect(Array.isArray(analytics.body.genreAnalytics)).toBe(true);
+
+    // Restore the row. The corruption is this test's fixture, not the library's
+    // state: leaving it behind made every later test that reads genres through
+    // SQL fail for a reason that had nothing to do with what they were checking.
+    db.prepare("UPDATE games SET genres = '[\"Action\"]' WHERE id = ?").run(gameId);
   });
 
   it("DELETE /api/games/:id removes the row", async () => {
@@ -565,6 +577,193 @@ describe("API smoke tests", () => {
     expect(internal.body.synopsis).toBe("provider refresh");
   });
 
+  // ── Ownership ("played but not owned") ──────────────────────────
+  //
+  // The rules worth pinning down, each of which was a plausible way to lose the
+  // distinction between a game on the shelf and one borrowed at a friend's:
+  //
+  //  - the flag round-trips and defaults to owned
+  //  - a partial PUT that omits it does NOT reset it (zod's .default() fires on
+  //    omitted keys, so every column in PUT has to be gated on "was it sent")
+  //  - platforms are refused on a not-owned title, on create and on update,
+  //    because a platform is a copy in the user's own collection
+  //  - the promotion endpoint marks its row owned, since that IS "I own this now"
+  //  - the analytics split reconciles with the unrestricted totals
+
+  it("stores ownership_status and defaults it to owned", async () => {
+    const owned = await request(app)
+      .post("/api/games")
+      .set(WITH_ORIGIN)
+      .send({ title: "Ownership Default Game", status: "completed" });
+    expect(owned.status).toBe(201);
+    expect(owned.body.ownership_status).toBe("owned");
+
+    const notOwned = await request(app)
+      .post("/api/games")
+      .set(WITH_ORIGIN)
+      .send({
+        title: "Played At Friends",
+        status: "completed",
+        ownership_status: "not_owned",
+        playtime: 14.5,
+        personal_rating: 8,
+        date_completed: Date.now(),
+      });
+    expect(notOwned.status).toBe(201);
+    expect(notOwned.body.ownership_status).toBe("not_owned");
+    // Every other field is recorded in full — the distinction is about
+    // ownership, not about how much of the game is tracked.
+    expect(notOwned.body.playtime).toBe(14.5);
+    expect(notOwned.body.personal_rating).toBe(8);
+    expect(notOwned.body.status).toBe("completed");
+
+    // Rejects a third state rather than storing it.
+    const bogus = await request(app)
+      .post("/api/games")
+      .set(WITH_ORIGIN)
+      .send({ title: "Ownership Bogus", status: "backlog", ownership_status: "borrowed" });
+    expect(bogus.status).toBe(400);
+
+    await request(app).post("/api/games/bulk-delete").set(WITH_ORIGIN).send({
+      ids: [owned.body.id, notOwned.body.id],
+    });
+  });
+
+  it("drops platforms on a game marked Not Owned", async () => {
+    // A platform records a copy in the user's own collection. A game they do not
+    // own has none — the console, disc or account belongs to whoever has it — so
+    // the tag cannot be set. The UI disables the control; this is the server
+    // refusing to store it anyway, so an import or a sync cannot smuggle one in
+    // past a disabled form.
+    const created = await request(app)
+      .post("/api/games")
+      .set(WITH_ORIGIN)
+      .send({
+        title: "No Platforms Allowed",
+        status: "backlog",
+        ownership_status: "not_owned",
+        owned_platforms: ["playstation", "steam"],
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.ownership_status).toBe("not_owned");
+    expect(created.body.owned_platforms).toEqual([]);
+
+    // Same on the update path, when the flip and the platforms arrive together.
+    const flipped = await request(app)
+      .post("/api/games")
+      .set(WITH_ORIGIN)
+      .send({ title: "Flip To Not Owned", status: "backlog", owned_platforms: ["xbox"] });
+    expect(flipped.body.owned_platforms).toEqual(["xbox"]);
+
+    const res = await request(app)
+      .put(`/api/games/${flipped.body.id}`)
+      .set(WITH_ORIGIN)
+      .send({ ownership_status: "not_owned", owned_platforms: ["xbox", "nintendo"] });
+    expect(res.status).toBe(200);
+    expect(res.body.ownership_status).toBe("not_owned");
+    expect(res.body.owned_platforms).toEqual([]);
+
+    // And back the other way: flipping to owned does not invent platforms, but
+    // it does let them be set again.
+    const back = await request(app)
+      .put(`/api/games/${flipped.body.id}`)
+      .set(WITH_ORIGIN)
+      .send({ ownership_status: "owned", owned_platforms: ["nintendo"] });
+    expect(back.body.ownership_status).toBe("owned");
+    expect(back.body.owned_platforms).toEqual(["nintendo"]);
+
+    await request(app).post("/api/games/bulk-delete").set(WITH_ORIGIN).send({
+      ids: [created.body.id, flipped.body.id],
+    });
+  });
+
+  it("a partial PUT that omits ownership_status leaves it untouched", async () => {
+    // The zod `.default("owned")` on the schema fires for an OMITTED key, the
+    // same trap every other column in this handler is guarded against. Without
+    // the `sent()` gate, logging an hour on a borrowed game would quietly hand
+    // it back to the collection — the exact distinction this flag exists for.
+    const created = await request(app)
+      .post("/api/games")
+      .set(WITH_ORIGIN)
+      .send({ title: "Partial PUT Game", status: "backlog", ownership_status: "not_owned" });
+    expect(created.body.ownership_status).toBe("not_owned");
+
+    for (const patch of [
+      { playtime: 3 },
+      { status: "completed" },
+      { personal_rating: 7 },
+      { owned_platforms: ["nintendo"] },
+      { hide_playtime: 1 },
+    ]) {
+      const res = await request(app)
+        .put(`/api/games/${created.body.id}`)
+        .set(WITH_ORIGIN)
+        .send(patch);
+      expect(res.status).toBe(200);
+      expect(res.body.ownership_status).toBe("not_owned");
+    }
+
+    // And it moves back deliberately, both ways.
+    const toOwned = await request(app)
+      .put(`/api/games/${created.body.id}`)
+      .set(WITH_ORIGIN)
+      .send({ ownership_status: "owned" });
+    expect(toOwned.body.ownership_status).toBe("owned");
+
+    const toNotOwned = await request(app)
+      .put(`/api/games/${created.body.id}`)
+      .set(WITH_ORIGIN)
+      .send({ ownership_status: "not_owned" });
+    expect(toNotOwned.body.ownership_status).toBe("not_owned");
+
+    await request(app).delete(`/api/games/${created.body.id}`).set(WITH_ORIGIN);
+  });
+
+  it("promoting a wishlist item produces an owned row", async () => {
+    // The endpoint is the "I own this now" action, so its output is owned by
+    // definition no matter what the wishlist entry carried.
+    const add = await request(app)
+      .post("/api/wishlist")
+      .set(WITH_ORIGIN)
+      .send({ title: "Wishlist Ownership Game", igdb_id: 888777 });
+    expect(add.status).toBe(201);
+
+    const own = await request(app).post(`/api/wishlist/${add.body.id}/own`).set(WITH_ORIGIN);
+    expect(own.status).toBe(200);
+    expect(own.body.game.ownership_status).toBe("owned");
+
+    await request(app).delete(`/api/games/${own.body.game.id}`).set(WITH_ORIGIN);
+  });
+
+  it("the analytics split reconciles with the unrestricted totals", async () => {
+    const a = await request(app).post("/api/games").set(WITH_ORIGIN)
+      .send({ title: "Split Owned A", status: "backlog", playtime: 10 });
+    const b = await request(app).post("/api/games").set(WITH_ORIGIN)
+      .send({ title: "Split Owned B", status: "backlog", playtime: 4 });
+    const c = await request(app).post("/api/games").set(WITH_ORIGIN)
+      .send({ title: "Split Borrowed", status: "completed", ownership_status: "not_owned", playtime: 6 });
+    const d = await request(app).post("/api/games").set(WITH_ORIGIN)
+      .send({ title: "Split Borrowed Hidden", status: "backlog", ownership_status: "not_owned", playtime: 900, hide_playtime: 1 });
+
+    const res = await request(app).get("/api/analytics");
+    expect(res.status).toBe(200);
+    const s = res.body.summary;
+
+    // Counts reconcile exactly — this is what makes the split safe to display
+    // next to the totals without the panel being able to contradict itself.
+    expect(s.owned_games + s.not_owned_games).toBe(s.total_games);
+    expect(s.not_owned_games).toBe(2);
+    expect(s.owned_games).toBe(s.total_games - 2);
+
+    // Hours too, and on the same hide_playtime rule as the hour totals beside
+    // them: the 900-hour hidden borrowed title contributes to neither side.
+    expect(s.owned_playtime_hours + s.not_owned_playtime_hours).toBeCloseTo(s.total_playtime_hours, 5);
+    expect(s.not_owned_playtime_hours).toBe(6);
+
+    await request(app).post("/api/games/bulk-delete").set(WITH_ORIGIN)
+      .send({ ids: [a.body.id, b.body.id, c.body.id, d.body.id] });
+  });
+
   it("POST /api/games/:id/reset-metadata validates the game and its IGDB link", async () => {
     // Unknown id -> 404
     const missing = await request(app).post("/api/games/999999/reset-metadata").set(WITH_ORIGIN);
@@ -604,5 +803,189 @@ describe("API smoke tests", () => {
       { id: "custom-arcade", label: "Retro Arcade" },
       { id: "custom-itch", label: "itch.io" },
     ]);
+  });
+
+  // The remaining data operations that touch a game row, checked for the flag.
+  // Each of these writes the full row through a different code path, and each
+  // was a place the ownership column could have been left to fall back to its
+  // column default — silently turning a not-owned game back into an owned one.
+  describe("ownership across data operations", () => {
+    const newGame = async (over: Record<string, unknown> = {}) => {
+      const res = await request(app).post("/api/games").set(WITH_ORIGIN).send({
+        title: "Ops Game",
+        status: "backlog",
+        ownership_status: "not_owned",
+        ...over,
+      });
+      expect(res.status).toBe(201);
+      return res.body;
+    };
+
+    const readBack = async (id: number) => {
+      const res = await request(app).get("/api/games");
+      return res.body.find((g: { id: number }) => g.id === id);
+    };
+
+    it("survives an export/import round trip", async () => {
+      const game = await newGame({ title: "Round Trip", playtime: 7, personal_rating: 9 });
+
+      // Export carries the flag...
+      const exported = await request(app).get("/api/export");
+      expect(exported.status).toBe(200);
+      const payload = exported.body.find((g: { id: number }) => g.id === game.id);
+      expect(payload.ownership_status).toBe("not_owned");
+
+      // ...and re-importing exactly that row restores it. Only this row is
+      // removed rather than the whole library: `DELETE /api/wipe` would take out
+      // fixtures other tests captured ids from, and the suite supports shuffled
+      // ordering. A backup that silently dropped the flag would turn every
+      // borrowed title back into an owned one on restore.
+      await request(app).delete(`/api/games/${game.id}`).set(WITH_ORIGIN);
+      const imported = await request(app)
+        .post("/api/import")
+        .set(WITH_ORIGIN)
+        .send({ games: [payload] });
+      expect(imported.status).toBe(200);
+      expect(imported.body.imported).toBe(1);
+
+      const restored = imported.body.imported === 1
+        ? (await request(app).get("/api/games")).body.find(
+            (g: { title: string }) => g.title === "Round Trip"
+          )
+        : undefined;
+      expect(restored.ownership_status).toBe("not_owned");
+      expect(restored.playtime).toBe(7);
+      expect(restored.personal_rating).toBe(9);
+      expect(restored.owned_platforms).toEqual([]);
+
+      await request(app).delete(`/api/games/${restored.id}`).set(WITH_ORIGIN);
+    });
+
+    it("drops platforms on an imported not-owned row", async () => {
+      // The import path does not go through the edit form, so the disabled
+      // control is no protection here — a hand-edited or third-party backup can
+      // carry both fields. The server invariant has to hold regardless.
+      const res = await request(app)
+        .post("/api/import")
+        .set(WITH_ORIGIN)
+        .send({
+          games: [
+            {
+              title: "Imported Borrowed",
+              status: "completed",
+              ownership_status: "not_owned",
+              owned_platforms: ["steam", "playstation"],
+              playtime: 11,
+            },
+            {
+              title: "Imported Owned",
+              status: "backlog",
+              owned_platforms: ["steam"],
+            },
+          ],
+        });
+      expect(res.status).toBe(200);
+      expect(res.body.imported).toBe(2);
+
+      const all = (await request(app).get("/api/games")).body as {
+        id: number; title: string; ownership_status: string; owned_platforms: string[];
+      }[];
+      const borrowed = all.find((g) => g.title === "Imported Borrowed")!;
+      const owned = all.find((g) => g.title === "Imported Owned")!;
+      expect(borrowed.ownership_status).toBe("not_owned");
+      expect(borrowed.owned_platforms).toEqual([]);
+      // The owned row keeps its platform, so the rule is not just stripping
+      // platforms from everything that passes through the import.
+      expect(owned.ownership_status).toBe("owned");
+      expect(owned.owned_platforms).toEqual(["steam"]);
+
+      await request(app).post("/api/games/bulk-delete").set(WITH_ORIGIN).send({
+        ids: all.filter((g) => g.title.startsWith("Imported ")).map((g) => g.id),
+      });
+    });
+
+    it("keeps the flag when the poster is reset", async () => {
+      // reset-poster rewrites the whole row through updateGame. Before the flag
+      // existed, that call passed `existing.owned_platforms`; it now passes the
+      // stored value through the ownership invariant, which is the only thing
+      // keeping the two in step.
+      const game = await newGame({ title: "Poster Reset", poster_url: "https://example.com/x.jpg" });
+
+      const res = await request(app).post(`/api/games/${game.id}/reset-poster`).set(WITH_ORIGIN);
+      expect(res.status).toBe(200);
+      expect(res.body.ownership_status).toBe("not_owned");
+      expect(res.body.owned_platforms).toEqual([]);
+
+      expect((await readBack(game.id)).ownership_status).toBe("not_owned");
+      await request(app).delete(`/api/games/${game.id}`).set(WITH_ORIGIN);
+    });
+
+    it("resolves ownership when merging duplicates", async () => {
+      // Keeper wins, like every other single-valued column in the merge, and the
+      // platform union is dropped when the keeper is not-owned — a merge must
+      // not be a way to hand a borrowed title a platform.
+      const keepNotOwned = await newGame({ title: "Merge Keeper Borrowed" });
+      const removeOwned = await request(app)
+        .post("/api/games")
+        .set(WITH_ORIGIN)
+        .send({ title: "Merge Loser Owned", status: "backlog", owned_platforms: ["steam"] });
+      expect(removeOwned.body.owned_platforms).toEqual(["steam"]);
+
+      const merged = await request(app)
+        .post("/api/duplicates/merge")
+        .set(WITH_ORIGIN)
+        .send({ keepId: keepNotOwned.id, removeId: removeOwned.body.id });
+      expect(merged.status).toBe(200);
+      expect(merged.body.ownership_status).toBe("not_owned");
+      expect(merged.body.owned_platforms).toEqual([]);
+
+      // And the other way: an owned keeper keeps the union of both platform lists.
+      const keepOwned = await request(app)
+        .post("/api/games")
+        .set(WITH_ORIGIN)
+        .send({ title: "Merge Keeper Owned", status: "backlog", owned_platforms: ["nintendo"] });
+      const removeBorrowed = await newGame({ title: "Merge Loser Borrowed" });
+      const merged2 = await request(app)
+        .post("/api/duplicates/merge")
+        .set(WITH_ORIGIN)
+        .send({ keepId: keepOwned.body.id, removeId: removeBorrowed.id });
+      expect(merged2.status).toBe(200);
+      expect(merged2.body.ownership_status).toBe("owned");
+      expect(merged2.body.owned_platforms).toEqual(["nintendo"]);
+
+      await request(app).post("/api/games/bulk-delete").set(WITH_ORIGIN).send({
+        ids: [keepNotOwned.id, keepOwned.body.id],
+      });
+    });
+
+    it("reports a not-owned title's hours in the split and leaves the rest intact", async () => {
+      // The zero side of the split has to be a real 0 rather than a missing
+      // value: SUM over no matching rows returns NULL in SQLite, and every
+      // consumer divides by these. A library that is entirely not-owned must
+      // report owned_games: 0 and owned_playtime_hours: 0, not null — which is
+      // asserted on the mixed library here by checking the owned side is
+      // non-zero only because the library is mixed, and again below with the
+      // borrowed row deleted from the arithmetic.
+      const game = await newGame({ title: "Only Borrowed", playtime: 5 });
+
+      const res = await request(app).get("/api/analytics");
+      expect(res.status).toBe(200);
+      const s = res.body.summary;
+
+      expect(typeof s.owned_games).toBe("number");
+      expect(typeof s.not_owned_games).toBe("number");
+      expect(typeof s.owned_playtime_hours).toBe("number");
+      expect(typeof s.not_owned_playtime_hours).toBe("number");
+      expect(s.not_owned_games).toBeGreaterThanOrEqual(1);
+      expect(s.not_owned_playtime_hours).toBeGreaterThanOrEqual(5);
+      // The reconciling identities still hold with the row present.
+      expect(s.owned_games + s.not_owned_games).toBe(s.total_games);
+      expect(s.owned_playtime_hours + s.not_owned_playtime_hours).toBeCloseTo(
+        s.total_playtime_hours,
+        5
+      );
+
+      await request(app).delete(`/api/games/${game.id}`).set(WITH_ORIGIN);
+    });
   });
 });

@@ -5,7 +5,7 @@ import { Plus, Gamepad, Calendar, List, ChevronDown, X, Star, Heart } from "luci
 import { motion, AnimatePresence } from "motion/react";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { uploadPoster, upgradeIgdbPosterUrl } from "../utils/image";
-import { mergeCustomPlatforms } from "../constants";
+import { mergeCustomPlatforms, OWNERSHIP_STATUSES, platformsSelectable, PLATFORMS_LOCKED_REASON, type OwnershipStatus } from "../constants";
 import { IGDBGame } from "../types";
 
 export const AddGameModal: React.FC = React.memo(() => {
@@ -34,12 +34,29 @@ export const AddGameModal: React.FC = React.memo(() => {
   const [playtimeMinutes, setPlaytimeMinutes] = useState("0");
   const [personalRating, setPersonalRating] = useState("");
   const [status, setStatus] = useState<"backlog" | "playing" | "completed" | "endless">("backlog");
+  // Ownership of the copy, not of the record. A game played at a friend's house
+  // or on a shared PC belongs in the library with its playtime, rating and
+  // status intact — it just must not count as part of the collection.
+  const [ownershipStatus, setOwnershipStatus] = useState<OwnershipStatus>("owned");
+  // Platforms describe copies in the collection, so they lock shut for a
+  // not-owned entry. Wishlist rows are excluded: nothing there is claimed as
+  // owned yet, and its tags record where the game is available to buy — the
+  // promotion to the library is what turns them into ownership.
+  const platformsLocked = target === "library" && !platformsSelectable(ownershipStatus);
   const [submitting, setSubmitting] = useState(false);
   const [ratingHover, setRatingHover] = useState<number | null>(null);
   const ratingValue = personalRating === "" ? 0 : parseInt(personalRating, 10) || 0;
   
   // Platform selection state
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+
+  // Switching a not-owned entry back to owned should not surface platforms the
+  // user picked while the control was closed, and vice versa — the selection is
+  // cleared on the transition rather than left hidden behind a disabled field.
+  const changeOwnership = (next: OwnershipStatus) => {
+    setOwnershipStatus(next);
+    if (!platformsSelectable(next)) setSelectedPlatforms([]);
+  };
 
   // Autocomplete states
   const [suggestions, setSuggestions] = useState<IGDBGame[]>([]);
@@ -180,6 +197,16 @@ export const AddGameModal: React.FC = React.memo(() => {
         owned_platforms: selectedPlatforms,
       };
 
+      // Wishlist entries are, by definition, things the user does not own yet,
+      // so the flag only goes out on the library path — and a not-owned library
+      // entry goes out with no platforms, matching the locked control rather
+      // than trusting that it stayed empty.
+      const libraryPayload = {
+        ...commonPayload,
+        ownership_status: ownershipStatus,
+        owned_platforms: platformsSelectable(ownershipStatus) ? selectedPlatforms : [],
+      };
+
       if (target === "wishlist") {
         // addToWishlist already toasts success + failure — no second toast here.
         const ok = await addToWishlist(commonPayload);
@@ -192,7 +219,7 @@ export const AddGameModal: React.FC = React.memo(() => {
 
       const executeAdd = async (finalStatus: "backlog" | "playing" | "completed" | "endless" = status) => {
         const success = await addGame({
-          ...commonPayload,
+          ...libraryPayload,
           playtime: playtimeNum,
           personal_rating: personalRating ? parseInt(personalRating, 10) : null,
           status: finalStatus,
@@ -245,6 +272,7 @@ export const AddGameModal: React.FC = React.memo(() => {
     setPersonalRating("");
     setRatingHover(null);
     setStatus("backlog");
+    setOwnershipStatus("owned");
     setSelectedPlatforms([]);
     setIgdbId(null);
     setSelectedTitle("");
@@ -635,23 +663,83 @@ export const AddGameModal: React.FC = React.memo(() => {
             )}
           </div>
 
-          {/* Platforms Selection (Checkboxes) */}
-          <div className="space-y-1.5">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Owned Platforms</label>
+          {/* Ownership — a two-option switch rather than a checkbox, because
+              "owned" is the default and the only thing to mark is the
+              exception. Choosing "Not Owned" is a normal thing to want for a
+              game played at a friend's house; the control says so rather than
+              making the user infer it from an empty checkbox. */}
+          {target === "library" && (
+            <fieldset className="space-y-1.5">
+              <legend className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Ownership</legend>
+              <div className="grid grid-cols-2 gap-1.5">
+                {OWNERSHIP_STATUSES.map((option) => (
+                  <label
+                    key={option.value}
+                    className={`flex flex-col gap-0.5 px-3 py-2 border cursor-pointer transition-colors ${
+                      ownershipStatus === option.value
+                        ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
+                        : "bg-transparent border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="add-game-ownership"
+                      value={option.value}
+                      checked={ownershipStatus === option.value}
+                      onChange={() => changeOwnership(option.value)}
+                      className="sr-only"
+                    />
+                    <span className="text-[11px] font-black uppercase tracking-wider">
+                      {option.label}
+                    </span>
+                    <span className={`text-[10px] font-semibold leading-tight ${
+                      ownershipStatus === option.value ? "text-brand-accent-ink/75" : "text-brand-muted/70"
+                    }`}>
+                      {option.hint}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+
+          {/* Platform tags — which copies of the game sit in the user's collection.
+              A title marked Not Owned has none by definition: the console,
+              disc or account is someone else's. So while that state is chosen
+              the controls are `disabled` and dimmed rather than merely ignored,
+              and the reason is stated — a live-looking field that silently drops
+              what you pick is worse than one that says it is closed. */}
+          <fieldset
+            disabled={platformsLocked}
+            className={`space-y-1.5 transition-opacity ${platformsLocked ? "opacity-40" : ""}`}
+          >
+              <legend className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">
+                Platforms Owned
+              </legend>
+              {platformsLocked && (
+                <p className="text-[10px] font-semibold normal-case tracking-wider text-brand-muted/90 max-w-prose">
+                  {PLATFORMS_LOCKED_REASON}
+                </p>
+              )}
               <div className="flex flex-wrap gap-1.5">
                 {availablePlatforms.map((platform) => (
                   <label
                     key={platform.id}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-none border text-[11px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
-                      selectedPlatforms.includes(platform.id)
-                        ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
-                        : "bg-transparent border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-none border text-[11px] font-black uppercase tracking-wider transition-colors ${
+                      platformsLocked
+                        ? "cursor-not-allowed border-brand-border text-brand-muted"
+                        : `cursor-pointer ${
+                            selectedPlatforms.includes(platform.id)
+                              ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
+                              : "bg-transparent border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"
+                          }`
                     }`}
                   >
                     <input
                       type="checkbox"
                       checked={selectedPlatforms.includes(platform.id)}
                       onChange={() => handlePlatformChange(platform.id)}
+                      disabled={platformsLocked}
                       className="sr-only"
                     />
                     <span className={`w-1.5 h-1.5 rounded-none border shrink-0 ${
@@ -663,7 +751,7 @@ export const AddGameModal: React.FC = React.memo(() => {
                   </label>
                 ))}
               </div>
-            </div>
+            </fieldset>
 
           {/* Poster URL & Custom Upload */}
           <div className="space-y-1.5">

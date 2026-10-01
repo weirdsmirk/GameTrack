@@ -6,7 +6,7 @@ import {
   PlayingConflict
 } from "./types";
 import { isThemeId, applyTheme, applyThemeWithReboot } from "./themes";
-import { Platform, slugifyPlatformLabel, mergeCustomPlatforms, igdbGenreNamesFor } from "./constants";
+import { Platform, slugifyPlatformLabel, mergeCustomPlatforms, igdbGenreNamesFor, isOwned } from "./constants";
 import {
   loadBindings, saveBindings, type ShortcutBindings, type ShortcutActionId
 } from "./shortcuts";
@@ -174,8 +174,8 @@ interface GameTrackState {
   loadingGames: boolean;
   lastGamesFetch: number;
   gamesError: string | null;
-  filters: { status: string; platform: string; sort: string; search: string; hideCompleted: boolean; hideEndless: boolean };
-  setFilter: (key: "status" | "platform" | "sort" | "search" | "hideCompleted" | "hideEndless", value: string | boolean) => void;
+  filters: { status: string; ownership: string; platform: string; sort: string; search: string; hideCompleted: boolean; hideEndless: boolean };
+  setFilter: (key: "status" | "ownership" | "platform" | "sort" | "search" | "hideCompleted" | "hideEndless", value: string | boolean) => void;
   resetFilters: () => void;
   fetchGames: (force?: boolean) => Promise<void>;
   addGame: (gameData: Partial<Game>) => Promise<boolean>;
@@ -303,13 +303,14 @@ function getInitialTab(): GameTrackState["activeTab"] {
 }
 
 const FILTERS_KEY = "gametrack_library_filters";
-const DEFAULT_FILTERS = { status: "", platform: "", sort: "recent", search: "", hideCompleted: false, hideEndless: false };
+const DEFAULT_FILTERS = { status: "", ownership: "", platform: "", sort: "recent", search: "", hideCompleted: false, hideEndless: false };
 
 function loadSavedFilters(): GameTrackState["filters"] {
   try {
     const parsed = JSON.parse(safeGetItem(FILTERS_KEY) || "");
     return {
       status: typeof parsed.status === "string" ? parsed.status : DEFAULT_FILTERS.status,
+      ownership: typeof parsed.ownership === "string" ? parsed.ownership : DEFAULT_FILTERS.ownership,
       platform: typeof parsed.platform === "string" ? parsed.platform : DEFAULT_FILTERS.platform,
       sort: typeof parsed.sort === "string" ? parsed.sort : DEFAULT_FILTERS.sort,
       search: typeof parsed.search === "string" ? parsed.search : DEFAULT_FILTERS.search,
@@ -371,11 +372,27 @@ function loadCachedAnalytics() {
     ) {
       return null;
     }
-    return parsed as {
-      savedAt: number;
-      summary: LibrarySummary;
-      genreAnalytics: GenreAnalytics[];
-      recentActivity: Game[];
+    // A cache written before the ownership split existed has no such fields, but
+    // it is not stale data — it is a correct summary of a moment when every row
+    // *was* owned, because nothing could be marked otherwise. Backfilling it that
+    // way keeps the reconciling identities intact (owned + not_owned = total on
+    // both counts and both hour totals) instead of showing `undefined` panels
+    // until the cache expires on its own.
+    const summary = parsed.summary as Partial<LibrarySummary>;
+    const ownership: Partial<LibrarySummary> = {};
+    if (typeof summary.owned_games !== "number") {
+      ownership.owned_games = summary.total_games;
+      ownership.not_owned_games = 0;
+      ownership.owned_playtime_hours = summary.total_playtime_hours ?? 0;
+      ownership.not_owned_playtime_hours = 0;
+    }
+    return {
+      savedAt: parsed.savedAt as number,
+      summary: { ...summary, ...ownership } as LibrarySummary,
+      genreAnalytics: parsed.genreAnalytics as GenreAnalytics[],
+      // Cached rows predate ownership_status; `isOwned()` reads a missing value
+      // as owned, which is exactly right for them.
+      recentActivity: parsed.recentActivity as Game[],
     };
   } catch {
     return null;
@@ -1324,6 +1341,9 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
 
       let candidates = games.filter((g) => {
         if (g.status !== "backlog") return false;
+        // A title you do not own is not something you can pick up and play, so
+        // it is never "next to play" — however it got into the backlog.
+        if (!isOwned(g)) return false;
         const genres = Array.isArray(g.genres) ? g.genres : [];
         const hasExcluded = genres.some((genre) => {
           const lower = genre.toLowerCase();
@@ -1333,11 +1353,16 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       });
 
       if (candidates.length === 0) {
-        candidates = games.filter((g) => g.status === "backlog");
+        candidates = games.filter((g) => g.status === "backlog" && isOwned(g));
       }
 
+      // The final fallback stays owned-only. The two stages above can both come
+      // up empty (an empty owned backlog while not-owned titles remain), and
+      // dropping to the whole library there would answer "what should I play
+      // next?" with something the user has no copy of. If nothing is owned, the
+      // deck is empty and says so.
       if (candidates.length === 0) {
-        candidates = games;
+        candidates = games.filter((g) => isOwned(g));
       }
 
       const shuffled = [...candidates];

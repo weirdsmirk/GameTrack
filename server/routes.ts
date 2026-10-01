@@ -81,8 +81,18 @@ function parseGame(row: unknown): Game | null {
   if (!row) return null;
   const r = row as GameRow;
   const genres = safeJsonParse<string[]>(r.genres, []);
-  const owned_platforms = safeJsonParse<string[]>(r.owned_platforms, []);
-  return { ...r, genres, owned_platforms } as Game;
+  // The ownership/platform invariant is enforced on read as well as on write
+  // (see resolveOwnedPlatforms). A row that predates it, or that arrived through
+  // an import which bypassed this module, must still never reach the client
+  // carrying platforms while marked not-owned: the details modal disables the
+  // platform controls based on this exact value, so a stale tag would put the
+  // UI and the data in disagreement — a control disabled next to a populated
+  // list reads as a bug, because it is one.
+  const ownership_status = resolveOwnershipStatus(r.ownership_status);
+  const owned_platforms = ownership_status === "not_owned"
+    ? []
+    : safeJsonParse<string[]>(r.owned_platforms, []);
+  return { ...r, genres, owned_platforms, ownership_status } as Game;
 }
 
 function parseWishlistItem(row: unknown): WishlistItem | null {
@@ -218,6 +228,32 @@ const ImportSchema = z.object({ games: z.array(z.any()) });
 
 const MAX_IMPORT_ROWS = 2000;
 
+/**
+ * Coerce a client-supplied ownership_status to one of the two stored values.
+ * Anything unrecognised — an omitted key on a partial PUT, a value written by a
+ * newer backup, a hand-edited import — collapses to "owned", which is what every
+ * row meant before the flag existed, so a bad value can never invent a state.
+ */
+function resolveOwnershipStatus(value: unknown): string {
+  return value === "not_owned" ? "not_owned" : "owned";
+}
+
+/**
+ * The ownership/platform invariant, expressed once: a game you do not own is not
+ * on any platform you own it on. The console, the disc and the account belong to
+ * whoever holds the copy, so a not-owned title carries no platform tags at all.
+ *
+ * That is why the client disables the platform controls for a not-owned game
+ * rather than accepting a selection and complaining afterwards — and why this
+ * runs on every write instead of trusting the client to have done the right
+ * thing. Imports, the wishlist promotion and the Steam sync all funnel through
+ * here, and none of them should be able to smuggle a platform onto a title the
+ * user does not hold.
+ */
+function resolveOwnedPlatforms(ownership: string, platforms: string[] | null | undefined): string {
+  return ownership === "not_owned" ? "[]" : JSON.stringify(normalizePlatformIds(platforms));
+}
+
 
 // ── Prepared Statements ───────────────────────────────────────────
 
@@ -227,17 +263,18 @@ const stmts = {
   getGameByIgdbId: db.prepare("SELECT id FROM games WHERE igdb_id = ?"),
   insertGame: db.prepare(`
     INSERT INTO games (title, year, igdb_id, genres, synopsis, poster_url, critic_score,
-      owned_platforms, status, playtime, personal_rating, date_added, date_completed,
+      owned_platforms, ownership_status, status, playtime, personal_rating, date_added, date_completed,
       created_at, updated_at, hide_playtime, steam_appid, custom_order, metadata_custom)
     VALUES (@title, @year, @igdb_id, @genres, @synopsis, @poster_url, @critic_score,
-      @owned_platforms, @status, @playtime, @personal_rating, @date_added,
+      @owned_platforms, @ownership_status, @status, @playtime, @personal_rating, @date_added,
       @date_completed, @created_at, @updated_at, @hide_playtime, @steam_appid, @custom_order,
       @metadata_custom)
   `),
   updateGame: db.prepare(`
     UPDATE games SET title = @title, year = @year, igdb_id = @igdb_id, genres = @genres,
       synopsis = @synopsis, poster_url = @poster_url, critic_score = @critic_score,
-      owned_platforms = @owned_platforms, status = @status, playtime = @playtime,
+      owned_platforms = @owned_platforms, ownership_status = @ownership_status,
+      status = @status, playtime = @playtime,
       personal_rating = @personal_rating, date_added = @date_added,
       date_completed = @date_completed, hide_playtime = @hide_playtime,
       updated_at = @updated_at, steam_appid = @steam_appid, custom_order = @custom_order,
@@ -317,7 +354,11 @@ apiRouter.post("/games", (req: Request, res: Response) => {
       synopsis: g.synopsis,
       poster_url: g.poster_url,
       critic_score: g.critic_score ?? null,
-      owned_platforms: JSON.stringify(normalizePlatformIds(g.owned_platforms)),
+      ownership_status: resolveOwnershipStatus(g.ownership_status),
+      owned_platforms: resolveOwnedPlatforms(
+        resolveOwnershipStatus(g.ownership_status),
+        g.owned_platforms
+      ),
       status: g.status,
       playtime: g.playtime,
       personal_rating: g.personal_rating ?? null,
@@ -452,7 +493,19 @@ apiRouter.put("/games/:id", (req: Request, res: Response) => {
       synopsis: sent("synopsis") ? g.synopsis : existing.synopsis,
       poster_url: sent("poster_url") ? g.poster_url : existing.poster_url,
       critic_score: g.critic_score !== undefined ? g.critic_score : existing.critic_score,
-      owned_platforms: JSON.stringify(normalizePlatformIds(sent("owned_platforms") ? g.owned_platforms : safeJsonParse(existing.owned_platforms, []))),
+      // Same sent()-gate as every other column: zod's `.default("owned")` fires
+      // for an omitted key, so reading g.ownership_status directly would flip
+      // every not-owned game back to owned on any unrelated edit. Resolved once,
+      // because the platform invariant below depends on the same answer.
+      ownership_status: sent("ownership_status")
+        ? resolveOwnershipStatus(g.ownership_status)
+        : resolveOwnershipStatus(existing.ownership_status),
+      owned_platforms: resolveOwnedPlatforms(
+        sent("ownership_status")
+          ? resolveOwnershipStatus(g.ownership_status)
+          : resolveOwnershipStatus(existing.ownership_status),
+        sent("owned_platforms") ? g.owned_platforms : safeJsonParse(existing.owned_platforms, [])
+      ),
       status: sent("status") ? g.status : existing.status,
       playtime: sent("playtime") ? g.playtime : existing.playtime,
       personal_rating: g.personal_rating !== undefined ? g.personal_rating : existing.personal_rating,
@@ -512,7 +565,11 @@ apiRouter.post("/games/:id/reset-metadata", async (req: Request, res: Response) 
       synopsis: mapped.synopsis,
       poster_url: poster,
       critic_score: mapped.critic_score,
-      owned_platforms: existing.owned_platforms,
+      ownership_status: resolveOwnershipStatus(existing.ownership_status),
+      owned_platforms: resolveOwnedPlatforms(
+        resolveOwnershipStatus(existing.ownership_status),
+        safeJsonParse(existing.owned_platforms, [])
+      ),
       status: existing.status,
       playtime: existing.playtime,
       personal_rating: existing.personal_rating,
@@ -579,7 +636,11 @@ apiRouter.post("/games/:id/reset-poster", async (req: Request, res: Response) =>
       synopsis: existing.synopsis,
       poster_url: poster,
       critic_score: existing.critic_score,
-      owned_platforms: existing.owned_platforms,
+      ownership_status: resolveOwnershipStatus(existing.ownership_status),
+      owned_platforms: resolveOwnedPlatforms(
+        resolveOwnershipStatus(existing.ownership_status),
+        safeJsonParse(existing.owned_platforms, [])
+      ),
       status: existing.status,
       playtime: existing.playtime,
       personal_rating: existing.personal_rating,
@@ -645,14 +706,25 @@ apiRouter.get("/analytics", (_req: Request, res: Response) => {
         SUM(CASE WHEN status = 'playing' THEN 1 ELSE 0 END) as active_games,
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_games,
         SUM(CASE WHEN hide_playtime = 0 THEN playtime ELSE 0 END) as total_playtime_hours,
-        MAX(updated_at) as last_updated
+        MAX(updated_at) as last_updated,
+        SUM(CASE WHEN ownership_status = 'owned' THEN 1 ELSE 0 END) as owned_games,
+        SUM(CASE WHEN ownership_status = 'not_owned' THEN 1 ELSE 0 END) as not_owned_games,
+        SUM(CASE WHEN ownership_status = 'owned' AND hide_playtime = 0 THEN playtime ELSE 0 END) as owned_playtime_hours,
+        SUM(CASE WHEN ownership_status = 'not_owned' AND hide_playtime = 0 THEN playtime ELSE 0 END) as not_owned_playtime_hours
       FROM games
       
     `).get() as any;
 
+    // The `CASE` around `genres` is load-bearing. `json_each` raises a
+    // malformed-JSON error on a bad value, and a table-valued function in the
+    // FROM clause is evaluated while the scan runs — so a `WHERE json_valid(...)`
+    // guard can be reordered away from the call and does not reliably keep the
+    // error from being raised. Substituting an empty array does, and it puts
+    // this endpoint on the same footing as `parseGame`, which has always fallen
+    // back to `[]` for an unparseable row rather than failing the response.
     const genreAnalytics = db.prepare(`
       SELECT j.value as genre, COUNT(g.id) as game_count, SUM(CASE WHEN g.hide_playtime = 0 THEN g.playtime ELSE 0 END) as total_playtime
-      FROM games g, json_each(g.genres) j
+      FROM games g, json_each(CASE WHEN json_valid(g.genres) THEN g.genres ELSE '[]' END) j
       
       GROUP BY j.value
       ORDER BY total_playtime DESC
@@ -673,6 +745,15 @@ apiRouter.get("/analytics", (_req: Request, res: Response) => {
         total_playtime_hours: summary.total_playtime_hours || 0,
         average_playtime_per_game: summary.total_games > 0 ? parseFloat(((summary.total_playtime_hours || 0) / summary.total_games).toFixed(1)) : 0,
         last_updated: summary.last_updated || Date.now(),
+        // The ownership split is reported alongside the totals rather than
+        // instead of them: the totals still describe the whole registry, and the
+        // split is what lets a view say how much of it is a title you actually
+        // hold a copy of. `owned_*` + `not_owned_*` always reconciles with the
+        // unrestricted figures, so the two can never drift apart.
+        owned_games: summary.owned_games || 0,
+        not_owned_games: summary.not_owned_games || 0,
+        owned_playtime_hours: summary.owned_playtime_hours || 0,
+        not_owned_playtime_hours: summary.not_owned_playtime_hours || 0,
       },
       genreAnalytics,
       recentActivity,
@@ -767,7 +848,11 @@ apiRouter.post("/import", (req: Request, res: Response) => {
             synopsis: data.synopsis,
             poster_url: data.poster_url,
             critic_score: data.critic_score ?? null,
-            owned_platforms: JSON.stringify(normalizePlatformIds(data.owned_platforms)),
+            ownership_status: resolveOwnershipStatus(data.ownership_status),
+            owned_platforms: resolveOwnedPlatforms(
+              resolveOwnershipStatus(data.ownership_status),
+              data.owned_platforms
+            ),
             status: data.status,
             playtime: data.playtime,
             personal_rating: data.personal_rating ?? null,
@@ -1070,7 +1155,7 @@ export async function runSteamSyncInternal(): Promise<{
     });
 
     const getBySteamAppid = db.prepare("SELECT * FROM games WHERE steam_appid = ?");
-    const getByTitle = db.prepare("SELECT id, owned_platforms, playtime FROM games WHERE steam_appid IS NULL AND lower(title) = lower(?)");
+    const getByTitle = db.prepare("SELECT id, owned_platforms, ownership_status, playtime FROM games WHERE steam_appid IS NULL AND lower(title) = lower(?)");
     const delExcluded = db.prepare("DELETE FROM games WHERE (steam_appid = ? OR lower(title) = lower(?)) AND personal_rating IS NULL AND poster_url NOT LIKE '/posters/%'");
 
     if (excludedAppids.size) {
@@ -1114,7 +1199,16 @@ export async function runSteamSyncInternal(): Promise<{
           synopsis: preserve ? existing.synopsis : game.synopsis,
           poster_url: preserve ? existing.poster_url : defaultPoster,
           critic_score: preserve ? existing.critic_score : (game.critic_score ?? existing.critic_score),
-          owned_platforms: JSON.stringify(game.owned_platforms),
+          // Preserved, not refreshed from the sync: a Steam sync only ever sees
+          // the user's own Steam library, so re-deriving ownership from it would
+          // silently claim a not-owned title as theirs. The flag only moves when
+          // the user moves it — and it gates the platform list below, so the two
+          // stay consistent even though only the second is being written.
+          ownership_status: resolveOwnershipStatus(existing.ownership_status),
+          owned_platforms: resolveOwnedPlatforms(
+            resolveOwnershipStatus(existing.ownership_status),
+            game.owned_platforms
+          ),
           status: existing.status,
           playtime: nextPlay,
           personal_rating: existing.personal_rating,
@@ -1133,9 +1227,29 @@ export async function runSteamSyncInternal(): Promise<{
 
       const titleMatch = getByTitle.get(game.title) as any;
       if (titleMatch) {
-        const mergedPlatforms = new Set<string>([...safeJsonParse<string[]>(titleMatch.owned_platforms, []), ...game.owned_platforms]);
+        // `adoptSteamAppid` deliberately never touches ownership_status: the row
+        // being adopted into may be one the user marked not-owned (they played
+        // the Steam copy at a friend's house), and attaching the appid is about
+        // identifying the title, not about claiming it. Only the flag's owner —
+        // the user — moves it.
+        //
+        // The union below is skipped entirely for such a row, not just filtered
+        // afterwards: a not-owned title has no platforms by definition, and this
+        // is the one write path that would otherwise hand it a "steam" tag from a
+        // sync the user never asked to claim the game through.
+        const titleOwnership = resolveOwnershipStatus(titleMatch.ownership_status);
+        const mergedPlatforms = new Set<string>([
+          ...safeJsonParse<string[]>(titleMatch.owned_platforms, []),
+          ...game.owned_platforms,
+        ]);
         const nextPlay = Number(game.playtime) || 0;
-        adoptSteamAppid.run(game.steam_appid, nextPlay, JSON.stringify([...mergedPlatforms]), Date.now(), titleMatch.id);
+        adoptSteamAppid.run(
+          game.steam_appid,
+          nextPlay,
+          resolveOwnedPlatforms(titleOwnership, [...mergedPlatforms]),
+          Date.now(),
+          titleMatch.id
+        );
         adopted++;
         return;
       }
@@ -1149,7 +1263,10 @@ export async function runSteamSyncInternal(): Promise<{
         synopsis: game.synopsis,
         poster_url: game.poster_url,
         critic_score: game.critic_score ?? null,
-        owned_platforms: JSON.stringify(game.owned_platforms),
+        // New rows from a Steam sync are in the user's own Steam library, so
+        // they are owned by definition.
+        ownership_status: "owned",
+        owned_platforms: resolveOwnedPlatforms("owned", game.owned_platforms),
         status: "backlog",
         playtime: game.playtime,
         personal_rating: null,
@@ -1474,7 +1591,12 @@ apiRouter.post("/wishlist/:id/own", (req: Request, res: Response) => {
         synopsis: item.synopsis || "",
         poster_url: item.poster_url || "",
         critic_score: item.critic_score,
-        owned_platforms: JSON.stringify(normalizePlatformIds(item.owned_platforms || [])),
+        // This endpoint *is* the "I own this now" action, so the promoted row is
+        // always owned — never not_owned, regardless of what the wishlist entry
+        // carried. Which means the wishlist's platform tags (where the game was
+        // available to buy) transfer intact as ownership tags.
+        ownership_status: "owned",
+        owned_platforms: resolveOwnedPlatforms("owned", item.owned_platforms || []),
         status: "backlog",
         playtime: 0,
         personal_rating: null,
@@ -1586,7 +1708,14 @@ apiRouter.post("/duplicates/merge", (req: Request, res: Response) => {
             ? remove.poster_url
             : (keep.poster_url || remove.poster_url),
         critic_score: keep.critic_score ?? remove.critic_score,
-        owned_platforms: JSON.stringify(union(keep.owned_platforms, remove.owned_platforms)),
+        // Keeper wins, matching every other single-valued column in this merge.
+        // Falling back to the loser only matters for a row written before the
+        // column existed, where `keep` could be undefined and `remove` not.
+        ownership_status: resolveOwnershipStatus(keep.ownership_status ?? remove.ownership_status),
+        owned_platforms: resolveOwnedPlatforms(
+          resolveOwnershipStatus(keep.ownership_status ?? remove.ownership_status),
+          union(keep.owned_platforms, remove.owned_platforms)
+        ),
         status: keep.status,
         playtime: Math.max(keep.playtime || 0, remove.playtime || 0),
         personal_rating: keep.personal_rating ?? remove.personal_rating,

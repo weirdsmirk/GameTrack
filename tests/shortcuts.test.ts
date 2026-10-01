@@ -23,6 +23,7 @@ const game = (over: Partial<Game> = {}): Game => ({
   date_added: 0, date_completed: null, created_at: 0, updated_at: 0,
   genres: [], igdb_id: null, year: null, synopsis: "", poster_url: "",
   critic_score: null, owned_platforms: [], personal_rating: null,
+  ownership_status: "owned",
   ...over,
 });
 
@@ -62,12 +63,31 @@ describe("gamesToCsv", () => {
       game({ title: "Hades", status: "playing", owned_platforms: ["steam", "switch"] }),
     ]);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("title,status,platform,playtime,rating,completion_date");
-    expect(lines[1]).toContain("Portal,completed,pc");
+    expect(lines[0]).toBe("title,status,ownership,platform,playtime,rating,completion_date");
+    expect(lines[1]).toContain("Portal,completed,owned,pc");
     // Multi-platform tags are joined into one cell with a semicolon, not
     // repeated into extra columns. The separator is not the CSV comma, so
     // csvEscape does not need to quote it.
-    expect(lines[2]).toContain("Hades,playing,steam; switch");
+    expect(lines[2]).toContain("Hades,playing,owned,steam; switch");
+  });
+
+  it("carries the ownership flag as a distinct column", () => {
+    // A game played at a friend's house exports as not_owned, so a spreadsheet
+    // can tell it apart from a copy on the shelf — and the raw token round-trips
+    // straight back into POST /api/import without a label-to-value mapping.
+    const csv = gamesToCsv([
+      game({ title: "Borrowed", status: "completed", ownership_status: "not_owned", owned_platforms: ["playstation"], playtime: 6 }),
+    ]);
+    expect(csv).toContain("Borrowed,completed,not_owned,playstation");
+  });
+
+  it("defaults a row with no flag to owned", () => {
+    // A payload predating the flag has no ownership_status at all. It must
+    // export as owned rather than as a blank cell, because every row in such a
+    // payload was owned by definition.
+    const legacy = { ...game({ title: "Legacy Row" }) } as Partial<Game> as Game;
+    delete (legacy as { ownership_status?: string }).ownership_status;
+    expect(gamesToCsv([legacy])).toContain("Legacy Row,backlog,owned,");
   });
 
   it("starts with a BOM so Excel opens UTF-8 correctly", () => {
@@ -92,9 +112,21 @@ describe("gamesToCsv", () => {
 describe("gamesToMarkdown", () => {
   it("emits a table with escaped pipes", () => {
     const md = gamesToMarkdown([game({ title: "Super | Game", status: "completed", year: 2018 })]);
-    expect(md).toContain("| Title | Status | Platform | Playtime | Rating | Completed |");
+    expect(md).toContain("| Title | Status | Ownership | Platform | Playtime | Rating | Completed |");
     // A raw pipe would end the cell early and shift every column after it.
     expect(md).toContain("Super \\| Game");
+  });
+
+  it("prints ownership as a readable label", () => {
+    // The markdown table is read by a person, so it gets the display label
+    // rather than the CSV's machine token — the same distinction `status`
+    // already makes in both formats.
+    const md = gamesToMarkdown([
+      game({ title: "Mine", status: "completed" }),
+      game({ title: "Played Only", status: "completed", ownership_status: "not_owned" }),
+    ]);
+    expect(md).toContain("| Mine | completed | Owned |");
+    expect(md).toContain("| Played Only | completed | Not Owned |");
   });
 
   it("uses an em dash for a missing rating and completion date", () => {

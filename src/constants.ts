@@ -268,6 +268,61 @@ export const getStatusMarkerColor = (status: string): string => {
 // worse than no code: the next person to reach for a "status border colour"
 // helper would have found two answers and no way to tell which was current.
 
+// ── Ownership ─────────────────────────────────────────────────────
+//
+// Whether a library row is part of the user's personal collection. This is NOT
+// derived from `owned_platforms`: an empty platform list has always meant
+// "platform unknown" (AnalyticsView counts those as `unplatformed`), and a
+// not-owned title can still carry the platform it was played on — a friend's
+// PS5, a shared PC. The flag answers "do I hold a copy", the platform list
+// answers "where did I play it", and the two are independent on purpose.
+
+export type OwnershipStatus = "owned" | "not_owned";
+
+export interface OwnershipOption {
+  value: OwnershipStatus;
+  label: string;
+  /** Plain-language gloss shown under the control. */
+  hint: string;
+}
+
+export const OWNERSHIP_STATUSES: OwnershipOption[] = [
+  { value: "owned", label: "Owned", hint: "In your collection" },
+  { value: "not_owned", label: "Not Owned", hint: "Played, no copy owned" },
+];
+
+export const getOwnershipLabel = (ownership?: string | null): string =>
+  ownership === "not_owned" ? "Not Owned" : "Owned";
+
+/**
+ * The one place ownership is decided. Every read site goes through this rather
+ * than comparing `ownership_status === "owned"` directly, so a payload that
+ * predates the flag — a cached analytics response in localStorage, a backup
+ * written before the migration — reads as owned rather than silently falling
+ * into the "not owned" bucket.
+ */
+export const isOwned = (game: { ownership_status?: string | null }): boolean =>
+  game.ownership_status !== "not_owned";
+
+/**
+ * Whether the platform controls may be touched under a given ownership state.
+ *
+ * A platform tag records where a copy of the game sits in *your* collection —
+ * which account, which disc, which console. A game you do not own has none of
+ * those: the copy is someone else's, so there is no platform of yours to record.
+ * Rather than accepting a selection and rejecting it afterwards, both the add
+ * form and the details editor disable the controls outright while a title is
+ * marked Not Owned, and the API drops any platforms that reach it anyway.
+ *
+ * Single source of truth for that disabled state, so the two forms cannot drift
+ * into disagreeing about when it applies.
+ */
+export const platformsSelectable = (ownership: OwnershipStatus): boolean => ownership === "owned";
+
+/** Shown in place of the platform controls while they are unavailable. */
+export const PLATFORMS_LOCKED_REASON =
+  "Platforms track copies you own, so they are unavailable on a game marked Not Owned.";
+
 // ── Discover genre filter ──────────────────────────────────────────
 // Our dropdown labels are not IGDB genre names, so every option maps to the
 // exact IGDB genre name(s) it should match. This is the single source of truth

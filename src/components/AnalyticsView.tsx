@@ -4,7 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
 } from "recharts";
-import { STATUSES, mergeCustomPlatforms, platformIdMatches } from "../constants";
+import { STATUSES, mergeCustomPlatforms, platformIdMatches, isOwned } from "../constants";
 import { formatPlaytimePrecise, formatDateShort } from "../utils/time";
 
 /** How many calendar months the chart covers, current month included. */
@@ -157,6 +157,42 @@ export const AnalyticsView: React.FC = React.memo(() => {
     };
   }, [games]);
 
+  // ── Ownership split ──────────────────────────────────────────────
+  // Played-but-not-owned titles are real library rows with real hours and real
+  // ratings, so nothing here excludes them — they are simply counted apart from
+  // the collection, because "how much of this is on my shelf" and "how much have
+  // I actually played" are different questions and merging them hides the
+  // second one.
+  //
+  // Read off `games` rather than the server summary, so this bar cannot
+  // disagree with the figures above it while an analytics fetch is in flight.
+  // Counted from the same rows and the same hide_playtime rule as everything
+  // else here, so the hours quoted reconcile with Total Playtime on the strip.
+  const ownership = React.useMemo(() => {
+    let owned = 0;
+    let notOwned = 0;
+    let notOwnedHours = 0;
+    for (const g of games) {
+      if (isOwned(g)) {
+        owned += 1;
+      } else {
+        notOwned += 1;
+        notOwnedHours += g.hide_playtime === 1 ? 0 : g.playtime || 0;
+      }
+    }
+    // The bar is a share of *titles*, so the percentage is a share of the
+    // library's rows. Hours are reported separately, against the strip's own
+    // Total Playtime figure, rather than folded into the same percentage —
+    // three hours across two borrowed titles is not half the library.
+    const total = owned + notOwned;
+    return {
+      owned,
+      notOwned,
+      notOwnedHours,
+      ownedPct: total > 0 ? Math.round((owned / total) * 100) : 0,
+    };
+  }, [games]);
+
   // The strip's completion figures are read back out of the composition rather
   // than counted again, so the two panels cannot disagree. Same arithmetic,
   // same denominator, one source.
@@ -225,7 +261,25 @@ export const AnalyticsView: React.FC = React.memo(() => {
     let associations = 0;
     let multiPlatform = 0;
     let unplatformed = 0;
+    // Games played without a copy. Counted and timed, but kept OUT of the
+    // platform buckets below: a not-owned title has no platform tags at all
+    // (see PLATFORMS_LOCKED_REASON), so it cannot contribute one, and folding
+    // it into the distribution anyway would count it toward a shelf it was never
+    // on. Reported as their own line instead, so nothing is hidden and the two
+    // never masquerade as each other.
+    let ownedTitles = 0;
+    let ownedHours = 0;
+    let notOwnedTitles = 0;
+    let notOwnedHours = 0;
     for (const g of games) {
+      const hours = g.hide_playtime === 1 ? 0 : g.playtime || 0;
+      if (!isOwned(g)) {
+        notOwnedTitles += 1;
+        notOwnedHours += hours;
+        continue;
+      }
+      ownedTitles += 1;
+      ownedHours += hours;
       // `owned_platforms` holds free strings, and the same platform can arrive
       // as "Steam" or "steam", so every value is matched through
       // `platformIdMatches` before it is bucketed. An unmatched value still
@@ -241,13 +295,11 @@ export const AnalyticsView: React.FC = React.memo(() => {
       // A title on several platforms has its playtime SPLIT between them rather
       // than credited in full to each. Crediting it whole is what made the
       // genre chart this panel replaced total 2.11x the library's real hours;
-      // splitting is what keeps this column summing to exactly the Total
-      // Playtime figure on the strip above. Titles are still counted in full on
-      // every platform they are on, because a title owned on three platforms
-      // really is owned on three — that count is ownership, not a share of one.
-      const share = ids.length
-        ? (g.hide_playtime === 1 ? 0 : g.playtime || 0) / ids.length
-        : 0;
+      // splitting is what keeps this column summing to exactly the playtime it
+      // claims. Titles are still counted in full on every platform they are on,
+      // because a title owned on three platforms really is owned on three —
+      // that count is ownership, not a share of one.
+      const share = ids.length ? hours / ids.length : 0;
       for (const id of ids) {
         const known = platforms.find((p) => p.id === id);
         const row = bump(id, known ? known.label : id);
@@ -263,12 +315,14 @@ export const AnalyticsView: React.FC = React.memo(() => {
     // everywhere, and three independent roundings gained an hour the library
     // does not have. Largest-remainder instead: floor every row, then hand the
     // leftover hours to whichever rows lost the most. The column now sums to
-    // exactly the Total Playtime figure on the strip above it.
+    // exactly the owned playtime subtotal, which the note underneath prints
+    // alongside the not-owned one so the two still reconcile with Total
+    // Playtime on the strip above.
     const rounded = rows.map((r) => {
       const whole = Math.floor(r.hours);
       return { ...r, displayHours: whole, remainder: r.hours - whole };
     });
-    let budget = Math.round(totalPlaytime) - rounded.reduce((s, r) => s + r.displayHours, 0);
+    let budget = Math.round(ownedHours) - rounded.reduce((s, r) => s + r.displayHours, 0);
     for (const r of [...rounded].sort((a, b) => b.remainder - a.remainder)) {
       if (budget <= 0) break;
       r.displayHours += 1;
@@ -279,9 +333,13 @@ export const AnalyticsView: React.FC = React.memo(() => {
       associations,
       multiPlatform,
       unplatformed,
+      ownedTitles,
+      ownedHours,
+      notOwnedTitles,
+      notOwnedHours,
       maxTitles: Math.max(1, ...rows.map((r) => r.titles)),
     };
-  }, [games, platforms, totalPlaytime]);
+  }, [games, platforms]);
 
   // ── Rating distribution ───────────────────────────────────────────
   // 1-10, the scale every other surface in the app prints as `/10`.
@@ -684,6 +742,46 @@ export const AnalyticsView: React.FC = React.memo(() => {
                     </p>
                   )}
                 </div>
+
+                {/* Ownership — the other orthogonal axis, drawn exactly like the
+                    launch state above for the same reason: a binary split needs
+                    one bar with two named ends, not two rows of bars saying the
+                    same thing twice. Only rendered when there is something to
+                    distinguish — on an all-owned library it would be a bar that is
+                    100% one colour, which is the absence of news presented as a
+                    figure. */}
+                {ownership.notOwned > 0 && (
+                  <div className="shrink-0 border-t border-brand-border pt-4 mt-1 space-y-2.5">
+                    <div className="flex items-baseline justify-between gap-3 text-[11px] uppercase tracking-widest">
+                      <span className="text-zinc-300 font-black">
+                        Owned <span className="text-brand-muted">{ownership.ownedPct}%</span>
+                      </span>
+                      <span className="text-zinc-300 font-black">
+                        Not Owned <span className="text-brand-muted">{100 - ownership.ownedPct}%</span>
+                      </span>
+                    </div>
+                    <div className="flex h-2.5 w-full shrink-0 border border-brand-border/50 overflow-hidden">
+                      <div
+                        className="h-full shrink-0 transition-all hover:brightness-125"
+                        style={{ width: `${ownership.ownedPct}%`, backgroundColor: "var(--brand-accent)" }}
+                        title={`Owned: ${ownership.owned} titles (${ownership.ownedPct}%)`}
+                      />
+                      <div
+                        className="h-full shrink-0 transition-all hover:brightness-125"
+                        style={{ width: `${100 - ownership.ownedPct}%`, backgroundColor: "var(--zinc-500-val)" }}
+                        title={`Not owned: ${ownership.notOwned} titles (${100 - ownership.ownedPct}%)`}
+                      />
+                    </div>
+                    {/* Names what the second segment is, because "Not Owned" in a
+                        status panel otherwise reads as a fifth status. These
+                        titles are played and tracked in full — they just are not
+                        a copy the user holds. */}
+                    <p className="text-[9px] uppercase tracking-wider text-brand-muted leading-relaxed">
+                      // {ownership.notOwned} played without a copy ·{" "}
+                      <span className="text-zinc-300">{Math.round(ownership.notOwnedHours)} of {Math.round(totalPlaytime)} hrs</span> spent outside the collection
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -691,7 +789,9 @@ export const AnalyticsView: React.FC = React.memo(() => {
 
         {/* Platform Distribution — ownership against usage. The title count says
             what is on the shelf; the hours say what actually gets played, and on
-            this library the two disagree. */}
+            this library the two disagree. Titles the user has played without
+            owning a copy are excluded from the bars — they carry no platform
+            tags at all — and reported on their own line beneath them. */}
         <div className="xl:col-span-2 border border-brand-border bg-transparent p-6 rounded-none space-y-4">
           <div className="flex items-center justify-between gap-3 border-b border-brand-border pb-4">
             <h3 className="text-xs font-black uppercase tracking-widest text-white">Platform Distribution</h3>
@@ -700,7 +800,7 @@ export const AnalyticsView: React.FC = React.memo(() => {
             </span>
           </div>
 
-          {platformRows.rows.length === 0 ? (
+          {platformRows.rows.length === 0 && platformRows.notOwnedTitles === 0 ? (
             <div className="w-full h-48 flex items-center justify-center border border-brand-border/30 bg-zinc-950/20 text-xs uppercase text-brand-muted">
               No platform tags recorded
             </div>
@@ -726,12 +826,42 @@ export const AnalyticsView: React.FC = React.memo(() => {
                 </div>
               ))}
 
+              {/* Played-but-not-owned, kept below the platform bars as a
+                  separate line rather than merged into them. A not-owned title
+                  has no platform tags, so it has no bar to join — but it is
+                  still part of the registry and still spent hours, and dropping
+                  it silently would make this panel understate the library.
+                  Dashed rule and a grey fill mark it as outside the
+                  collection. */}
+              {platformRows.notOwnedTitles > 0 && (
+                <div className="group/row space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-widest">
+                    <span className="text-zinc-400 font-black truncate min-w-0">Not Owned</span>
+                    <span className="text-brand-muted shrink-0">
+                      {platformRows.notOwnedTitles} TITLES · {Math.round(platformRows.notOwnedHours)} HRS
+                    </span>
+                  </div>
+                  <div className="h-2 bg-zinc-900 border border-dashed border-brand-border/70">
+                    <div
+                      className="h-full transition-all group-hover/row:brightness-125"
+                      style={{
+                        width: `${Math.min(100, (platformRows.notOwnedTitles / platformRows.maxTitles) * 100)}%`,
+                        backgroundColor: "var(--zinc-500-val)",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* The reconciliation, because the figures above deliberately do
                   not add up to the library and should not pretend otherwise.
                   39 titles across 37 games is not an error — it is two titles
-                  owned on more than one platform. */}
+                  owned on more than one platform. And the hours are stated as
+                  two subtotals that add back up to the strip's Total Playtime,
+                  so the not-owned set is visible without being folded into the
+                  shelf. */}
               <p className="pt-1 text-[9px] uppercase tracking-wider text-brand-muted leading-relaxed">
-                // {platformRows.associations} titles across {totalGames} games
+                // {platformRows.associations} titles across {platformRows.ownedTitles} owned games
                 {platformRows.multiPlatform > 0 && (
                   <> · {platformRows.multiPlatform} on more than one platform</>
                 )}
@@ -739,7 +869,13 @@ export const AnalyticsView: React.FC = React.memo(() => {
                   <> · {platformRows.unplatformed} with no platform</>
                 )}
                 <> · playtime split across each title&apos;s platforms, summing to{" "}
-                {Math.round(totalPlaytime)} hrs</>
+                {Math.round(platformRows.ownedHours)} hrs
+                {platformRows.notOwnedTitles > 0 && (
+                  <>
+                    {" "}+ {Math.round(platformRows.notOwnedHours)} hrs not owned ={" "}
+                    {Math.round(totalPlaytime)} hrs
+                  </>
+                )}</>
               </p>
             </div>
           )}

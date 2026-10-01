@@ -44,31 +44,46 @@ const game = (over: Partial<Game> = {}): Game => ({
   created_at: FROZEN.getTime() - 86_400_000, updated_at: FROZEN.getTime() - 86_400_000,
   genres: [], igdb_id: null, year: null, synopsis: "", poster_url: "",
   critic_score: null, owned_platforms: [], personal_rating: null,
+  ownership_status: "owned",
   ...over,
 });
 
+/**
+ * The seeded library, held at module scope so a test can read the untouched
+ * baseline. Tests that mutate `games` restore from here — but restoring from
+ * inside the test body is what let a failing assertion skip the restore and leak
+ * its extra rows into the next test, which then failed for a reason that had
+ * nothing to do with what it was checking. The `afterEach` below does the reset
+ * unconditionally instead, so a test cannot leak whether it passes or not.
+ */
+const SEED_GAMES: Game[] = [
+  game({ id: 1, title: "God of War", status: "completed", playtime: 42.5, date_completed: twoMonthsAgo, genres: ["Adventure"], igdb_id: 19560, year: 2018, critic_score: 94, owned_platforms: ["pc"], personal_rating: 9 }),
+  game({ id: 2, title: "Wallpaper Engine", status: "backlog", playtime: 0.5, owned_platforms: ["steam"] }),
+  game({ id: 3, title: "The Witcher 3", status: "playing", playtime: 8, genres: ["RPG"], igdb_id: 1, year: 2015, critic_score: 93, personal_rating: 8 }),
+  // Marked completed but never dated. The chart counts recorded completion
+  // dates only, so this must not appear — filing it under "now" would be a
+  // guess about when it finished. It is the one case where the chart
+  // deliberately totals fewer than the `completedGames` figure.
+  game({ id: 4, title: "Hidden Hours", status: "completed", playtime: 900, hide_playtime: 1 }),
+  // Dated, but three years back — outside the six-month window, so it must
+  // be dropped rather than clamped into the oldest bucket.
+  game({ id: 5, title: "Ancient Finish", status: "completed", playtime: 12, date_completed: threeYearsAgo }),
+  // The real-world case behind a 7-where-6 bug: dated recently, but sitting
+  // in backlog. The server stamps `date_completed` when a title enters
+  // completed and never clears it on the way out, so a moved game keeps a
+  // stale date. Counting it reported a completion the library does not
+  // claim, so a date alone must not qualify.
+  game({ id: 6, title: "Stale Date", status: "backlog", playtime: 20, date_completed: Date.now() }),
+];
+
 beforeAll(() => {
   useGameTrackStore.setState({
-    games: [
-      game({ id: 1, title: "God of War", status: "completed", playtime: 42.5, date_completed: twoMonthsAgo, genres: ["Adventure"], igdb_id: 19560, year: 2018, critic_score: 94, owned_platforms: ["pc"], personal_rating: 9 }),
-      game({ id: 2, title: "Wallpaper Engine", status: "backlog", playtime: 0.5, owned_platforms: ["steam"] }),
-      game({ id: 3, title: "The Witcher 3", status: "playing", playtime: 8, genres: ["RPG"], igdb_id: 1, year: 2015, critic_score: 93, personal_rating: 8 }),
-      // Marked completed but never dated. The chart counts recorded completion
-      // dates only, so this must not appear — filing it under "now" would be a
-      // guess about when it finished. It is the one case where the chart
-      // deliberately totals fewer than the `completedGames` figure.
-      game({ id: 4, title: "Hidden Hours", status: "completed", playtime: 900, hide_playtime: 1 }),
-      // Dated, but three years back — outside the six-month window, so it must
-      // be dropped rather than clamped into the oldest bucket.
-      game({ id: 5, title: "Ancient Finish", status: "completed", playtime: 12, date_completed: threeYearsAgo }),
-      // The real-world case behind a 7-where-6 bug: dated recently, but sitting
-      // in backlog. The server stamps `date_completed` when a title enters
-      // completed and never clears it on the way out, so a moved game keeps a
-      // stale date. Counting it reported a completion the library does not
-      // claim, so a date alone must not qualify.
-      game({ id: 6, title: "Stale Date", status: "backlog", playtime: 20, date_completed: Date.now() }),
-    ],
-    summary: { total_games: 3, active_games: 1, completed_games: 1, total_playtime_hours: 51, average_playtime_per_game: 17, last_updated: Date.now() },
+    games: SEED_GAMES,
+    summary: {
+      total_games: 3, active_games: 1, completed_games: 1, total_playtime_hours: 51,
+      average_playtime_per_game: 17, last_updated: Date.now(),
+      owned_games: 3, not_owned_games: 0, owned_playtime_hours: 51, not_owned_playtime_hours: 0,
+    },
     fetchAnalytics: async () => {},
     setSettingsOpen: () => {},
   });
@@ -102,7 +117,14 @@ describe("AnalyticsView runtime", () => {
   // RTL's automatic cleanup only runs when the suite is configured with
   // `globals`, which this one is not. Without this, the second case finds the
   // first case's still-mounted chart and reports a duplicate match.
-  afterEach(() => cleanup());
+  //
+  // The store reset is here for the reason on SEED_GAMES: tests that seed extra
+  // titles must not be able to leak them into the next test by failing before
+  // their own restore line.
+  afterEach(() => {
+    cleanup();
+    useGameTrackStore.setState({ games: SEED_GAMES });
+  });
 
   it("renders cards, charts and lists without crashing", async () => {
     render(<AnalyticsView />);
@@ -203,6 +225,71 @@ describe("AnalyticsView runtime", () => {
     // to the heading's own container captured the header and nothing else.
     const text = document.body.textContent ?? "";
     expect(text).toMatch(/never[- ]launched/i);
+  });
+
+  it("keeps played-but-not-owned titles out of the platform bars and on their own line", async () => {
+    /* The platform panel measures the collection: a row of it answers "how many
+       titles do I own on Steam". A not-owned title must not appear there — it
+       carries no platform tags by definition (the API refuses to store any), and
+       counting it would report a borrowed copy as part of the shelf.
+
+       It also must not simply vanish. It is a real library row with real hours,
+       so the panel reports it on a separate line, and the reconciliation note
+       states the owned and not-owned hour subtotals separately so they still add
+       back up to the strip's Total Playtime.
+
+       The borrowed rows are given Steam tags on purpose. The API would never
+       store them, so if the panel leaked them into a platform row this test
+       fails — which is the point. It proves the panel filters on ownership
+       rather than trusting the data to have arrived pre-cleaned. */
+    useGameTrackStore.setState({
+      games: [
+        ...SEED_GAMES,
+        game({ id: 90, title: "Borrowed A", status: "completed", ownership_status: "not_owned", owned_platforms: ["steam"], playtime: 10 }),
+        game({ id: 91, title: "Borrowed B", status: "completed", ownership_status: "not_owned", owned_platforms: ["steam", "playstation"], playtime: 5 }),
+      ],
+    });
+    render(<AnalyticsView />);
+    const text = document.body.textContent ?? "";
+
+    // Both borrowed titles land on the not-owned line with their own hours,
+    // 10 + 5 = 15, neither hidden.
+    expect(text).toContain("2 TITLES · 15 HRS");
+
+    // Steam is the platform the borrowed rows claim, so its count is what would
+    // move if they leaked in. It must still be Wallpaper Engine alone: 1 title,
+    // 0.5h rounding to 1. (God of War's fixture tag is the raw "pc", which the
+    // server would have normalized to "steam" — the panel does not alias, so it
+    // buckets under its own row. That is pre-existing behaviour, not the point
+    // of this test, and it is why "pc" rather than Steam is the row to watch for
+    // the seeded hours.)
+    expect(text).toMatch(/Steam[\s\S]{0,30}?1 TITLES · 1 HRS/);
+
+    // The reconciliation states the owned subtotal, then adds the not-owned one
+    // back to the library total, rather than implying the bars cover everything.
+    // 83 owned hours + 15 borrowed = the 98 the strip reports.
+    expect(text).toMatch(/summing to 83 hrs \+ 15 hrs not owned = 98 hrs/);
+  });
+
+  it("renders the ownership split only when there is a distinction to draw", async () => {
+    /* The split bar is a binary read of the collection. On an all-owned library
+       it would be a bar that is 100% one colour — the absence of news presented
+       as a figure — so it is suppressed. It appears the moment there is a
+       not-owned title, and says in words what the grey segment means, because
+       "Not Owned" in a status panel otherwise reads as a fifth status. */
+    render(<AnalyticsView />);
+    // Nothing in the seeded library is not-owned, so the block must not render.
+    expect(document.body.textContent ?? "").not.toMatch(/played without a copy/i);
+    cleanup();
+
+    useGameTrackStore.setState({
+      games: [...SEED_GAMES, game({ id: 92, title: "Borrowed", status: "backlog", ownership_status: "not_owned", playtime: 4 })],
+    });
+    render(<AnalyticsView />);
+    const text = document.body.textContent ?? "";
+    expect(text).toMatch(/played without a copy/i);
+    // 4 borrowed hours out of the 87 the library now holds.
+    expect(text).toMatch(/4 of 87 hrs spent outside the collection/i);
   });
 
   it("re-counts when a completion is added to the store", async () => {

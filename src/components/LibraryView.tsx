@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { Game } from "../types";
 
-import { STATUSES, getStatusLabel, getStatusMarkerColor, getStatusTextColor, platformIdMatches, mergeCustomPlatforms, libraryGridClass } from "../constants";
+import { STATUSES, getStatusLabel, getStatusMarkerColor, getStatusTextColor, platformIdMatches, mergeCustomPlatforms, libraryGridClass, OWNERSHIP_STATUSES, isOwned } from "../constants";
 import { formatPlaytimeLong } from "../utils/time";
 import { preloadImages } from "../utils/image";
 import { PosterImage } from "./PosterImage";
@@ -72,7 +72,7 @@ export const LibraryView: React.FC = () => {
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [showFilters, filters.status, filters.platform, filters.hideCompleted, filters.hideEndless]);
+  }, [showFilters, filters.status, filters.ownership, filters.platform, filters.hideCompleted, filters.hideEndless]);
 
   // Only offer statuses/platforms that actually exist in the current library
   const statusOptions = React.useMemo(() => {
@@ -121,11 +121,12 @@ export const LibraryView: React.FC = () => {
   const activeFiltersCount = React.useMemo(
     () =>
       (filters.status ? 1 : 0) +
+      (filters.ownership ? 1 : 0) +
       (filters.platform ? 1 : 0) +
       (filters.sort !== "recent" ? 1 : 0) +
       (filters.hideCompleted ? 1 : 0) +
       (filters.hideEndless ? 1 : 0),
-    [filters.status, filters.platform, filters.sort, filters.hideCompleted, filters.hideEndless]
+    [filters.status, filters.ownership, filters.platform, filters.sort, filters.hideCompleted, filters.hideEndless]
   );
 
   // Client-side search/filter/sort within games loaded
@@ -134,6 +135,14 @@ export const LibraryView: React.FC = () => {
       if (filters.status && game.status !== filters.status) return false;
       if (filters.hideCompleted && game.status === "completed") return false;
       if (filters.hideEndless && game.status === "endless") return false;
+
+      // Ownership is an independent axis, so it composes with status and
+      // platform rather than replacing them: "Completed" + "Not Owned" is the
+      // finished-but-not-mine backlog, which is exactly the slice this flag
+      // exists to isolate. `isOwned` (not a bare === "owned") so a row from a
+      // pre-migration payload lands in the owned bucket instead of vanishing.
+      if (filters.ownership === "owned" && !isOwned(game)) return false;
+      if (filters.ownership === "not_owned" && isOwned(game)) return false;
 
       if (filters.platform) {
         const platforms = game.owned_platforms || [];
@@ -447,7 +456,7 @@ export const LibraryView: React.FC = () => {
           style={{ height: showFilters ? filtersPanelHeight : 0 }}
           className="overflow-hidden transition-[height] duration-[160ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
         >
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
               {/* Status Selector */}
               <div className="relative">
                   <label htmlFor="filter-status" className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted mb-1">Status</label>
@@ -484,6 +493,31 @@ export const LibraryView: React.FC = () => {
                       <option key={p.id} value={p.id}>
                         {p.label}
                       </option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-brand-muted">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Ownership Selector — splits the collection from titles that were
+                  only played. Unlike Status and Platform, both options are always
+                  listed rather than filtered down to what exists, so the choice is
+                  still available on an empty result set (and so the control does
+                  not change shape as the library changes). */}
+              <div className="relative">
+                <label htmlFor="filter-ownership" className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted mb-1">Ownership</label>
+                <div className="relative">
+                  <select
+                    id="filter-ownership"
+                    value={filters.ownership}
+                    onChange={(e) => setFilter("ownership", e.target.value)}
+                    className="w-full pl-3 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none"
+                  >
+                    <option value="">All Ownership</option>
+                    {OWNERSHIP_STATUSES.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
                   <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-brand-muted">
@@ -908,7 +942,7 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
       }}
       tabIndex={0}
       role="button"
-      aria-label={`${selectMode ? (selected ? "Deselect" : "Select") : "View details for"} ${game.title}`}
+      aria-label={`${selectMode ? (selected ? "Deselect" : "Select") : "View details for"} ${game.title}${isOwned(game) ? "" : ", not owned"}`}
       aria-pressed={selectMode ? selected : undefined}
       draggable={reorderable}
       onDragStart={reorderable ? (e) => { e.dataTransfer.setData("text/plain", String(game.id)); e.dataTransfer.effectAllowed = "move"; onDragStart?.(game); } : undefined}
@@ -953,6 +987,23 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
           alt={game.title}
           className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200 transform-gpu will-change-transform"
         />
+
+        {/* Not-owned chip, bottom-left. Ownership is the one property of a card
+            that has no other surface: the status square, the critic score and
+            the hover readout all say something else, so a library mixing owned
+            titles with games played at friends' houses would otherwise look
+            identical to one holding only owned copies. Bottom-left because the
+            top corners already carry the status swatch and the critic badge.
+            A dashed edge is the signal — it reads as a boundary rather than as
+            another status colour, which would compete with the swatch. */}
+        {!selectMode && !isOwned(game) && (
+          <span
+            title="Not owned — played but not in your collection"
+            className="absolute bottom-2.5 left-2.5 z-10 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[10px] font-black uppercase tracking-widest text-zinc-300 border border-dashed border-zinc-500"
+          >
+            Not Owned
+          </span>
+        )}
 
         {/* Critic score badge */}
         {showRating && game.critic_score != null && (
@@ -1006,6 +1057,14 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
           <p className="mt-3.5 pt-3.5 border-t border-brand-border/60 text-[16px] font-black uppercase leading-[1.15] tracking-tight text-white line-clamp-2 break-words">
             {game.title}
           </p>
+          {/* Ownership rides along the status row rather than the playtime row:
+              playtime is a quantity and ownership is a property of the record,
+              so the two status-like words sit together above the figures. */}
+          {!isOwned(game) && (
+            <p className="mt-3 text-[13px] font-black uppercase tracking-[0.16em] leading-none text-zinc-500">
+              Not Owned
+            </p>
+          )}
         </motion.div>,
         document.body
       )}

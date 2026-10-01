@@ -49,9 +49,9 @@ db.exec(`
        games they have played but do not hold a copy of — a friend's console, a
        shared PC, someone else's disc — which still carry playtime, rating and
        status like any other library row. Deliberately NOT derived from
-       `owned_platforms`: an empty platform list has always meant "platform
-       unknown" (AnalyticsView counts it as `unplatformed`), not "not mine", and
-       a not-owned title can legitimately carry the platform it was played on. */
+       owned_platforms: an empty platform list has always meant "platform
+       unknown" (AnalyticsView counts it as unplatformed), not "not mine", and a
+       not-owned title can legitimately carry the platform it was played on. */
     ownership_status TEXT NOT NULL DEFAULT 'owned'
       CHECK (ownership_status IN ('owned', 'not_owned')),
     status TEXT NOT NULL DEFAULT 'backlog'
@@ -76,7 +76,13 @@ db.exec(`
   -- Indexes for common query patterns
   CREATE INDEX IF NOT EXISTS idx_games_date ON games(date_added DESC);
   CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
-  CREATE INDEX IF NOT EXISTS idx_games_ownership ON games(ownership_status);
+  -- Note: idx_games_ownership is deliberately NOT created here. This block is
+  -- CREATE TABLE IF NOT EXISTS, so against an existing database it is a no-op —
+  -- but an index on a column the base CREATE TABLE does not have, referencing a
+  -- column that only the v16 migration adds, fails at boot before
+  -- migrateTo() ever runs. The migration creates the index instead, which covers
+  -- both paths: a fresh database gets the column from the CREATE TABLE above and
+  -- the index from v16.
 `);
 
 // ── Migrations (versioned via PRAGMA user_version) ──────────────────

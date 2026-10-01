@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { formatPlaytime, formatPlaytimeLong, formatPlaytimePrecise, formatDateShort } from "../utils/time";
-import { getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms } from "../constants";
+import { getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms, isOwned } from "../constants";
 import { PosterImage } from "./PosterImage";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { Buttons } from "./Buttons";
@@ -162,6 +162,19 @@ export const DashboardView: React.FC = React.memo(() => {
   const activeGames = React.useMemo(() => games.filter(g => g.status === "playing"), [games]);
 
   /**
+   * Whether an empty Suggestions deck is caused by ownership rather than by an
+   * empty backlog. The deck draws only from owned titles, so a backlog made
+   * entirely of Not Owned entries produces an empty deck that the default copy
+   * would misdiagnose as "you have nothing queued".
+   */
+  const blockedOnlyByOwnership = React.useMemo(
+    () =>
+      games.some((g) => g.status === "backlog") &&
+      !games.some((g) => g.status === "backlog" && isOwned(g)),
+    [games]
+  );
+
+  /**
    * A strip cell is a shortcut, so it has to land somewhere true. Clearing the
    * filters first matters: a persisted "hide completed", a leftover search
    * term or a platform tag would otherwise show an empty list behind a cell
@@ -185,8 +198,7 @@ export const DashboardView: React.FC = React.memo(() => {
    * three-column desktop row takes all three again. Shuffle still reorders the
    * full pool of three — the middle band just shows the top two of it.
    */
-  const suggestionsAreTwoUp = useMediaQuery("(min-width: 640px) and (max-width: 1023px)");
-  const visibleSuggestions = React.useMemo(
+  const suggestionsAreTwoUp = useMediaQuery("(min-width: 640px) and (max-width: 1023px)");  const visibleSuggestions = React.useMemo(
     () => suggestions.slice(0, suggestionsAreTwoUp ? 2 : 3),
     [suggestions, suggestionsAreTwoUp]
   );
@@ -239,11 +251,17 @@ export const DashboardView: React.FC = React.memo(() => {
         </div>
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-6 xl:grid-cols-5 auto-rows-fr gap-px bg-brand-border border border-brand-border">
+          {/* The registry total counts owned and played-not-owned titles alike,
+              so the aria label carries the split as well: a screen-reader user
+              hearing only "37 titles in the registry" would have no way to know
+              how many of them are actually a copy they hold. The visible figure
+              stays the total — the cell is one number, and the per-title
+              ownership is marked on the library cards and in the rail. */}
           <StatCard
             className="lg:col-span-2 xl:col-span-1"
             title="Registered Games"
             value={summary?.total_games ?? 0}
-            action={`Registered Games — ${summary?.total_games ?? 0} titles in the registry. Open the whole library.`}
+            action={`Registered Games — ${summary?.total_games ?? 0} titles in the registry: ${summary?.owned_games ?? 0} owned, ${summary?.not_owned_games ?? 0} played without a copy. Open the whole library.`}
             onSelect={() => openLibrary()}
           />
           <StatCard
@@ -448,7 +466,14 @@ export const DashboardView: React.FC = React.memo(() => {
               <Trophy className="w-10 h-10 text-brand-muted mb-3" />
               <p className="text-white text-sm font-bold uppercase tracking-wider">Suggested directive empty</p>
               <p className="text-brand-muted text-xs mt-1 max-w-sm">
-                Mark games as "Backlog" inside My Library or log discovery entries to run auto-prioritization models.
+                {/* The deck only ever draws from owned titles, so "nothing is in
+                    the backlog" and "everything in the backlog is marked Not
+                    Owned" both land here. Telling someone to mark games Backlog
+                    when the backlog is full of games they do not hold is advice
+                    that cannot work, so the two cases say different things. */}
+                {blockedOnlyByOwnership
+                  ? "Every title in your backlog is marked Not Owned. Suggestions only draw from games you own — clear the Not Owned flag on one to bring it back."
+                  : 'Mark games as "Backlog" inside My Library or log discovery entries to run auto-prioritization models.'}
               </p>
             </div>
           ) : (
@@ -618,6 +643,19 @@ export const DashboardView: React.FC = React.memo(() => {
                       <span className={`px-1.5 py-0.5 rounded-none text-[11px] font-black border uppercase tracking-wider shrink-0 ${getStatusBadgeColor(game.status)}`}>
                         {formatStatus(game.status)}
                       </span>
+                      {/* The status badge sits beside the title, so ownership goes
+                          beside the status — the two answer "where does this
+                          title stand", and the row's second line is the numbers.
+                          Dashed, not filled, so it cannot be mistaken for a fifth
+                          status badge. */}
+                      {!isOwned(game) && (
+                        <span
+                          title="Played, but not a copy you own"
+                          className="px-1.5 py-0.5 rounded-none text-[11px] font-black border border-dashed border-zinc-600 uppercase tracking-wider text-zinc-400 shrink-0"
+                        >
+                          Not Owned
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[11px] text-brand-muted font-bold">

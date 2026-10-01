@@ -1,3 +1,5 @@
+import type { OwnershipStatus } from "./constants";
+
 export interface Game {
   id: number;
   title: string;
@@ -8,6 +10,16 @@ export interface Game {
   poster_url: string;
   critic_score: number | null;
   owned_platforms: string[];
+  /**
+   * Whether this title is in the personal collection. "not_owned" covers games
+   * that were played but never held — a friend's console, a shared PC, someone
+   * else's copy — and such rows track playtime, rating, status and dates
+   * exactly like owned ones. Independent of `owned_platforms`, which records
+   * where a title was played/owned and may legitimately be empty for either.
+   * Always sent by the API; use `isOwned()` from constants rather than reading
+   * it directly so pre-migration payloads still read as owned.
+   */
+  ownership_status: OwnershipStatus;
   status: "backlog" | "playing" | "completed" | "endless";
   playtime: number; // hours (fractional)
   personal_rating: number | null;
@@ -28,6 +40,15 @@ export interface LibrarySummary {
   total_playtime_hours: number;
   average_playtime_per_game: number;
   last_updated: number;
+  /**
+   * Ownership split of the same registry. `owned_games + not_owned_games ===
+   * total_games` and the two playtime figures sum to `total_playtime_hours`, so
+   * the split can always be reconciled with the totals beside it.
+   */
+  owned_games: number;
+  not_owned_games: number;
+  owned_playtime_hours: number;
+  not_owned_playtime_hours: number;
 }
 
 export interface GenreAnalytics {

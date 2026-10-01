@@ -8,7 +8,7 @@ import { formatPlaytimePrecise, formatDateShort } from "../utils/time";
 import { motion, AnimatePresence } from "motion/react";
 import { uploadPoster } from "../utils/image";
 import { useModalA11y } from "../hooks/useModalA11y";
-import { STATUSES, getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms } from "../constants";
+import { STATUSES, getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms, OWNERSHIP_STATUSES, getOwnershipLabel, platformsSelectable, PLATFORMS_LOCKED_REASON, isOwned, type OwnershipStatus } from "../constants";
 import { PosterImage } from "./PosterImage";
 
 /**
@@ -80,6 +80,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
   const [isEditing, setIsEditing] = useState(false);
   const [editStatus, setEditStatus] = useState<"backlog" | "playing" | "completed" | "endless">("backlog");
+  const [editOwnership, setEditOwnership] = useState<OwnershipStatus>("owned");
   const [title, setTitle] = useState("");
   const [year, setYear] = useState("");
   const [dateCompleted, setDateCompleted] = useState("");
@@ -113,17 +114,30 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   // synopsis refreshes (IGDB auto-sync) must not clobber their in-progress edit.
   const synopsisDirtyRef = useRef(false);
 
-  // Only re-initialize the form when the *selected game changes* (new id),
-  // not when the same game's data is refreshed in the store (poster upload,
-  // IGDB sync, Steam sync). Otherwise uploading a poster would discard the
-  // user's in-progress edits and kick them out of edit mode.
+  // Only re-initialize the form when the *selected game changes* (new id), or
+  // when edit mode is entered. Not when the same game's data is refreshed in the
+  // store (poster upload, IGDB sync, Steam sync) — a refresh replaces the row
+  // with a new object of the same id, and re-initialising on that would discard
+  // the user's in-progress edits and kick them out of edit mode.
   const lastGameIdRef = useRef<number | null>(null);
+  // Whether the previous render was already in edit mode, so the effect can tell
+  // "edit mode just opened" from "edit mode is still open".
+  const wasEditingRef = useRef(false);
   useEffect(() => {
     if (!selectedGame) {
       lastGameIdRef.current = null;
+      wasEditingRef.current = false;
       return;
     }
-    if (selectedGame.id === lastGameIdRef.current) return;
+    // Two triggers, and only two. The second one is not cosmetic: ownership
+    // doubles as the gate on the platform controls, so a form left showing an
+    // abandoned edit would offer a platform picker against a row that cannot
+    // store one — while the read view beside it says the opposite. Leaving edit
+    // mode is "cancel", and the next entry must show what is stored.
+    const enteringEdit = isEditing && !wasEditingRef.current;
+    wasEditingRef.current = isEditing;
+    const newGame = selectedGame.id !== lastGameIdRef.current;
+    if (!newGame && !enteringEdit) return;
     lastGameIdRef.current = selectedGame.id;
 
     setTitle(selectedGame.title);
@@ -152,6 +166,10 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     );
     setPersonalRating(selectedGame.personal_rating?.toString() || "");
     setRatingHover(null);
+    // `isOwned` rather than a raw read: a row loaded from a pre-migration
+    // payload has no flag, and defaulting that to the form's initial state
+    // would silently show the wrong ownership for it.
+    setEditOwnership(isOwned(selectedGame) ? "owned" : "not_owned");
     // Stored platform values may be aliases ("ps5", "PlayStation 5"...) —
     // canonicalize them to the checkbox ids so toggles match and saving
     // doesn't strip platforms.
@@ -160,7 +178,10 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         .map((p) => p.id)
         .filter((pid) => (selectedGame.owned_platforms || []).some((p) => platformIdMatches(pid, p)))
     );
-    setIsEditing(false);
+    // Only a *different* game resets edit mode. Entering edit mode is the whole
+    // reason this pass ran, so clearing the flag here would immediately undo the
+    // click that caused it — the button would never appear to do anything.
+    if (newGame) setIsEditing(false);
     setDeleteConfirm(false);
     closePosterModal();
 
@@ -170,12 +191,20 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     const minutesRounding = Math.round((totalPlaytime - hoursFloor) * 60);
     setHoursPlayed((hoursFloor + Math.floor(minutesRounding / 60)).toString());
     setMinutesPlayed((minutesRounding % 60).toString());
+  }, [selectedGame, isEditing]);
 
-    // Automatically sync from IGDB if description is missing
-    if (selectedGame.igdb_id && (!selectedGame.synopsis || selectedGame.synopsis === "No synopsis available." || selectedGame.synopsis === "No details provided." || selectedGame.synopsis.trim() === "")) {
-      syncGameSynopsis(selectedGame.id, selectedGame.igdb_id);
-    }
-  }, [selectedGame, syncGameSynopsis]);
+  // Automatically sync from IGDB if description is missing.
+  //
+  // Separate from the form initialisation above, and keyed on the same things
+  // that decide whether the text is actually missing. Folding this into the
+  // init effect would re-arm it every time edit mode is opened, turning a single
+  // fetch per game into a request per modal visit whenever the first one failed
+  // to find a synopsis — the app would retry forever on a game that has none.
+  useEffect(() => {
+    if (!selectedGame?.igdb_id) return;
+    if (selectedGame.synopsis && selectedGame.synopsis !== "No synopsis available." && selectedGame.synopsis !== "No details provided." && selectedGame.synopsis.trim() !== "") return;
+    syncGameSynopsis(selectedGame.id, selectedGame.igdb_id);
+  }, [selectedGame?.id, selectedGame?.igdb_id, selectedGame?.synopsis, syncGameSynopsis]);
 
   // Mirror background synopsis refreshes (auto IGDB sync, poster uploads) into
   // the local form state so entering edit mode later shows the fresh text —
@@ -191,6 +220,16 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         ? prev.filter((id) => id !== platformId)
         : [...prev, platformId]
     );
+  };
+
+  // Platforms describe copies in the collection, so they are unavailable while
+  // the title is marked Not Owned. The same rule drives the disabled state of the
+  // controls, the selection being dropped on transition, and the payload — one
+  // predicate, so the three cannot disagree.
+  const platformsLocked = !platformsSelectable(editOwnership);
+  const changeOwnership = (next: OwnershipStatus) => {
+    setEditOwnership(next);
+    if (!platformsSelectable(next)) setSelectedPlatforms([]);
   };
 
   const handleSaveChanges = async () => {
@@ -251,7 +290,8 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         critic_score: criticScore ? parseInt(criticScore, 10) : null,
         playtime: calculatedPlaytime,
         personal_rating: personalRating ? parseInt(personalRating, 10) : null,
-        owned_platforms: selectedPlatforms,
+        owned_platforms: platformsSelectable(editOwnership) ? selectedPlatforms : [],
+        ownership_status: editOwnership,
         hide_playtime: hidePlaytime ? 1 : 0,
         status: targetStatus,
         date_completed: dateCompleted ? new Date(dateCompleted + "T00:00:00").getTime() : (targetStatus === "completed" && !selectedGame.date_completed ? Date.now() : selectedGame.date_completed ?? null),
@@ -630,9 +670,31 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 <ChevronDown className="w-4 h-4 shrink-0" />
               </button>
 
-              {selectedGame.owned_platforms && selectedGame.owned_platforms.filter(p => availablePlatforms.some(ap => platformIdMatches(ap.id, p))).length > 0 && (
+              {/* Ownership badge. Placed directly under the status button and
+                  above the platform list, because those three are the three
+                  things that describe "where this game stands": how far along
+                  it is, whether it is yours, and where you have it. Dashed
+                  border for the same reason as the library card chip — a
+                  boundary, not another status colour. */}
+              {!isOwned(selectedGame) && (
+                <div className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-none border border-dashed border-zinc-600 uppercase tracking-wider text-xs font-black text-zinc-400">
+                  <span>{getOwnershipLabel(selectedGame.ownership_status)}</span>
+                  <span className="text-[10px] font-bold tracking-widest text-zinc-600">
+                    Not in collection
+                  </span>
+                </div>
+              )}
+
+              {/* Gated on ownership, not just on the list being non-empty. The heading says
+                  "Platforms Owned", and a not-owned title has no owned platforms
+                  by definition — so the block is withheld rather than printed
+                  empty or relabelled. The API enforces the same rule, so a stale
+                  tag can never reach this and produce a contradiction. */}
+              {isOwned(selectedGame) && selectedGame.owned_platforms && selectedGame.owned_platforms.filter(p => availablePlatforms.some(ap => platformIdMatches(ap.id, p))).length > 0 && (
                 <div className="pt-2 border-t border-brand-border/45 mt-3">
-                  <p className="text-[11px] text-brand-muted uppercase font-bold tracking-widest mb-1">Platforms Owned</p>
+                  <p className="text-[11px] text-brand-muted uppercase font-bold tracking-widest mb-1">
+                    Platforms Owned
+                  </p>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedGame.owned_platforms.filter(p => availablePlatforms.some(ap => platformIdMatches(ap.id, p))).map(p => {
                       const platLabel = availablePlatforms.find(ap => platformIdMatches(ap.id, p))?.label || p;
@@ -906,9 +968,59 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 </div>
               </div>
 
-            {/* Owned Platforms checkboxes */}
-              <div className="space-y-2">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Platform Tag checklist</label>
+            {/* Ownership — the one field here that decides whether the title counts as
+                part of the collection, and whether the platform checklist below
+                it is usable at all. It sits directly above that checklist so the
+                consequence of choosing is visible at the moment of choosing. */}
+              <fieldset className="space-y-2">
+                <legend className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Ownership</legend>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {OWNERSHIP_STATUSES.map((option) => (
+                    <label
+                      key={option.value}
+                      className={`flex flex-col gap-0.5 px-3 py-2 border cursor-pointer transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-brand-accent focus-within:ring-offset-2 focus-within:ring-offset-brand-bg ${
+                        editOwnership === option.value
+                          ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
+                          : "bg-transparent border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="edit-game-ownership"
+                        value={option.value}
+                        checked={editOwnership === option.value}
+                        onChange={() => changeOwnership(option.value)}
+                        className="sr-only"
+                      />
+                      <span className="text-[11px] font-black uppercase tracking-wider">{option.label}</span>
+                      <span className={`text-[10px] font-semibold leading-tight ${
+                        editOwnership === option.value ? "text-brand-accent-ink/75" : "text-brand-muted/70"
+                      }`}>
+                        {option.hint}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              {/* Platform checkboxes. Disabled outright while the title is marked
+                  Not Owned: a platform records a copy in the user's collection,
+                  and there is none here. The fieldset `disabled` takes the whole
+                  group out of the tab order and out of the form's submitted
+                  values, so the tags cannot be toggled at all rather than being
+                  toggled and then discarded on save. */}
+              <fieldset
+                disabled={platformsLocked}
+                className={`space-y-2 transition-opacity ${platformsLocked ? "opacity-40" : ""}`}
+              >
+                <legend className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">
+                  Platform Tag checklist
+                </legend>
+                {platformsLocked && (
+                  <p className="text-[10px] font-semibold normal-case tracking-wider text-brand-muted/90 max-w-prose">
+                    {PLATFORMS_LOCKED_REASON}
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-1.5">
                   {availablePlatforms.map((plat) => (
                     /* The checkbox is sr-only, so the focus ring has to come from
@@ -919,16 +1031,21 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                        checked state so it cannot drift from the input. */
                     <label
                       key={plat.id}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-none border text-[11px] font-black uppercase tracking-wider cursor-pointer transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-brand-accent focus-within:ring-offset-2 focus-within:ring-offset-brand-bg ${
-                        selectedPlatforms.includes(plat.id)
-                          ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
-                          : "bg-transparent border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-none border text-[11px] font-black uppercase tracking-wider transition-colors ${
+                        platformsLocked
+                          ? "cursor-not-allowed border-brand-border text-brand-muted"
+                          : `cursor-pointer focus-within:outline-none focus-within:ring-2 focus-within:ring-brand-accent focus-within:ring-offset-2 focus-within:ring-offset-brand-bg ${
+                              selectedPlatforms.includes(plat.id)
+                                ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
+                                : "bg-transparent border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"
+                            }`
                       }`}
                     >
                       <input
                         type="checkbox"
                         checked={selectedPlatforms.includes(plat.id)}
                         onChange={() => handlePlatformToggle(plat.id)}
+                        disabled={platformsLocked}
                         className="sr-only"
                       />
                       <span className={`w-1.5 h-1.5 rounded-none border shrink-0 ${
@@ -940,7 +1057,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     </label>
                   ))}
                 </div>
-              </div>
+              </fieldset>
 
               <div className="space-y-1.5">
                 <label htmlFor="edit-game-synopsis" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Game Synopsis / Description</label>

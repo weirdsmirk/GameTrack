@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { mapIgdbGame, getIgdbImageUrl, upgradeIgdbPosterUrl } from "../server/igdb";
 import { isNonGameApp } from "../server/steam";
-import { normalizePlatformIds } from "../src/constants";
+import { normalizePlatformIds, isOwned, platformsSelectable } from "../src/constants";
 import { upgradeIgdbPosterUrl as clientUpgrade } from "../src/utils/image";
 import { formatDateShort } from "../src/utils/time";
 
@@ -87,6 +87,28 @@ describe("normalizePlatformIds", () => {
   it("tolerates nullish input", () => {
     expect(normalizePlatformIds(null)).toEqual([]);
     expect(normalizePlatformIds(undefined)).toEqual([]);
+  });
+});
+
+describe("ownership predicates", () => {
+  it("reads a missing or unrecognised flag as owned", () => {
+    // Payloads can predate the flag: a cached analytics response in
+    // localStorage, a JSON backup written before the migration. Defaulting those
+    // to "not owned" would quietly move part of an existing library into the
+    // wrong bucket on read, so absence has to mean the older, wider state.
+    expect(isOwned({})).toBe(true);
+    expect(isOwned({ ownership_status: null })).toBe(true);
+    expect(isOwned({ ownership_status: "owned" })).toBe(true);
+    expect(isOwned({ ownership_status: "borrowed" })).toBe(true);
+    expect(isOwned({ ownership_status: "not_owned" })).toBe(false);
+  });
+
+  it("locks the platform controls for a not-owned game only", () => {
+    // A platform is a copy in the user's own collection. Marking a game not
+    // owned has to close that control, and only that control — every other part
+    // of the record stays editable.
+    expect(platformsSelectable("owned")).toBe(true);
+    expect(platformsSelectable("not_owned")).toBe(false);
   });
 });
 
