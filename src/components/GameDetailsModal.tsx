@@ -612,7 +612,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     type="button"
                     title="Set a custom poster (image URL or device upload)"
                     onClick={() => setPosterModalOpen(true)}
-                    className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors pointer-events-auto select-none"
+                    className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-transparent border border-brand-border text-white text-[10px] font-black uppercase tracking-widest cursor-pointer transition-colors pointer-events-auto select-none hover:bg-brand-accent/10 hover:text-brand-accent hover:border-brand-accent/50"
                   >
                     <ImageUp className="w-3.5 h-3.5 shrink-0" />
                     <span className="truncate">Custom Poster</span>
@@ -623,7 +623,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                       title={selectedGame.steam_appid != null ? "Reset to the Steam poster" : "Reset to the default poster"}
                       aria-label={selectedGame.steam_appid != null ? "Reset to the Steam poster" : "Reset to the default poster"}
                       onClick={handleResetPoster}
-                      className="flex items-center justify-center px-3 py-2.5 bg-red-600/90 hover:bg-red-500 text-brand-on-color text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer pointer-events-auto shrink-0"
+                      className="w-10 h-10 shrink-0 flex items-center justify-center bg-transparent border border-brand-border text-brand-muted transition-colors cursor-pointer pointer-events-auto hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/35"
                     >
                       <RotateCcw className="w-3.5 h-3.5 shrink-0" />
                     </button>
@@ -640,7 +640,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   type="button"
                   title="Set a custom poster (image URL or device upload)"
                   onClick={() => setPosterModalOpen(true)}
-                  className="flex flex-1 items-center justify-center gap-1.5 px-3 py-2 bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink text-[10px] font-black uppercase tracking-widest cursor-pointer select-none"
+                  className="flex flex-1 items-center justify-center gap-1.5 px-3 py-2 bg-transparent border border-brand-border text-white text-[10px] font-black uppercase tracking-widest cursor-pointer select-none hover:bg-brand-accent/10 hover:text-brand-accent hover:border-brand-accent/50"
                 >
                   <ImageUp className="w-3.5 h-3.5 shrink-0" />
                   Custom Poster
@@ -651,7 +651,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     title={selectedGame.steam_appid != null ? "Reset to the Steam poster" : "Reset to the default poster"}
                     aria-label={selectedGame.steam_appid != null ? "Reset to the Steam poster" : "Reset to the default poster"}
                     onClick={handleResetPoster}
-                    className="flex items-center justify-center px-3 py-2 bg-red-600/90 hover:bg-red-500 text-brand-on-color text-[10px] font-black uppercase tracking-widest cursor-pointer"
+                    className="flex items-center justify-center w-10 h-10 bg-transparent border border-brand-border text-brand-muted cursor-pointer hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/35"
                   >
                     <RotateCcw className="w-3.5 h-3.5 shrink-0" />
                   </button>
@@ -1007,7 +1007,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   {OWNERSHIP_STATUSES.map((option) => (
                     <label
                       key={option.value}
-                      className={`flex flex-col gap-0.5 px-3 py-2 border cursor-pointer transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-brand-accent focus-within:ring-offset-2 focus-within:ring-offset-brand-bg ${
+                      className={`flex flex-col gap-0.5 px-3 py-2 border cursor-pointer transition-colors focus-within:outline-none ${
                         editOwnership === option.value
                           ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
                           : "bg-transparent border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"
@@ -1063,7 +1063,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-none border text-[11px] font-black uppercase tracking-wider transition-colors ${
                         platformsLocked
                           ? "cursor-not-allowed border-brand-border text-brand-muted"
-                          : `cursor-pointer focus-within:outline-none focus-within:ring-2 focus-within:ring-brand-accent focus-within:ring-offset-2 focus-within:ring-offset-brand-bg ${
+                          : `cursor-pointer focus-within:outline-none ${
                               selectedPlatforms.includes(plat.id)
                                 ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
                                 : "bg-transparent border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/40"
