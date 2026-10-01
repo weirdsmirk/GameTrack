@@ -166,7 +166,7 @@ const closeGame = () => {
  */
 const enterEditMode = async () => {
   fireEvent.click(await screen.findByText("Edit Metadata"));
-  await screen.findByText("Apply");
+  await screen.findByText("Save");
 };
 
 /**
@@ -179,7 +179,7 @@ const enterEditMode = async () => {
  * Waiting on the store state is what the user actually sees.
  */
 const applyChanges = async (expected: Partial<Game>) => {
-  fireEvent.click(await screen.findByText("Apply"));
+  fireEvent.click(await screen.findByText("Save"));
   await vi.waitFor(() =>
     expect(useGameTrackStore.getState().games[0]).toMatchObject(expected)
   );

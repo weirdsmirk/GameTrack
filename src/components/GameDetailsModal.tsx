@@ -92,6 +92,10 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [hidePlaytime, setHidePlaytime] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  // Delete is the one irreversible action in the modal, so the dialog stays open
+  // showing "Deleting…" while the request is in flight rather than closing and
+  // letting the button be pressed twice.
+  const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
   // Quick status picker — the full-width status button in the sidebar opens
   // this instead of forcing the user through the whole edit form.
@@ -392,12 +396,14 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   };
 
   const handleDelete = async () => {
-    if (!selectedGame) return;
+    if (!selectedGame || deleting) return;
+    setDeleting(true);
     const success = await deleteGame(selectedGame.id);
-    if (success) {
-      setSelectedGame(null);
-    }
+    setDeleting(false);
+    // Closed either way: on success the whole modal is gone, and on failure the
+    // dialog has served its purpose and the toast has said what went wrong.
     setDeleteConfirm(false);
+    if (success) setSelectedGame(null);
   };
 
   // Poster actions — save immediately, independent of edit mode.
@@ -486,9 +492,13 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   // Outer trap pauses while a nested dialog is open, which gets its own trap —
   // Tab then cycles the inner dialog instead of the background form. The
   // status picker is nested the same way the poster dialog is.
-  const modalRef = useModalA11y(Boolean(selectedGame) && !posterModalOpen && !statusPickerOpen);
+  // The parent dialog releases its focus trap while any child dialog is up, or
+  // two traps would fight over Tab — the parent's would pull focus back out of
+  // the confirmation on the very first Tab press.
+  const modalRef = useModalA11y(Boolean(selectedGame) && !posterModalOpen && !statusPickerOpen && !deleteConfirm);
   const posterModalRef = useModalA11y(posterModalOpen);
   const statusPickerRef = useModalA11y(statusPickerOpen);
+  const deleteConfirmRef = useModalA11y(deleteConfirm);
 
   // Set when the user presses inside the panel; a subsequent click landing on
   // the backdrop after a drag-select is then ignored (see handleBackdropClick).
@@ -500,7 +510,11 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (statusPickerOpen) {
+        // Most recently opened layer first, so Escape peels back one step at a
+        // time rather than dismissing the whole modal from three levels down.
+        if (deleteConfirm) {
+          setDeleteConfirm(false);
+        } else if (statusPickerOpen) {
           setStatusPickerOpen(false);
         } else if (posterModalOpen) {
           closePosterModal();
@@ -517,7 +531,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
       document.body.style.overflow = "";
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedGame, setSelectedGame, isEditing, posterModalOpen, statusPickerOpen, showToast]);
+  }, [selectedGame, setSelectedGame, isEditing, posterModalOpen, statusPickerOpen, deleteConfirm, showToast]);
 
   const handleClose = () => {
     setSelectedGame(null);
@@ -710,34 +724,54 @@ export const GameDetailsModal: React.FC = React.memo(() => {
             </div>
           </div>
 
-          {/* Core Actions */}
-          <div className="space-y-2 mt-6 pt-4 border-t border-brand-border">
-            {!deleteConfirm ? (
+          {/* Primary action, in the same place in both modes: reading offers Edit, and
+              editing offers Save. One control each, so the button never scrolls
+              out of reach on a long form and there is never a second copy of it
+              to keep in step.
+
+              Delete is read-mode only, and not merely for symmetry: while the
+              form is open it would throw away unsaved edits without saying so. */}
+          {isEditing ? (
+            <div className="mt-6 pt-4 border-t border-brand-border">
               <button
+                type="button"
+                onClick={handleSaveChanges}
+                disabled={saving || resettingMetadata}
+                className="w-full h-10 flex items-center justify-center px-3 rounded-none bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink text-xs font-black uppercase tracking-wide border border-transparent transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2 mt-6 pt-4 border-t border-brand-border">
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                className="flex-1 h-10 min-w-0 flex items-center justify-center gap-2 px-3 rounded-none bg-transparent text-white text-xs font-black uppercase tracking-wide border border-brand-border hover:border-brand-accent/50 transition-colors cursor-pointer"
+              >
+                <Edit2 className="w-3.5 h-3.5 shrink-0 text-brand-accent" />
+                <span className="truncate">Edit Metadata</span>
+              </button>
+              {/* Icon only, and square to match Edit's height. The sidebar is
+                  about 250px of usable width, and a spelled-out "Delete" beside
+                  a spelled-out "Edit Metadata" does not fit at a readable size —
+                  Edit lost its last three letters to an ellipsis while Delete sat
+                  on slack. A bare bin needs no room and reads unambiguously at
+                  this size, so the two controls sit side by side at equal
+                  height without either being abbreviated. The accessible name
+                  is unchanged: it was never the label being shortened that made
+                  this dangerous, it is the one unconfirmed click. */}
+              <button
+                type="button"
                 onClick={() => setDeleteConfirm(true)}
-                className="w-full h-10 flex items-center justify-center gap-2 px-4 rounded-none bg-transparent hover:bg-red-500/10 hover:text-red-400 text-brand-muted text-xs font-black uppercase tracking-wider border border-brand-border hover:border-red-500/35 transition-all cursor-pointer"
+                aria-label={`Delete ${selectedGame.title}`}
+                title="Delete this game"
+                className="w-10 h-10 shrink-0 flex items-center justify-center rounded-none bg-transparent text-brand-muted border border-brand-border hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/35 transition-colors cursor-pointer"
               >
                 <Trash2 className="w-4 h-4" />
-                Delete Game
               </button>
-            ) : (
-              <div className="w-full h-10 flex items-center gap-2">
-                <button
-                  onClick={handleDelete}
-                  className="flex-1 h-full bg-red-600 hover:bg-red-500 text-brand-on-color px-3 text-xs font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer flex items-center justify-center border border-red-600"
-                >
-                  Confirm Delete
-                </button>
-                <button
-                  onClick={() => setDeleteConfirm(false)}
-                  aria-label="Cancel deletion"
-                  className="w-10 h-full bg-transparent text-brand-muted hover:text-white border border-brand-border transition-all cursor-pointer flex items-center justify-center shrink-0"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Right Side: Tab Details */}
@@ -753,42 +787,18 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               <p className="text-[11px] font-black uppercase tracking-widest text-brand-accent">TITLE CONTROL PANEL</p>
             )}
             <div className="flex items-center gap-2.5">
-              {isEditing ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleResetMetadata}
-                    disabled={saving || resettingMetadata || selectedGame.igdb_id == null}
-                    title={selectedGame.igdb_id == null ? "No IGDB link — nothing to reset to" : "Reset all metadata to the default IGDB data"}
-                    aria-label={selectedGame.igdb_id == null ? "No IGDB link — nothing to reset to" : "Reset all metadata to the default IGDB data"}
-                    className="flex items-center justify-center w-[34px] h-[34px] bg-red-600/90 hover:bg-red-500 text-brand-on-color rounded-none border border-red-500/40 transition-colors cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {resettingMetadata ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                  </button>
-                  <button
-                    onClick={handleSaveChanges}
-                    disabled={saving || resettingMetadata}
-                    className="px-4 h-[34px] bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink rounded-none text-xs font-black uppercase tracking-wider transition-colors cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {saving ? "Saving…" : "Apply"}
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className="flex items-center gap-2 bg-transparent text-white px-4 h-[34px] rounded-none text-xs font-black uppercase tracking-wider border border-brand-border transition-all cursor-pointer shrink-0"
-                >
-                  <Edit2 className="w-3.5 h-3.5 text-brand-accent" />
-                  Edit Metadata
-                </button>
-              )}
-                  <button
-                    onClick={() => (isEditing ? setIsEditing(false) : handleClose())}
-                    aria-label={isEditing ? "Cancel editing" : "Close (Esc)"}
-                    className="w-[34px] h-[34px] rounded-none bg-zinc-950 border border-brand-border text-brand-muted hover:text-white transition-colors cursor-pointer flex items-center justify-center shrink-0"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+              {/* Close only, in both modes. Save lives in the sidebar row beside
+                  the fields it commits, so the header holds one control rather
+                  than two that do the same thing — a duplicate Save is two
+                  places to look for the same button and one more thing to keep in
+                  step. */}
+              <button
+                onClick={() => (isEditing ? setIsEditing(false) : handleClose())}
+                aria-label={isEditing ? "Cancel editing" : "Close (Esc)"}
+                className="w-[34px] h-[34px] rounded-none bg-zinc-950 border border-brand-border text-brand-muted hover:text-white transition-colors cursor-pointer flex items-center justify-center shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
 
@@ -933,7 +943,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 </div>
               </div>
 
-              {/* Status — edited here, saved via Apply */}
+              {/* Status — edited here, saved via Save */}
               <div className="space-y-2">
                 <span id="edit-game-status-label" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Status</span>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="radiogroup" aria-labelledby="edit-game-status-label">
@@ -1058,6 +1068,34 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   ))}
                 </div>
               </fieldset>
+
+              {/* Reset — the last control among the metadata fields, immediately
+                  above the synopsis. It restores every metadata field on this row
+                  (title, year, genres, synopsis, critic score, poster) to the
+                  defaults its provider holds, so it belongs at the end of the
+                  run of fields it acts on: read the list top to bottom, and
+                  "undo all of the above" is the last thing offered.
+
+                  Full width with its label spelled out rather than the bare icon
+                  it used to wear in the header. From up there it looked like
+                  "close this dialog" next to Save; down here, labelled, there
+                  is nothing to misread.
+
+                  No IGDB link means there are no provider defaults to restore,
+                  so it is disabled with the reason in its title rather than
+                  silently inert. */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={handleResetMetadata}
+                  disabled={saving || resettingMetadata || selectedGame.igdb_id == null}
+                  title={selectedGame.igdb_id == null ? "No IGDB link — nothing to reset to" : "Restore every field above to the default IGDB data"}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-none border border-red-500/35 bg-transparent text-red-400 hover:bg-red-500/10 hover:border-red-500/60 text-xs font-black uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-red-500/35 disabled:hover:text-red-400"
+                >
+                  {resettingMetadata ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4 shrink-0" />}
+                  {resettingMetadata ? "Restoring…" : "Reset Metadata To Defaults"}
+                </button>
+              </div>
 
               <div className="space-y-1.5">
                 <label htmlFor="edit-game-synopsis" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Game Synopsis / Description</label>
@@ -1241,6 +1279,83 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               <p className="text-[10px] text-brand-muted uppercase tracking-wider leading-relaxed">
                 PNG, JPEG or WebP — uploads are resized and stored locally. Use Reset to restore the original poster.
               </p>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+
+    {/* Delete confirmation — a small dialog over the details modal rather than
+        an inline swap of the Delete button for a "Confirm Delete" one.
+
+        The inline version destroyed the control that opened it, so the way back
+        out was a bare ✕ with no label, sitting next to a red button in the one
+        place on the card where a stray click deletes a library row. A dialog
+        keeps Delete where it is, names the game being deleted, and puts the
+        destructive action second in reading order with Cancel first for focus.
+
+        Sibling of the other dialogs rather than nested inside them, for the
+        same reason the poster modal is: the panel above animates, and a
+        transformed ancestor becomes the containing block for `position: fixed`.
+        z-[80] puts it above the poster dialog's z-[70]; the two are mutually
+        exclusive in practice, so this only makes the stacking explicit. */}
+    <AnimatePresence>
+      {selectedGame && deleteConfirm && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/85"
+          onClick={(e) => { if (e.target === e.currentTarget) setDeleteConfirm(false); }}
+        >
+          <motion.div
+            ref={deleteConfirmRef}
+            initial={{ scale: 0.96, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.96, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-modal-title"
+            aria-describedby="delete-modal-body"
+            className="w-full max-w-sm bg-brand-bg border border-red-500/40 shadow-2xl"
+          >
+            <div className="px-5 py-4 border-b border-brand-border/60">
+              <h3 id="delete-modal-title" className="text-[11px] font-black uppercase tracking-widest text-red-400">
+                Delete this game?
+              </h3>
+            </div>
+
+            <div className="p-5 space-y-5">
+              <p id="delete-modal-body" className="text-xs font-sans text-zinc-300 leading-relaxed">
+                <span className="font-black uppercase text-white block mb-1 break-words">
+                  {selectedGame.title}
+                </span>
+                will be removed from your library, along with its playtime, rating
+                and completion date. This cannot be undone.
+              </p>
+
+              <div className="flex gap-2">
+                {/* Cancel first, so it is what focus lands on when the dialog
+                    opens. The destructive action is never the default. */}
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirm(false)}
+                  autoFocus
+                  className="flex-1 px-4 py-2.5 rounded-none bg-transparent border border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/50 text-xs font-black uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-2.5 rounded-none bg-red-600 hover:bg-red-500 text-brand-on-color border border-red-600 text-xs font-black uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {deleting ? "Deleting…" : "Delete Game"}
+                </button>
+              </div>
             </div>
           </motion.div>
         </motion.div>
