@@ -1,6 +1,4 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
-import { motion } from "motion/react";
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -8,8 +6,7 @@ import {
 } from "lucide-react";
 import { Game } from "../types";
 
-import { STATUSES, getStatusLabel, getStatusMarkerColor, getStatusTextColor, platformIdMatches, mergeCustomPlatforms, libraryGridClass, OWNERSHIP_STATUSES, isOwned } from "../constants";
-import { formatPlaytimeLong } from "../utils/time";
+import { STATUSES, getStatusLabel, getStatusMarkerColor, platformIdMatches, mergeCustomPlatforms, libraryGridClass, OWNERSHIP_STATUSES, isOwned } from "../constants";
 import { preloadImages } from "../utils/image";
 import { PosterImage } from "./PosterImage";
 
@@ -767,11 +764,10 @@ export const LibraryView: React.FC = () => {
 };
 
 /**
- * Status marker — a plain filled square in the status colour, no icon. Sits
- * top-right on the poster at rest and is reused verbatim in the hover overlay
- * so the two states never disagree about what a status looks like. The colour
- * is the signal; the accessible name carries the label, so a colour-blind user
- * still gets the status from the title/aria-label rather than from hue alone.
+ * Status marker — a plain filled square in the status colour, no icon, sitting
+ * top-right on the poster. The colour is the signal; the accessible name carries
+ * the label, so a colour-blind user still gets the status from the role="img"
+ * label rather than from hue alone.
  */
 const StatusMarker: React.FC<{ status: Game["status"]; className?: string }> = ({
   status,
@@ -811,128 +807,8 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
     onClick(game);
   };
 
-  // ── Hover/focus tooltip ─────────────────────────────────────────────
-  // Rendered through a portal at the document root, so it sits clear of the
-  // poster. It has to be: the card and the poster container are both
-  // `overflow-hidden` — the poster needs that to clip the hover scale — so
-  // anything anchored inside the card gets cropped to the artwork, which is the
-  // opposite of the point. A fixed element at the root cannot be clipped by any
-  // ancestor.
-  //
-  // Placed beside the card rather than over it: to the right of the poster, and
-  // flipped to the left when the card is in the last column, because the grid
-  // runs to the viewport edge and there is no room on that side there.
-  const cardRef = useRef<HTMLDivElement>(null);
-  const tipRef = useRef<HTMLDivElement>(null);
-  const [tip, setTip] = useState<{ left: number; top: number; right: number; bottom: number } | null>(null);
-  const [tipH, setTipH] = useState(0);
-  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const showTip = useCallback(() => {
-    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
-    // Delayed on the way in, because the library is one continuous surface of
-    // 37 hover targets: a label that opened on contact would strobe as the
-    // pointer crossed the grid. 250ms is the app's own debounce figure — the
-    // registry autocomplete and the suggestion fetch both use it — so this is
-    // not a new timing invented for one control.
-    if (openTimer.current) return;
-    openTimer.current = setTimeout(() => {
-      openTimer.current = null;
-      const r = cardRef.current?.getBoundingClientRect();
-      if (r) setTip({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
-    }, 250);
-  }, []);
-
-  const hideTip = useCallback(() => {
-    // Cancels a pending open outright: a pointer that crosses a card without
-    // settling should never produce a label at all.
-    if (openTimer.current) { clearTimeout(openTimer.current); openTimer.current = null; }
-    // Short grace period on the way out, so a pointer clipping the edge of a
-    // card does not make the label blink.
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => { closeTimer.current = null; setTip(null); }, 90);
-  }, []);
-
-  // Both timers must not outlive the card, or a scroll or unmount leaves a
-  // setState behind on a component that no longer exists.
-  useEffect(() => () => {
-    if (openTimer.current) clearTimeout(openTimer.current);
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-  }, []);
-
-  // A fixed element does not travel with the document, so any scroll or resize
-  // would strand it where the card used to be. Close it instead of chasing it.
-  useEffect(() => {
-    if (!tip) return;
-    const close = () => {
-      if (openTimer.current) { clearTimeout(openTimer.current); openTimer.current = null; }
-      if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
-      setTip(null);
-    };
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => {
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [tip]);
-
-  // The label's own height, measured once it is on screen. Centring it on the
-  // card needs half of that height, and the previous `translateY(-50%)` could
-  // not supply it: `motion` writes `transform` wholesale for its own `x` slide,
-  // so the centring transform was being overwritten every frame and the box sat
-  // exactly one half-height low. Measuring keeps the centring arithmetic in
-  // plain numbers and leaves the transform property to motion, which owns it.
-  // TIP_ESTIMATE only covers the single frame before the first measurement.
-  useEffect(() => {
-    if (!tip) return;
-    if (tipRef.current) setTipH(tipRef.current.offsetHeight);
-  }, [tip]);
-
-  // Side is decided by available room, not by column index: the grid is a
-  // responsive track count, so "last column" is not a number this component
-  // knows.
-  //
-  // Vertical placement is the poster's midpoint, not its top edge. Pinned to the
-  // top, the label landed level with the neighbouring poster's own title band
-  // and read as that poster's caption strip rather than as something attached
-  // to the card under the pointer. Centred, it straddles the gap between rows
-  // and cannot be mistaken for a caption on either card.
-  //
-  // TIP_W is deliberately wider than one card (~215px here). Matching the
-  // card's width exactly made the label look like a panel belonging to the
-  // neighbour it was covering; overhanging on both sides reads as a floating
-  // box.
-  const TIP_W = 264;
-  const TIP_ESTIMATE = 124;
-  /* 6px, not a card's width. The label belongs to the poster it points at, so it
-     sits close enough to read as attached to it — at 16px the gutter was wide
-     enough that the box looked like it was captioning the next poster along. */
-  const TIP_GAP = 6;
-  const TIP_PAD = 10;
-  let tipStyle: React.CSSProperties | undefined;
-  let tipFromLeft = false;
-  if (tip) {
-    tipFromLeft = window.innerWidth - tip.right - TIP_GAP < TIP_W;
-    const left = tipFromLeft ? tip.left - TIP_GAP - TIP_W : tip.right + TIP_GAP;
-    const h = tipH || TIP_ESTIMATE;
-    const top = (tip.top + tip.bottom) / 2 - h / 2;
-    const maxTop = Math.max(TIP_PAD, window.innerHeight - TIP_PAD - h);
-    tipStyle = {
-      left: Math.max(TIP_PAD, left),
-      top: Math.min(Math.max(TIP_PAD, top), maxTop),
-      width: TIP_W,
-    };
-  }
-
   return (
     <div
-      ref={cardRef}
-      onMouseEnter={showTip}
-      onMouseLeave={hideTip}
-      onFocus={showTip}
-      onBlur={hideTip}
       onClick={handleCardClick}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -972,10 +848,9 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
           </div>
         )}
 
-        {/* Status marker — plain coloured square, top-right. It used to fade
-            out on hover so the overlay's status word could take that corner
-            without the two ever being on screen together. Nothing occupies the
-            corner now, so the swatch just stays put. */}
+        {/* Status marker — plain coloured square, top-right. Nothing overlays the
+            poster any more, so the swatch never has to yield the corner and it
+            simply stays put. */}
         {!selectMode && (
           <StatusMarker
             status={game.status}
@@ -988,14 +863,14 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
           className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200 transform-gpu will-change-transform"
         />
 
-        {/* Not-owned chip, bottom-left. Ownership is the one property of a card
-            that has no other surface: the status square, the critic score and
-            the hover readout all say something else, so a library mixing owned
-            titles with games played at friends' houses would otherwise look
-            identical to one holding only owned copies. Bottom-left because the
-            top corners already carry the status swatch and the critic badge.
-            A dashed edge is the signal — it reads as a boundary rather than as
-            another status colour, which would compete with the swatch. */}
+        {/* Not-owned chip, bottom-left. This is now the only surface on the card
+            that carries ownership: the status square and the critic score both
+            say something else, so a library mixing owned titles with games
+            played at friends' houses would otherwise look identical to one
+            holding only owned copies. Bottom-left because the top corners
+            already carry the status swatch and the critic badge. A dashed edge
+            is the signal — it reads as a boundary rather than as another status
+            colour, which would compete with the swatch. */}
         {!selectMode && !isOwned(game) && (
           <span
             title="Not owned — played but not in your collection"
@@ -1012,62 +887,9 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
           </div>
         )}
 
-        {/* The hover readout lives outside the card entirely — see the tooltip
-            state above. Nothing is overlaid on the artwork here, so the poster
-            stays the only thing inside the frame at rest and on hover alike. */}
+        {/* Nothing is overlaid on the artwork here, so the poster stays the only
+            thing inside the frame at rest and on hover alike. */}
       </div>
-
-      {tip && tipStyle && createPortal(
-        <motion.div
-          ref={tipRef}
-          role="tooltip"
-          style={tipStyle}
-          /* Slides out from under the poster it belongs to, so the eye reads
-             which card produced it. 150ms is the app's other micro-transition
-             figure. Direction mirrors the side: on the right it starts tucked
-             against the card and moves away from it. */
-          initial={{ opacity: 0, x: tipFromLeft ? 8 : -8 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.15, ease: "easeOut" }}
-          /* The heavy shadow is load-bearing, not decoration. The box has to
-             sit on top of a neighbouring poster, and a hairline border alone
-             does not separate the two — the label reads as part of the artwork
-             underneath it without an edge of its own. */
-          className="fixed z-[9999] pointer-events-none bg-zinc-950/95 backdrop-blur-sm border border-brand-border px-4 py-4 shadow-2xl"
-        >
-          {/* The three figures the old full-bleed overlay carried, at a fraction
-              of the weight. The overlay took the card over completely — a
-              top-to-bottom scrim plus a 27px display title — so hovering hid the
-              artwork that is the entire reason the grid exists. The suggestions
-              panel on the dashboard still does exactly that, and rightly so:
-              those are titles you have not seen yet, so the name is the point.
-              Your own library is the opposite case, and the data is a lookup,
-              not a reveal.
-
-              One column, not a status/playtime pair across the top. At this
-              width a two-up row put "BACKLOG" and "4 HOURS" at opposite ends of
-              a 264px box, which read as two unrelated labels; stacked, they
-              scan as three rows of one record. */}
-          <p className={`text-[13px] font-black uppercase tracking-[0.16em] leading-none ${getStatusTextColor(game.status)}`}>
-            {getStatusLabel(game.status)}
-          </p>
-          <p className="mt-3 text-[13px] font-bold uppercase tracking-[0.16em] leading-none text-white/85 tabular-nums">
-            {game.hide_playtime === 1 ? "—" : formatPlaytimeLong(game.playtime)}
-          </p>
-          <p className="mt-3.5 pt-3.5 border-t border-brand-border/60 text-[16px] font-black uppercase leading-[1.15] tracking-tight text-white line-clamp-2 break-words">
-            {game.title}
-          </p>
-          {/* Ownership rides along the status row rather than the playtime row:
-              playtime is a quantity and ownership is a property of the record,
-              so the two status-like words sit together above the figures. */}
-          {!isOwned(game) && (
-            <p className="mt-3 text-[13px] font-black uppercase tracking-[0.16em] leading-none text-zinc-500">
-              Not Owned
-            </p>
-          )}
-        </motion.div>,
-        document.body
-      )}
     </div>
   );
 });
