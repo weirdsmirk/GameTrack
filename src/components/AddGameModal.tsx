@@ -44,7 +44,6 @@ export const AddGameModal: React.FC = React.memo(() => {
   // promotion to the library is what turns them into ownership.
   const platformsLocked = target === "library" && !platformsSelectable(ownershipStatus);
   const [submitting, setSubmitting] = useState(false);
-  const [ratingHover, setRatingHover] = useState<number | null>(null);
   const ratingValue = personalRating === "" ? 0 : parseInt(personalRating, 10) || 0;
   
   // Platform selection state
@@ -270,7 +269,6 @@ export const AddGameModal: React.FC = React.memo(() => {
     setPlaytimeHours("0");
     setPlaytimeMinutes("0");
     setPersonalRating("");
-    setRatingHover(null);
     setStatus("backlog");
     setOwnershipStatus("owned");
     setSelectedPlatforms([]);
@@ -541,38 +539,38 @@ export const AddGameModal: React.FC = React.memo(() => {
                 </span>
               </span>
             </div>
-            <div className="grid grid-cols-5 sm:grid-cols-11 gap-1" role="radiogroup" aria-label="Personal rating">
+            {/* Resting cells are uncoloured — colour marks hover and selection
+                only. See the matching note in GameDetailsModal. */}
+            <div
+              className="grid grid-cols-5 sm:grid-cols-11 divide-x divide-brand-border border border-brand-border"
+              role="radiogroup"
+              aria-label="Personal rating"
+            >
               <button
                 type="button"
                 title="Clear rating"
                 aria-label="Clear rating"
-                onClick={() => {
-                  setPersonalRating("");
-                  setRatingHover(null);
-                }}
-                className={`aspect-square w-full text-[11px] font-sans font-black border transition-colors duration-100 cursor-pointer flex items-center justify-center ${
-                  ratingValue > 0
-                    ? "bg-zinc-950 border-brand-border text-white hover:border-red-500/60 hover:text-red-400"
-                    : "bg-zinc-950 border-brand-border text-brand-muted hover:text-white"
+                aria-pressed={ratingValue === 0}
+                onClick={() => setPersonalRating("")}
+                className={`aspect-square w-full text-[11px] font-sans font-black cursor-pointer flex items-center justify-center transition-colors duration-100 ${
+                  ratingValue > 0 ? "hover:text-red-400" : "hover:text-brand-muted"
                 }`}
               >
                 <X className="w-3.5 h-3.5 stroke-[2.5]" />
               </button>
               {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
-                const active = ratingHover !== null ? n <= ratingHover : n <= ratingValue;
+                const selected = ratingValue === n;
                 return (
                   <button
                     key={n}
                     type="button"
                     role="radio"
-                    aria-checked={ratingValue === n}
-                    onClick={() => setPersonalRating(ratingValue === n ? "" : String(n))}
-                    onMouseEnter={() => setRatingHover(n)}
-                    onMouseLeave={() => setRatingHover(null)}
-                    className={`aspect-square w-full text-[11px] font-sans font-black border transition-colors duration-100 cursor-pointer select-none ${
-                      active
-                        ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
-                        : "bg-zinc-950 border-brand-border text-brand-muted hover:border-brand-accent/60 hover:text-white"
+                    aria-checked={selected}
+                    onClick={() => setPersonalRating(selected ? "" : String(n))}
+                    className={`aspect-square w-full text-[11px] font-sans font-black cursor-pointer select-none transition-colors duration-100 ${
+                      selected
+                        ? "bg-brand-accent text-brand-accent-ink"
+                        : "hover:bg-brand-accent/15 hover:text-brand-accent"
                     }`}
                   >
                     {n}

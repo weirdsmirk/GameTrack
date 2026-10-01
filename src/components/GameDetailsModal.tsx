@@ -40,24 +40,28 @@ const formatDateInputValue = (d: Date): string => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
 
+/* Status selector tones — resting state is uncoloured (transparent bg,
+   brand-border, brand-muted text) so the row reads as a single
+   decision surface. Colour appears only on the selected item (full
+   semantic bg/border/text) and on hover (semantic tint + text). */
 const NEUTRAL_STATUS_TONE = {
   on: "bg-zinc-500/25 border-zinc-400 text-zinc-100",
-  off: "bg-zinc-900/60 border-zinc-700 text-zinc-400 hover:text-zinc-100 hover:border-zinc-400",
+  off: "border-brand-border text-brand-muted hover:bg-zinc-500/15 hover:text-zinc-300",
 };
 
 const STATUS_SELECTOR_TONES: Record<string, { on: string; off: string }> = {
   backlog: NEUTRAL_STATUS_TONE,
   playing: {
     on: "bg-blue-500/20 border-blue-500/50 text-blue-400",
-    off: "bg-zinc-900/60 border-blue-500/25 text-blue-400/60 hover:text-blue-300 hover:border-blue-500/50",
+    off: "border-brand-border text-brand-muted hover:bg-blue-500/15 hover:text-blue-400",
   },
   completed: {
     on: "bg-emerald-500/20 border-emerald-500/50 text-emerald-400",
-    off: "bg-zinc-900/60 border-emerald-500/25 text-emerald-400/60 hover:text-emerald-300 hover:border-emerald-500/50",
+    off: "border-brand-border text-brand-muted hover:bg-emerald-500/15 hover:text-emerald-400",
   },
   endless: {
     on: "bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-400",
-    off: "bg-zinc-900/60 border-fuchsia-500/25 text-fuchsia-400/60 hover:text-fuchsia-300 hover:border-fuchsia-500/50",
+    off: "border-brand-border text-brand-muted hover:bg-fuchsia-500/15 hover:text-fuchsia-400",
   },
 };
 
@@ -111,7 +115,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   // Hours played (edit form)
   const [hoursPlayed, setHoursPlayed] = useState("");
   const [minutesPlayed, setMinutesPlayed] = useState("");
-  const [ratingHover, setRatingHover] = useState<number | null>(null);
   const ratingValue = personalRating === "" ? 0 : parseInt(personalRating, 10) || 0;
 
   // True once the user types in the synopsis textarea; while set, background
@@ -169,7 +172,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         : "backlog"
     );
     setPersonalRating(selectedGame.personal_rating?.toString() || "");
-    setRatingHover(null);
     // `isOwned` rather than a raw read: a row loaded from a pre-migration
     // payload has no flag, and defaulting that to the form's initial state
     // would silently show the wrong ownership for it.
@@ -902,38 +904,55 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     </span>
                   </span>
                 </div>
-                <div className="grid grid-cols-6 sm:grid-cols-11 gap-1" role="radiogroup" aria-label="Personal rating">
+                {/* One bordered strip rather than eleven bordered boxes. `divide-x` puts a
+                    single hairline between cells — with a gap and a border on
+                    every button, every divider rendered twice and each cell sat
+                    in its own well.
+
+                    A resting cell carries no colour at all. It inherits the
+                    panel's text colour and nothing else, so ten of the eleven
+                    cells stay visually inert and the one that matters reads
+                    instantly. `text-brand-muted` on the resting state did the
+                    opposite: it painted all ten in the same grey, which is a
+                    colour, so the strip looked like a row of decided states
+                    and the accent had nothing to contrast against.
+
+                    Colour appears on exactly two events — hover and selection.
+                    Hover used to fill every cell from 1 up to the pointer, which
+                    claimed a rating the user had not given; and it was driven
+                    only by mouse events, so keyboard users got no feedback at
+                    all. A single-cell accent tint carries the same "this one is
+                    next" signal without either problem. */}
+                <div
+                  className="grid grid-cols-6 sm:grid-cols-11 divide-x divide-brand-border border border-brand-border"
+                  role="radiogroup"
+                  aria-label="Personal rating"
+                >
                   <button
                     type="button"
                     title="Clear rating"
                     aria-label="Clear rating"
-                    onClick={() => {
-                      setPersonalRating("");
-                      setRatingHover(null);
-                    }}
-                    className={`aspect-square w-full text-[11px] font-sans font-black border transition-colors duration-100 cursor-pointer flex items-center justify-center ${
-                      ratingValue > 0
-                        ? "bg-zinc-950 border-brand-border text-white hover:border-red-500/60 hover:text-red-400"
-                        : "bg-zinc-950 border-brand-border text-brand-muted hover:text-white"
+                    aria-pressed={ratingValue === 0}
+                    onClick={() => setPersonalRating("")}
+                    className={`aspect-square w-full text-[11px] font-sans font-black cursor-pointer flex items-center justify-center transition-colors duration-100 ${
+                      ratingValue > 0 ? "hover:text-red-400" : "hover:text-brand-muted"
                     }`}
                   >
                     <X className="w-3.5 h-3.5 stroke-[2.5]" />
                   </button>
                   {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
-                    const active = ratingHover !== null ? n <= ratingHover : n <= ratingValue;
+                    const selected = ratingValue === n;
                     return (
                       <button
                         key={n}
                         type="button"
                         role="radio"
-                        aria-checked={ratingValue === n}
-                        onClick={() => setPersonalRating(ratingValue === n ? "" : String(n))}
-                        onMouseEnter={() => setRatingHover(n)}
-                        onMouseLeave={() => setRatingHover(null)}
-                        className={`aspect-square w-full text-[11px] font-sans font-black border transition-colors duration-100 cursor-pointer select-none ${
-                          active
-                            ? "bg-brand-accent border-brand-accent text-brand-accent-ink"
-                            : "bg-zinc-950 border-brand-border text-brand-muted hover:border-brand-accent/60 hover:text-white"
+                        aria-checked={selected}
+                        onClick={() => setPersonalRating(selected ? "" : String(n))}
+                        className={`aspect-square w-full text-[11px] font-sans font-black cursor-pointer select-none transition-colors duration-100 ${
+                          selected
+                            ? "bg-brand-accent text-brand-accent-ink"
+                            : "hover:bg-brand-accent/15 hover:text-brand-accent"
                         }`}
                       >
                         {n}
