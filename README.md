@@ -58,6 +58,8 @@ Then open [http://localhost:3001](http://localhost:3001).
 
 The SQLite database and uploaded posters are stored in `data/` by default. Set `GAMETRACK_DATA_DIR` in `.env` to use another location.
 
+The database is a single file, `data/database.sqlite`. That path is defined once, in `server/paths.ts`, and everything that needs it — the connection, the storage stats, the tests — reads it from there. The app takes no automatic backups and writes no second database: there is no backup directory, no snapshot, and no copy of the database anywhere in the project.
+
 ## Production
 
 Build the frontend and server:
@@ -100,8 +102,12 @@ npm run clean              # remove build output
 - `tests/` contains API and UI tests.
 - `data/` contains local application data and is not committed.
 
-GameTrack is designed for personal, local use. Keep regular copies of the `data/` directory.
+GameTrack is designed for personal, local use, and it does not keep copies for
+you. `data/database.sqlite` is the only database; if you want a second copy, take
+it yourself — `Settings → Export Library JSON` writes a portable snapshot to a
+location you choose, and the file itself is yours to copy or version as you like.
 
-`npm run reset-metadata` takes a full copy of the database next to it in `data/`
-before it starts rewriting anything, and restores the previous IGDB links if you
-interrupt it.
+`npm run reset-metadata` re-matches every row against IGDB. It writes nothing
+until every row has been looked up and then applies all of it in a single
+transaction, so an interrupted run leaves the library exactly as it was. Pass
+`--dry-run` to see what it would change first.

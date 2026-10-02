@@ -5,7 +5,7 @@ import crypto from "crypto";
 import db from "./db";
 import { z } from "zod";
 import { normalizePlatformIds, mergePlatformTags, AVAILABLE_PLATFORMS } from "../src/constants";
-import { DATA_DIR, POSTERS_DIR } from "./paths";
+import { DB_PATH, DB_WAL_PATH, POSTERS_DIR } from "./paths";
 
 import { mapIgdbGame, fetchCuratedLists, cachedFetchFromIgdb, getSearchPool, getTrendingPool, IgdbAuthError } from "./igdb";
 import {
@@ -2299,8 +2299,11 @@ apiRouter.get("/storage", (_req: Request, res: Response) => {
     const sizeOf = (p: string) => { try { return fs.statSync(p).size; } catch { return 0; } };
     const posters = dirSize(POSTERS_DIR);
     res.json({
-      dbSize: sizeOf(path.join(DATA_DIR, "gametrack.db")),
-      walSize: sizeOf(path.join(DATA_DIR, "gametrack.db-wal")),
+      /* From the shared constants, not spelled out again. This stat used to name
+         the file independently of the connection, so renaming the database would
+         have left it reporting the size of a file that no longer existed. */
+      dbSize: sizeOf(DB_PATH),
+      walSize: sizeOf(DB_WAL_PATH),
       gameCount: (db.prepare("SELECT COUNT(*) AS n FROM games").get() as { n: number }).n,
       posterCount: posters.files,
       posterSize: posters.bytes,

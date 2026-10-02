@@ -42,7 +42,6 @@ const mocks = vi.hoisted(() => ({
   /** Called when the run reaches `pauseOn`, so a test can look at the database. */
   onArrive: null as (() => void) | null,
   pauseOn: null as string | null,
-  backup: { mock: (async () => {}) as (dest: string) => Promise<void> },
   holder: { db: null as unknown },
 }));
 
@@ -95,7 +94,10 @@ vi.mock("../server/db", async () => {
   // hands back the same connection.
   if (!mocks.holder.db) {
     const Database = (await import("better-sqlite3")).default;
-    const db = new Database(path.join(process.env.GAMETRACK_DATA_DIR!, "test.db"));
+    // The real filename, in a temp directory. Even the fixture does not get to
+    // invent a second name: a test that runs against "test.db" cannot catch a bug
+    // about the shipped path.
+    const db = new Database(path.join(process.env.GAMETRACK_DATA_DIR!, "database.sqlite"));
     db.pragma("journal_mode = WAL");
     db.exec(`
       CREATE TABLE IF NOT EXISTS games (
@@ -121,12 +123,6 @@ vi.mock("../server/db", async () => {
         critic_score INTEGER
       );
     `);
-    /* db.backup is stubbed so the test does not write a real snapshot file; the
-       call itself is what is under test, not better-sqlite3's implementation.
-       It delegates to `mocks.backup.mock` on every call rather than capturing
-       it once — vi.resetModules() re-runs this factory, and a test that swaps
-       the implementation would otherwise still hit the first one. */
-    (db as unknown as { backup: unknown }).backup = (dest: string) => mocks.backup.mock(dest);
     mocks.holder.db = db;
   }
   return { default: mocks.holder.db };
@@ -196,7 +192,6 @@ beforeEach(async () => {
   mocks.release = null;
   mocks.onArrive = null;
   mocks.pauseOn = null;
-  mocks.backup.mock = async () => {};
   db = await getDb();
   db.exec("DELETE FROM games; DELETE FROM wishlist;");
   const insert = db.prepare(
@@ -217,17 +212,21 @@ afterAll(() => {
 });
 
 describe("reset-metadata", () => {
-  it("takes a full file backup immediately before it writes", async () => {
-    const dests: string[] = [];
-    mocks.backup.mock = async (dest: string) => {
-      dests.push(dest);
-    };
+  it("writes no file beside the database, so only one database ever exists", async () => {
+    // The script used to take a byte-complete copy before the write and a JSON id
+    // map before that, which meant a single run left two extra database-ish files
+    // in data/. That is gone, and this asserts it stays gone: the only thing the
+    // run may touch is the one database.
+    const dataDir = process.env.GAMETRACK_DATA_DIR!;
+    const before = fs.readdirSync(dataDir).sort();
+
+    mocks.matchTitles.set("Alpha", { igdb_id: 1111, year: 2011, genres: ["Action"] });
     await runScript();
-    expect(dests).toHaveLength(1);
-    // Named so it is obviously a pre-run snapshot, and written into the data
-    // directory next to the database it is a copy of.
-    expect(dests[0]).toContain("igdb-reset-pre-");
-    expect(dests[0]).toContain(TMP);
+
+    expect(fs.readdirSync(dataDir).sort()).toEqual(before);
+    // And explicitly: no second database, no snapshot, no id map.
+    const created = fs.readdirSync(dataDir).filter((f) => /\.(db|sqlite)|backup|snapshot|-wal$|-shm$/i.test(f));
+    expect(created).toEqual(["database.sqlite", "database.sqlite-shm", "database.sqlite-wal"]);
   });
 
   it("re-links a row it can match", async () => {
@@ -306,18 +305,15 @@ describe("reset-metadata", () => {
 
   it("writes nothing at all on a dry run, and says what it would have done", async () => {
     mocks.matchTitles.set("Alpha", { igdb_id: 1111, year: 2011, genres: ["Action"] });
-    const before = JSON.stringify(ids());
-    let backupTaken = false;
-    mocks.backup.mock = async () => {
-      backupTaken = true;
-    };
+    const dataDir = process.env.GAMETRACK_DATA_DIR!;
+    const filesBefore = fs.readdirSync(dataDir).sort();
+    const rowsBefore = JSON.stringify(ids());
 
     await runScript(["--dry-run"]);
 
     // Unmatched even though a match was available — the whole point.
-    expect(JSON.stringify(ids())).toBe(before);
-    // And no snapshot was taken, because nothing was written to protect.
-    expect(backupTaken).toBe(false);
+    expect(JSON.stringify(ids())).toBe(rowsBefore);
+    expect(fs.readdirSync(dataDir).sort()).toEqual(filesBefore);
   });
 
   it("keeps the first row to claim an id and blanks the duplicate", async () => {
@@ -335,17 +331,15 @@ describe("reset-metadata", () => {
   });
 
   it("refuses an unrecognised flag without touching the database", async () => {
-    const before = JSON.stringify(ids());
-    let backupTaken = false;
-    mocks.backup.mock = async () => {
-      backupTaken = true;
-    };
+    const dataDir = process.env.GAMETRACK_DATA_DIR!;
+    const filesBefore = fs.readdirSync(dataDir).sort();
+    const rowsBefore = JSON.stringify(ids());
 
     await runScript(["--not-a-flag"]).catch(() => {
       /* handleUsage exits 0 after printing usage; nothing to assert on the exit */
     });
 
-    expect(JSON.stringify(ids())).toBe(before);
-    expect(backupTaken).toBe(false);
+    expect(JSON.stringify(ids())).toBe(rowsBefore);
+    expect(fs.readdirSync(dataDir).sort()).toEqual(filesBefore);
   });
 });

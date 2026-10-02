@@ -1,16 +1,14 @@
 import Database from "better-sqlite3";
-import path from "path";
 import fs from "fs";
 import { normalizePlatformIds } from "../src/constants";
-import { DATA_DIR, ensureDataDir } from "./paths";
+import { DB_PATH, ensureDataDir } from "./paths";
 import { getSteamPosterImage } from "./steam";
-
-// Database lives inside the data directory for full portability.
-const DB_PATH = path.join(DATA_DIR, "gametrack.db");
 
 // Ensure the data directory exists with restricted permissions.
 ensureDataDir();
 
+/* The connection. `DB_PATH` comes from server/paths so this file and the storage
+   stats cannot drift onto two different filenames. */
 const db = new Database(DB_PATH);
 // Restrict database file permissions (best-effort: read-only mounts and some
 // container volumes deny chmod, which must never crash startup).

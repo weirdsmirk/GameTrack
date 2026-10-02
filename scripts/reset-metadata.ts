@@ -15,8 +15,6 @@
  * title is left with no IGDB id rather than linked to the wrong game.
  */
 import "dotenv/config";
-import fs from "fs";
-import path from "path";
 import { handleUsage, wantsDryRun, wantsUsage } from "./lib/maintenance-guard";
 
 /** IGDB allows ~4 requests/second — stay comfortably under that. */
@@ -170,23 +168,6 @@ async function processRows(
   }
 }
 
-/** Filename-safe UTC stamp, reused by both the id backup and the file backup. */
-function stampFor(label: string): string {
-  return `${label}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-}
-
-/** Snapshot the current ids so a re-run always has something to fall back on. */
-function backupIds(
-  rows: { id: number; title: string; igdb_id: number | null }[],
-  label: string,
-  dataDir: string
-): void {
-  if (!rows.some((row) => row.igdb_id != null)) return;
-  const file = path.join(dataDir, `igdb-id-backup-${label}-${stampFor(label)}.json`);
-  fs.writeFileSync(file, JSON.stringify(rows, null, 2), { mode: 0o600 });
-  console.log(`Backed up previous ${label} ids to ${file}`);
-}
-
 const USAGE = `
 reset-metadata — re-match every library and wishlist row against IGDB.
 
@@ -217,7 +198,6 @@ async function run(): Promise<void> {
      guard above has already exited by this point, so by the time these resolve no
      database has been touched. */
   const { default: db } = await import("../server/db");
-  const { DATA_DIR } = await import("../server/paths");
   const { assertIgdbReachable, findIgdbMatch, sleep } = await import("./lib/igdb-match");
   const { mapIgdbGame } = await import("../server/igdb");
   const { getSteamPosterImage } = await import("../server/steam");
@@ -234,12 +214,6 @@ async function run(): Promise<void> {
   ).all() as Row[];
 
   console.log(`Found ${games.length} library game(s) and ${wishlist.length} wishlist item(s).\n`);
-
-  // A plain JSON id map, written before anything else. Cheap insurance that costs
-  // no database write, so it is not the thing standing between a mistake and the
-  // library.
-  backupIds(games, "games", DATA_DIR);
-  backupIds(wishlist, "wishlist", DATA_DIR);
 
   const updateGame = db.prepare(`
     UPDATE games
@@ -340,13 +314,6 @@ async function run(): Promise<void> {
     console.log(`\nDry run: ${gameWrites.length + wishlistWrites.length} row(s) would be rewritten. Nothing was written.`);
     return;
   }
-
-  // A byte-complete file copy, taken immediately before the single write rather
-  // than before the slow phase — so it reflects the true "before" state and is
-  // never stale.
-  const snapshot = path.join(DATA_DIR, `igdb-reset-${stampFor("pre")}.db`);
-  await db.backup(snapshot);
-  console.log(`Backed up the database to ${snapshot}`);
 
   const applyAll = db.transaction(() => {
     for (const write of gameWrites) updateGame.run(write.params);

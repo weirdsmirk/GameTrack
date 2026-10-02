@@ -9,10 +9,15 @@ coverage/
 .env.*
 !.env.example
 
-# SQLite database files
+# SQLite database files. The app uses exactly one — data/database.sqlite — and
+# these patterns exist so no other can ever reach the repository, including one
+# written by a stray script or a hand-edited path.
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 data/
 
 # Merge and editor leftovers. Absent from a clean tree, but a single conflicted

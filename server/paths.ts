@@ -23,6 +23,22 @@ export const DATA_DIR = process.env.GAMETRACK_DATA_DIR
 export const POSTERS_DIR = path.join(DATA_DIR, "posters");
 
 /**
+ * The one database file, and the only place in the project that names it.
+ *
+ * Everything that needs the database — the connection, the storage stats, the test
+ * suite — reads `DB_PATH` from here rather than building a filename. That matters
+ * because the filename used to appear in two places (`server/db.ts` and the
+ * `/api/storage` size stat), and two places is one rename away from reporting the
+ * size of a file that stopped existing.
+ */
+export const DB_FILE = "database.sqlite";
+
+export const DB_PATH = path.join(DATA_DIR, DB_FILE);
+
+/** SQLite's write-ahead log, which lives beside the database and must match its name. */
+export const DB_WAL_PATH = `${DB_PATH}-wal`;
+
+/**
  * Compiled frontend assets. Overridable with GAMETRACK_DIST_DIR so the test
  * suite can serve its own placeholder without writing into the repo's dist/ —
  * which is what the suite used to do, and which made a broken `vite build`
