@@ -1527,6 +1527,8 @@ const CustomizationsSchema = z.object({
   // Defaults to true, so a preferences row written before this field existed
   // parses unchanged and the hint is still offered to readers who never saw it.
   showShortcutHint: z.boolean().default(true),
+  // Same reasoning: rows predating the toggle keep the behaviour they had.
+  autoSteamSync: z.boolean().default(true),
 });
 
 // GET /api/settings/customizations — persisted UI preferences.

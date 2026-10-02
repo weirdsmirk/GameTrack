@@ -455,6 +455,7 @@ const DEFAULT_CUSTOMIZATIONS: CustomizationSettings = {
   showPlaytimeBadge: true,
   showRatingBadge: true,
   showShortcutHint: true,
+  autoSteamSync: true,
 };
 
 function loadSavedCustomizations(): CustomizationSettings {
@@ -468,6 +469,9 @@ function loadSavedCustomizations(): CustomizationSettings {
       showRatingBadge: typeof parsed.showRatingBadge === "boolean" ? parsed.showRatingBadge : true,
       // Absent on rows saved before the hint existed: treat as not-yet-dismissed.
       showShortcutHint: typeof parsed.showShortcutHint === "boolean" ? parsed.showShortcutHint : true,
+      // Absent on rows saved before the toggle existed: on, which is what the app
+      // did before anyone could turn it off.
+      autoSteamSync: typeof parsed.autoSteamSync === "boolean" ? parsed.autoSteamSync : true,
     };
   } catch {
     return DEFAULT_CUSTOMIZATIONS;
@@ -1989,6 +1993,12 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
 
     const steam = get().steamSettings;
     if (!steam?.steamId || !steam.keySet) return;
+
+    /* Last, so it overrides both of the checks above: an account being linked says
+       nothing about whether the reader wants a sync on every single page load.
+       Silent rather than a toast — a preference that is off is not an error, and
+       announcing that nothing is going to happen would be noise on every reload. */
+    if (!get().customizations.autoSteamSync) return;
 
     // Seconds derived from the delay rather than written into the copy, so the
     // promise cannot drift away from what the timer actually does.

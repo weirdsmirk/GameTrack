@@ -185,6 +185,15 @@ export interface CustomizationSettings {
    * browser cache does not resurrect a hint the reader deliberately closed.
    */
   showShortcutHint: boolean;
+  /**
+   * Whether a Steam sync runs automatically shortly after every page load.
+   *
+   * Server-persisted with the rest of the preferences for the same reason as
+   * `showShortcutHint`: it is a standing instruction about what the app should do
+   * on its own, and clearing the browser cache should not quietly resume syncing
+   * on every reload.
+   */
+  autoSteamSync: boolean;
 }
 
 export interface PlayingConflict {

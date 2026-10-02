@@ -173,17 +173,25 @@ export default function App() {
   useEffect(() => {
     const s = useGameTrackStore.getState();
     fetchGames();
-    /* The Steam identity is a precondition for the automatic sync, so the
-       scheduler runs off the back of this fetch rather than racing it. Not
-       awaited: the boot sequence should not block on a settings round-trip, and
-       a failed fetch leaves `steamSettings` null, which is precisely the state
-       that makes the scheduler decline — so the failure mode is silence, not a
-       sync that cannot work. */
-    void fetchSteamSettings().then(() => scheduleAutoSteamSync());
+    /* Both preconditions for the automatic sync are fetched before it is
+       scheduled: the Steam identity, and the preference that says whether to sync
+       at all. Scheduling off the Steam fetch alone raced the preferences fetch,
+       so a reader who had turned the auto-sync off still got one on any load
+       where localStorage was cold — the store's `customizations` initial value
+       comes from localStorage, and only the server knows the answer when there is
+       no local copy. Waited on together rather than awaited in sequence, so the
+       boot sequence does not block on either.
+
+       Not awaited at the top level: a failed fetch leaves `steamSettings` null or
+       the preference at its default, and both are states the scheduler already
+       declines or respects. The failure mode is silence, not a sync that cannot
+       work. */
+    void Promise.all([fetchSteamSettings(), fetchCustomizations()]).then(() =>
+      scheduleAutoSteamSync()
+    );
     fetchAnalytics();
     fetchWishlist();
     fetchCustomPlatforms();
-    fetchCustomizations();
     if (s.trendingGames.length === 0 || Date.now() - s.lastTrendingFetch > 300_000) fetchTrending();
     if (!s.discoverLists || Date.now() - s.lastListsFetch > 300_000) fetchDiscoverLists();
     // Intentionally mount-only, with the dep list deliberately omitted: every

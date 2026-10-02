@@ -297,6 +297,52 @@ export const SettingsModal: React.FC = React.memo(() => {
                           {syncingSteam ? "Syncing..." : "Sync Steam"}
                         </button>
                       </div>
+
+                      {/* Automatic sync is a switch rather than a third button in
+                          the pair above, because "Sync Steam" is a command and this
+                          is a standing instruction. Side by side they invite
+                          pressing the wrong one: the button runs once, the switch
+                          changes what every future page load does, and the pair
+                          gives both the same weight and the same shape.
+
+                          Shown only once an account is linked. Before that there is
+                          no sync to enable — the scheduler already declines — so
+                          offering the switch would be offering a preference that
+                          does nothing yet. */}
+                      {steamSettings?.steamId && (
+                        <div className="flex items-center justify-between gap-4 pt-3.5 border-t border-brand-border/50 group">
+                          <span className="min-w-0">
+                            <span id="settings-toggle-auto-steam-label" className="block text-[11px] uppercase tracking-wider text-zinc-300 group-hover:text-white">
+                              Automatic Sync
+                            </span>
+                            <span className="block mt-1 text-[9px] uppercase tracking-wider text-brand-muted leading-relaxed">
+                              Runs a Steam sync 15 seconds after every page load
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={customizations.autoSteamSync !== false}
+                            aria-labelledby="settings-toggle-auto-steam-label"
+                            onClick={() =>
+                              updateCustomizations({ autoSteamSync: customizations.autoSteamSync === false })
+                            }
+                            className={`relative w-10 h-5.5 shrink-0 border transition-colors cursor-pointer ${
+                              customizations.autoSteamSync === false
+                                ? "bg-zinc-900 border-brand-border"
+                                : "bg-brand-accent border-brand-accent"
+                            }`}
+                          >
+                            <span
+                              className={`absolute top-1/2 -translate-y-1/2 w-4 h-3.5 transition-all duration-200 ${
+                                customizations.autoSteamSync === false
+                                  ? "left-0.5 bg-brand-muted"
+                                  : "left-[21px] bg-brand-accent-ink"
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <>
@@ -356,6 +402,7 @@ export const SettingsModal: React.FC = React.memo(() => {
                           {syncingSteam ? "Syncing..." : "Sync Steam"}
                         </button>
                       </div>
+
                     </>
                   )}
                 </div>

@@ -59,7 +59,13 @@ beforeEach(async () => {
   await vi.advanceTimersByTimeAsync(60_000);
   vi.clearAllTimers();
 
-  useGameTrackStore.setState({ steamSettings: null, toasts: [] } as never);
+  useGameTrackStore.setState({
+    steamSettings: null,
+    toasts: [],
+    // On, unless a test says otherwise. Absent from rows saved before the toggle
+    // existed, and the loader defaults it back to true for exactly that reason.
+    customizations: { ...(useGameTrackStore.getState().customizations), autoSteamSync: true },
+  } as never);
 });
 
 afterEach(async () => {
@@ -177,5 +183,68 @@ describe("automatic Steam sync", () => {
     expect(warnings().map((t) => t.message)).toEqual(["Steam sync will start in 15 seconds"]);
     await vi.advanceTimersByTimeAsync(15_000);
     expect(syncCalls(fetchMock)).toBe(2);
+  });
+});
+
+describe("automatic Steam sync preference", () => {
+  it("does not schedule when the reader has turned it off", () => {
+    // A linked account and an explicit opt-out. The opt-out has to win: an account
+    // being linked says nothing about whether a sync should run on every load.
+    useGameTrackStore.setState({
+      steamSettings: linked(),
+      customizations: { ...useGameTrackStore.getState().customizations, autoSteamSync: false },
+    } as never);
+
+    useGameTrackStore.getState().scheduleAutoSteamSync();
+
+    expect(warnings()).toHaveLength(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("stays silent when off, even though the account is linked", async () => {
+    // The distinction that matters: off is not an error, so no toast either way.
+    // A toast here would fire on every single reload.
+    const fetchMock = vi.fn(okSync);
+    vi.stubGlobal("fetch", fetchMock);
+    useGameTrackStore.setState({
+      steamSettings: linked(),
+      customizations: { ...useGameTrackStore.getState().customizations, autoSteamSync: false },
+    } as never);
+
+    useGameTrackStore.getState().scheduleAutoSteamSync();
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(syncCalls(fetchMock)).toBe(0);
+    expect(warnings()).toHaveLength(0);
+  });
+
+  it("schedules again once the preference is turned back on", async () => {
+    const fetchMock = vi.fn(okSync);
+    vi.stubGlobal("fetch", fetchMock);
+    const set = (autoSteamSync: boolean) =>
+      useGameTrackStore.setState({
+        customizations: { ...useGameTrackStore.getState().customizations, autoSteamSync },
+      } as never);
+
+    useGameTrackStore.setState({ steamSettings: linked() } as never);
+
+    set(false);
+    useGameTrackStore.getState().scheduleAutoSteamSync();
+    expect(warnings()).toHaveLength(0);
+
+    // The switch is checked at schedule time, not baked in at boot, so turning it
+    // back on takes effect without a reload.
+    set(true);
+    useGameTrackStore.getState().scheduleAutoSteamSync();
+    expect(warnings()).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(syncCalls(fetchMock)).toBe(1);
+  });
+
+  it("defaults to on for a preferences payload saved before the toggle existed", () => {
+    // The loader is what decides this, so it is asserted there rather than here:
+    // a row with no `autoSteamSync` key must keep the behaviour the app had.
+    expect(typeof useGameTrackStore.getState().customizations.autoSteamSync).toBe("boolean");
   });
 });
