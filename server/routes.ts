@@ -542,6 +542,30 @@ apiRouter.get("/games", (_req: Request, res: Response) => {
   }
 });
 
+/**
+ * The completion date a row may hold for a given status.
+ *
+ * An endless title is never completed, so it can never carry a completion date —
+ * and the important half of that is the *clearing*: a title finished and then
+ * moved to Endless kept its old `date_completed`, because both write paths
+ * resolved this as `date_completed ?? (...)`, which preserves whatever was
+ * already there. Analytics counts completions only for `status === "completed"`,
+ * so the stale value was invisible in the totals while still being returned by
+ * the API and rendered by the client.
+ *
+ * Enforced here rather than in the UI so it holds for every caller — the edit
+ * form, the Steam sync, and any direct API write — instead of depending on one
+ * client to remember.
+ */
+function resolveDateCompleted(
+  status: string,
+  provided: number | null | undefined,
+  now: number
+): number | null {
+  if (status === "endless") return null;
+  return provided ?? (status === "completed" ? now : null);
+}
+
 // GET /api/export — full library as a downloadable JSON backup (round-trips
 // with POST /api/import). JSON arrays are parsed defensively like everywhere
 // else, so a corrupt row can't break the backup.
@@ -607,7 +631,7 @@ apiRouter.post("/games", (req: Request, res: Response) => {
       playtime: g.playtime,
       personal_rating: g.personal_rating ?? null,
       date_added: g.date_added ?? now,
-      date_completed: g.date_completed ?? (g.status === "completed" ? now : null),
+      date_completed: resolveDateCompleted(g.status, g.date_completed, now),
       created_at: g.created_at ?? now,
       updated_at: g.updated_at ?? now,
       hide_playtime: g.hide_playtime ?? 0,
@@ -712,6 +736,15 @@ apiRouter.put("/games/:id", (req: Request, res: Response) => {
     // no longer completed still carries a date — is handled at the read sites,
     // which all require `status === "completed"` before counting a completion
     // (see AnalyticsView.completedMonths and the "Completed This Month" panel).
+    //
+    // Endless is the one exception, because that reasoning does not apply to it.
+    // "Re-open and finish again later" is impossible for a title that is never
+    // completed, so there is no history here to preserve — only a date that can
+    // never be true. Left alone it put a completion date under an endless title,
+    // in the API and in the details panel.
+    if (nextStatus === "endless") {
+      nextDateCompleted = null;
+    }
 
     // Any edit to the metadata fields marks the row as user-customized, so the
     // next Steam sync preserves it instead of reverting it to IGDB defaults.
@@ -1302,7 +1335,7 @@ apiRouter.post("/import", (req: Request, res: Response) => {
             playtime: data.playtime,
             personal_rating: data.personal_rating ?? null,
             date_added: data.date_added ?? now,
-            date_completed: data.date_completed ?? (data.status === "completed" ? now : null),
+            date_completed: resolveDateCompleted(data.status, data.date_completed, now),
             created_at: data.created_at ?? now,
             updated_at: data.updated_at ?? now,
             hide_playtime: data.hide_playtime ?? 0,

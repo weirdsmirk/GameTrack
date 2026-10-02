@@ -163,3 +163,60 @@ describe("the ownership/platform invariant still holds on every write path", () 
     expect(res.body.ownership_status).toBe("not_owned");
   });
 });
+describe("an endless title can never carry a completion date", () => {
+  /* There is no GET /api/games/:id route — only PUT and DELETE — so the row is
+     read back from the list endpoint, which is what the client itself uses. */
+  const readRow = async (id: number) => {
+    const res = await request(app).get("/api/games").set(WITH_ORIGIN);
+    const row = res.body.find((g: { id: number }) => g.id === id);
+    expect(row, `game ${id} missing from the library`).toBeTruthy();
+    return row;
+  };
+
+  /* The failure this guards: finishing a game and then moving it to Endless left
+     `date_completed` in place. Both server write paths resolved it as
+     `date_completed ?? (status === "completed" ? now : null)`, which *preserves*
+     whatever was already on the row. Nothing looked broken — analytics counts
+     completions only for `status === "completed"`, so the totals were right — but
+     the API still returned the stale date and the client still rendered it, so a
+     title that can never be completed displayed a date on which it was. */
+  it("clears the date when a completed game is moved to Endless", async () => {
+    const id = await newGame("Will Go Endless", { status: "completed", date_completed: 1_700_000_000_000 });
+
+    expect((await readRow(id)).date_completed).toBe(1_700_000_000_000);
+
+    await request(app)
+      .put(`/api/games/${id}`)
+      .set(WITH_ORIGIN)
+      .send({ title: "Will Go Endless", status: "endless", date_completed: 1_700_000_000_000 })
+      .expect(200);
+
+    expect((await readRow(id)).date_completed).toBeNull();
+  });
+
+  it("refuses a date sent alongside Endless on create, not just on update", async () => {
+    // The same invariant has to hold on the create path. A write that stamps the
+    // column would otherwise leave the row already broken before any edit.
+    const id = await newGame("Endless From Birth", {
+      status: "endless",
+      date_completed: 1_700_000_000_000,
+    });
+
+    expect((await readRow(id)).date_completed).toBeNull();
+  });
+
+  it("leaves an ordinary completed game's date alone", async () => {
+    // Guards against the clear being too eager: the fix must not take the date
+    // away from the one status that legitimately has one.
+    const id = await newGame("Properly Finished", { status: "completed" });
+    expect((await readRow(id)).date_completed).not.toBeNull();
+
+    await request(app)
+      .put(`/api/games/${id}`)
+      .set(WITH_ORIGIN)
+      .send({ title: "Properly Finished", status: "completed", date_completed: 1_600_000_000_000 })
+      .expect(200);
+
+    expect((await readRow(id)).date_completed).toBe(1_600_000_000_000);
+  });
+});

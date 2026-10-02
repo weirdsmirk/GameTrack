@@ -419,7 +419,16 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         ownership_status: editOwnership,
         hide_playtime: hidePlaytime ? 1 : 0,
         status: targetStatus,
-        date_completed: dateCompleted ? new Date(dateCompleted + "T00:00:00").getTime() : (targetStatus === "completed" && !selectedGame.date_completed ? Date.now() : selectedGame.date_completed ?? null),
+        /* Endless wins outright, including over a date already on the row. The
+           old fallback preserved `selectedGame.date_completed` for any status
+           that was not "completed", so finishing a game and then moving it to
+           Endless left the old date behind — invisible in the analytics totals
+           but still in the API and still on screen. */
+        date_completed: targetStatus === "endless"
+          ? null
+          : dateCompleted
+            ? new Date(dateCompleted + "T00:00:00").getTime()
+            : (targetStatus === "completed" && !selectedGame.date_completed ? Date.now() : selectedGame.date_completed ?? null),
       };
 
       // "Playing" is exclusive: if another game is playing, offer to park it.
@@ -695,6 +704,13 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   /* Whether the game may be replayed, which decides whether the Playtime cell
      gets a click target at all. */
   const canReplaySelected = replayAllowed(selectedGame?.status);
+
+  /* Whether the edited row is an endless title. Drives three things at once —
+     greying the completion date, refusing to save one, and relabelling the third
+     metric cell — so it is derived once here rather than re-tested at each site,
+     where the three could drift apart and leave a form that greys a field the
+     payload still sends. */
+  const endlessSelected = editStatus === "endless";
 
   /* Open the edit form already aimed at one field.
 
@@ -1044,14 +1060,34 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label htmlFor="edit-game-completed" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">Completion Date</label>
+                  <label htmlFor="edit-game-completed" className={`text-[11px] font-bold uppercase tracking-wider ${endlessSelected ? "text-brand-muted/40" : "text-brand-muted"}`}>
+                    Completion Date
+                  </label>
                   <input
                     id="edit-game-completed"
                     type="date"
                     value={dateCompleted || ""}
                     onChange={(e) => setDateCompleted(e.target.value)}
-                    className="w-full px-4 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent"
+                    /* Disabled rather than merely ignored on endless titles.
+
+                       A date field that accepts input you are then told does not
+                       apply is worse than one that cannot be typed into: the value
+                       sits there looking meaningful and is silently dropped on
+                       save. The server clears it either way — this is the UI
+                       agreeing with the rule, not enforcing it. */
+                    disabled={endlessSelected}
+                    title={endlessSelected ? "An endless title is never completed" : undefined}
+                    className={`w-full px-4 py-2 border rounded-none text-xs font-bold uppercase tracking-wide focus:outline-none ${
+                      endlessSelected
+                        ? "bg-brand-bg/40 border-brand-border/40 text-brand-muted/40 cursor-not-allowed"
+                        : "bg-brand-bg border-brand-border text-white focus:border-brand-accent"
+                    }`}
                   />
+                  {endlessSelected && (
+                    <p className="text-[8px] uppercase tracking-wider text-brand-muted/70 pt-0.5">
+                      An endless title has no completion date
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <label htmlFor="edit-game-hours" className="text-[11px] font-bold uppercase tracking-wider text-brand-muted">
@@ -1459,15 +1495,26 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                       Showing it raw would put a completion date under a game with
                       zero hours and no grade. An em dash matches the rating box
                       beside it for "not recorded". */}
+                  {/* "COMPLETED" is a lie on an endless title — by definition it is never
+                    completed — so the third cell becomes the date the title was
+                    added to the library. That date always exists, and it answers
+                    the question an endless title can still answer: how long has
+                    this been on the shelf. Clicking it still opens the edit form;
+                    for an endless title that field is disabled, which is the same
+                    thing the cell says by being labelled differently. */}
                   <MetricCell
-                    label="Completed"
+                    label={endlessSelected ? "Date Added" : "Completed"}
                     onOpen={() => openEditAt("completed")}
-                    ariaLabel={selectedGame.status === "completed" && selectedGame.date_completed
-                      ? `Completed on ${formatDateShort(selectedGame.date_completed)}. Edit the completion date.`
-                      : "No completion date recorded. Edit the completion date."}
-                    value={selectedGame.status === "completed" && selectedGame.date_completed
-                      ? formatDateShort(selectedGame.date_completed)
-                      : "—"}
+                    ariaLabel={endlessSelected
+                      ? `Added to the library ${formatDateShort(selectedGame.date_added)}. Edit the completion date.`
+                      : selectedGame.status === "completed" && selectedGame.date_completed
+                        ? `Completed on ${formatDateShort(selectedGame.date_completed)}. Edit the completion date.`
+                        : "No completion date recorded. Edit the completion date."}
+                    value={endlessSelected
+                      ? formatDateShort(selectedGame.date_added)
+                      : selectedGame.status === "completed" && selectedGame.date_completed
+                        ? formatDateShort(selectedGame.date_completed)
+                        : "—"}
                   />
                 </div>
             </div>
