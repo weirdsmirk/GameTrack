@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll, afterEach, afterAll, vi } from "vitest
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import AnalyticsView from "../src/components/AnalyticsView";
 import { useGameTrackStore } from "../src/store";
-import type { Game } from "../src/types";
+import type { Game, LibrarySummary } from "../src/types";
 
 // AnalyticsView reads the real zustand store. Seed it with data shaped like
 // the real API response so the recharts branches actually render.
@@ -322,5 +322,67 @@ describe("AnalyticsView runtime", () => {
     );
 
     useGameTrackStore.setState({ games: before });
+  });
+});
+
+describe("Replay figures", () => {
+  const summaryWith = (over: Partial<LibrarySummary>): LibrarySummary =>
+    ({
+      total_games: 6, active_games: 1, completed_games: 3,
+      total_playtime_hours: 51, average_playtime_per_game: 8.5, last_updated: FROZEN.getTime(),
+      owned_games: 6, not_owned_games: 0, owned_playtime_hours: 51, not_owned_playtime_hours: 0,
+      times_played: 6, replayed_games: 0, most_times_played: 1,
+      replay_playtime_hours: 0, replay_runs: 0, all_playthroughs_hours: 51,
+      ...over,
+    }) as LibrarySummary;
+
+  it("shows no replay panel when nothing has been replayed", () => {
+    // A panel on a library with no replays would be three rows of zeros — the
+    // absence of news presented as a figure. Same rule as the ownership split.
+    useGameTrackStore.setState({ summary: summaryWith({}), mostReplayed: null });
+    render(<AnalyticsView />);
+    expect(screen.queryByText(/^Replayed$/i)).toBeNull();
+  });
+
+  it("reports replay counts and hours that reconcile with the totals", () => {
+    useGameTrackStore.setState({
+      summary: summaryWith({
+        times_played: 9, replayed_games: 2, most_times_played: 3,
+        replay_playtime_hours: 18, replay_runs: 3, all_playthroughs_hours: 69,
+      }),
+      mostReplayed: { title: "Hollow Knight", id: 7, times_played: 3 },
+    });
+    render(<AnalyticsView />);
+    const text = document.body.textContent || "";
+
+    // 6 games, 9 runs: 3 of the 6 titles replayed and 3 runs beyond the first.
+    expect(text).toMatch(/Replayed\s*2 of 6/i);
+    expect(text).toMatch(/9\s*total runs/i);
+    expect(text).toMatch(/Extra runs past the first\s*3/i);
+    // 18 replay hours out of the 69 all-run hours.
+    expect(text).toMatch(/Hours on replays\s*18 of 69 hrs/i);
+    expect(text).toMatch(/most replayed is\s*Hollow Knight\s*at\s*3/i);
+  });
+
+  it("degrades to zeros rather than NaN on a partially-populated summary", () => {
+    // A cache or payload from an older build carries the first-run fields but not
+    // the replay ones. Rendering `undefined` here would print "NaN of NaN hrs",
+    // which looks like a bug rather than like absent data.
+    const partial = summaryWith({}) as Partial<LibrarySummary>;
+    delete partial.times_played;
+    delete partial.replay_playtime_hours;
+    delete partial.all_playthroughs_hours;
+    useGameTrackStore.setState({
+      summary: partial as LibrarySummary,
+      mostReplayed: null,
+    });
+    render(<AnalyticsView />);
+    const text = document.body.textContent || "";
+    expect(text).not.toMatch(/NaN/);
+    expect(screen.queryByText(/^Replayed$/i)).toBeNull();
+  });
+
+  afterEach(() => {
+    useGameTrackStore.setState({ mostReplayed: null });
   });
 });

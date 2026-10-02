@@ -63,7 +63,9 @@ describe("gamesToCsv", () => {
       game({ title: "Hades", status: "playing", owned_platforms: ["steam", "switch"] }),
     ]);
     const lines = csv.trim().split("\n");
-    expect(lines[0]).toBe("title,status,ownership,platform,playtime,rating,completion_date");
+    expect(lines[0]).toBe(
+      "title,status,ownership,platform,playtime,plays,replays,replay_playtime,rating,completion_date"
+    );
     expect(lines[1]).toContain("Portal,completed,owned,pc");
     // Multi-platform tags are joined into one cell with a semicolon, not
     // repeated into extra columns. The separator is not the CSV comma, so
@@ -112,7 +114,7 @@ describe("gamesToCsv", () => {
 describe("gamesToMarkdown", () => {
   it("emits a table with escaped pipes", () => {
     const md = gamesToMarkdown([game({ title: "Super | Game", status: "completed", year: 2018 })]);
-    expect(md).toContain("| Title | Status | Ownership | Platform | Playtime | Rating | Completed |");
+    expect(md).toContain("| Title | Status | Ownership | Platform | Playtime | Times Played | Replay Time | Rating | Completed |");
     // A raw pipe would end the cell early and shift every column after it.
     expect(md).toContain("Super \\| Game");
   });

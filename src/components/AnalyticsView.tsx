@@ -74,9 +74,10 @@ const STATUS_BAR_COLORS: Record<string, string> = {
 
 export const AnalyticsView: React.FC = React.memo(() => {
   const { 
-    games, summary, lastAnalyticsFetch, fetchAnalytics, customPlatforms
+    games, summary, mostReplayed, lastAnalyticsFetch, fetchAnalytics, customPlatforms
   } = useGameTrackStore(useShallow((s) => ({
-    games: s.games, summary: s.summary, lastAnalyticsFetch: s.lastAnalyticsFetch,
+    games: s.games, summary: s.summary, mostReplayed: s.mostReplayed,
+    lastAnalyticsFetch: s.lastAnalyticsFetch,
     fetchAnalytics: s.fetchAnalytics, customPlatforms: s.customPlatforms,
   })));
 
@@ -192,6 +193,34 @@ export const AnalyticsView: React.FC = React.memo(() => {
       ownedPct: total > 0 ? Math.round((owned / total) * 100) : 0,
     };
   }, [games]);
+
+  /* Replay figures, read from the server's summary rather than recounted here.
+     They are aggregates over a table the analytics payload does not carry, and
+     the server already computes them inside the same query as the totals they
+     must reconcile with — recounting from `games` could only reproduce them,
+     or drift from them if the rules ever differ.
+
+     `?? 0` on every field rather than a whole-object fallback: the analytics
+     cache is backfilled for a pre-replays payload, but a partial payload should
+     render zeros, not NaN, and NaN in a `<span>` prints as "NaN of NaN hrs". */
+  const replays = React.useMemo(() => {
+    const s = summary;
+    const timesPlayed = s?.times_played ?? 0;
+    const totalGames = s?.total_games ?? 0;
+    return {
+      replayedGames: s?.replayed_games ?? 0,
+      timesPlayed,
+      totalGames,
+      // Stated as a derived difference rather than trusting `replay_runs`: the
+      // identity `times_played - total_games === extra runs` is the one worth
+      // showing, and computing it here makes the reconciliation visible instead of
+      // asserting it. Clamped at 0 so a cache written mid-migration (totals from
+      // one build, runs from another) cannot render a negative run count.
+      extraRuns: Math.max(0, timesPlayed - totalGames),
+      replayHours: s?.replay_playtime_hours ?? 0,
+      allHours: s?.all_playthroughs_hours ?? 0,
+    };
+  }, [summary]);
 
   // The strip's completion figures are read back out of the composition rather
   // than counted again, so the two panels cannot disagree. Same arithmetic,
@@ -780,6 +809,52 @@ export const AnalyticsView: React.FC = React.memo(() => {
                       // {ownership.notOwned} played without a copy ·{" "}
                       <span className="text-zinc-300">{Math.round(ownership.notOwnedHours)} of {Math.round(totalPlaytime)} hrs</span> spent outside the collection
                     </p>
+                  </div>
+                )}
+
+                {/* Replays — how often the library has been played more than
+                    once, and how much of the total those extra runs account for.
+
+                    Not drawn as a split bar like the two axes above, because it
+                    has no clean binary: the meaningful figure is a ratio of runs to
+                    titles (1.2x on a library this size), not a percentage of two
+                    categories that partition the library. A bar would have to
+                    pretend games and runs are the same unit.
+
+                    The figures reconcile with the totals above by construction —
+                    `times_played - total_games` is exactly the extra-run count, and
+                    replay hours plus first-run hours is the all-in total — so the
+                    rows state both rather than leaving the reader to trust it. */}
+                {replays.replayedGames > 0 && summary && (
+                  <div className="shrink-0 border-t border-brand-border pt-4 mt-1 space-y-2.5">
+                    <div className="flex items-baseline justify-between gap-3 text-[11px] uppercase tracking-widest">
+                      <span className="text-zinc-300 font-black">
+                        Replayed{" "}
+                        <span className="text-brand-accent">
+                          {replays.replayedGames} of {summary.total_games}
+                        </span>
+                      </span>
+                      <span className="text-zinc-300 font-black">
+                        <span className="text-brand-accent">{replays.timesPlayed}</span> total runs
+                      </span>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3 text-[10px] uppercase tracking-wider text-brand-muted">
+                      <span>Extra runs past the first</span>
+                      <span className="text-zinc-300">{replays.extraRuns}</span>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3 text-[10px] uppercase tracking-wider text-brand-muted">
+                      <span>Hours on replays</span>
+                      <span className="text-zinc-300">
+                        {Math.round(replays.replayHours)} of {Math.round(replays.allHours)} hrs
+                      </span>
+                    </div>
+                    {mostReplayed && (
+                      <p className="text-[9px] uppercase tracking-wider text-brand-muted leading-relaxed">
+                        // most replayed is{" "}
+                        <span className="text-zinc-300">{mostReplayed.title}</span> at{" "}
+                        <span className="text-brand-accent">{mostReplayed.times_played}&times;</span>
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

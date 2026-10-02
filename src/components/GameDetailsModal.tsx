@@ -8,8 +8,9 @@ import { formatPlaytimePrecise, formatDateShort } from "../utils/time";
 import { motion, AnimatePresence } from "motion/react";
 import { uploadPoster } from "../utils/image";
 import { useModalA11y } from "../hooks/useModalA11y";
-import { STATUSES, getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms, OWNERSHIP_STATUSES, getOwnershipLabel, platformsSelectable, PLATFORMS_LOCKED_REASON, isOwned, type OwnershipStatus } from "../constants";
+import { STATUSES, getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms, OWNERSHIP_STATUSES, getOwnershipLabel, platformsSelectable, PLATFORMS_LOCKED_REASON, isOwned, isReplayed, timesPlayed, type OwnershipStatus } from "../constants";
 import { PosterImage } from "./PosterImage";
+import { ReplayHistory } from "./ReplayHistory";
 
 /**
  * The status radio group's two states, keyed by status.
@@ -701,6 +702,26 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 </div>
               )}
 
+              {/* Replay count, under the status button and above ownership — the third of the
+                  three facts that describe where a game stands, alongside how far
+                  along it is and whether you hold it.
+
+                  Shown only when the game has actually been replayed. A
+                  "Played 1×" line on the ~95% of a library that has never been
+                  replayed would be noise, and unlike ownership there is no
+                  meaningful zero state worth surfacing.
+
+                  Uses `timesPlayed`/`isReplayed` rather than reading the field, so
+                  a payload predating the migration cannot produce a "Played 0×". */}
+              {isReplayed(selectedGame) && (
+                <div className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-none border border-brand-border bg-zinc-950/60 uppercase tracking-wider text-xs font-black text-white">
+                  <span>Played {timesPlayed(selectedGame)} Times</span>
+                  <span className="text-[10px] font-bold tracking-widest text-brand-accent">
+                    {timesPlayed(selectedGame) - 1} replay{timesPlayed(selectedGame) === 2 ? "" : "s"}
+                  </span>
+                </div>
+              )}
+
               {/* Gated on ownership, not just on the list being non-empty. The heading says
                   "Platforms Owned", and a not-owned title has no owned platforms
                   by definition — so the block is withheld rather than printed
@@ -1142,6 +1163,16 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   )}
                 </div>
               </div>
+
+              {/* Replay history, below the synopsis. Read mode only: the replay
+                  controls save themselves, so putting them in the edit form
+                  would give the modal two Save buttons with different scopes.
+                  Always rendered, not gated on the count — the section doubles
+                  as the only place a replay can be added, so hiding it for
+                  un-replayed games would make the feature undiscoverable. */}
+              <div className="border-t border-brand-border/60 pt-5">
+                <ReplayHistory game={selectedGame} />
+              </div>
             </div>
           )}
           </div>
@@ -1152,7 +1183,16 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               {/* Registry Metrics */}
               <div className="grid grid-cols-3 gap-3">
                 <div className={`bg-zinc-900/60 border p-3.5 flex flex-col justify-between h-[76px] ${selectedGame.hide_playtime === 1 ? "border-dashed border-red-500/25" : "border-brand-border/50"}`}>
-                    <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">Aggregate Hours</p>
+                    {/* Relabelled once the game has been replayed. This cell reads
+                        the game's own `playtime`, which is playthrough #1 only —
+                        so after a replay exists it is no longer the game's hours,
+                        and leaving it called "Aggregate Hours" would put a number
+                        beside the Replay History total that silently excludes it.
+                        The all-runs total is stated in that section, where the
+                        per-run breakdown makes it checkable. */}
+                    <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">
+                      {isReplayed(selectedGame) ? "First Run Hours" : "Aggregate Hours"}
+                    </p>
                     {selectedGame.hide_playtime === 1 ? (
                       <h5 className="text-sm sm:text-lg font-black text-red-400/80 mt-2 leading-none uppercase inline-flex items-center gap-1.5 line-through decoration-2 decoration-red-500/40" title="Playtime is hidden — shown only to you">
                         <EyeOff className="w-3.5 h-3.5 shrink-0" />

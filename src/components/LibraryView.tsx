@@ -6,7 +6,8 @@ import {
 } from "lucide-react";
 import { Game } from "../types";
 
-import { STATUSES, getStatusLabel, getStatusMarkerColor, platformIdMatches, mergeCustomPlatforms, libraryGridClass, OWNERSHIP_STATUSES, isOwned } from "../constants";
+import { STATUSES, getStatusLabel, getStatusMarkerColor, platformIdMatches, mergeCustomPlatforms, libraryGridClass, OWNERSHIP_STATUSES, isOwned, isReplayed, timesPlayed, TIMES_PLAYED_FILTERS, totalPlaytime } from "../constants";
+import { formatPlaytimePrecise } from "../utils/time";
 import { preloadImages } from "../utils/image";
 import { PosterImage } from "./PosterImage";
 
@@ -69,7 +70,7 @@ export const LibraryView: React.FC = () => {
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [showFilters, filters.status, filters.ownership, filters.platform, filters.hideCompleted, filters.hideEndless]);
+  }, [showFilters, filters.status, filters.ownership, filters.platform, filters.plays, filters.hideCompleted, filters.hideEndless]);
 
   // Only offer statuses/platforms that actually exist in the current library
   const statusOptions = React.useMemo(() => {
@@ -120,10 +121,11 @@ export const LibraryView: React.FC = () => {
       (filters.status ? 1 : 0) +
       (filters.ownership ? 1 : 0) +
       (filters.platform ? 1 : 0) +
+      (filters.plays ? 1 : 0) +
       (filters.sort !== "recent" ? 1 : 0) +
       (filters.hideCompleted ? 1 : 0) +
       (filters.hideEndless ? 1 : 0),
-    [filters.status, filters.ownership, filters.platform, filters.sort, filters.hideCompleted, filters.hideEndless]
+    [filters.status, filters.ownership, filters.platform, filters.plays, filters.sort, filters.hideCompleted, filters.hideEndless]
   );
 
   // Client-side search/filter/sort within games loaded
@@ -140,6 +142,14 @@ export const LibraryView: React.FC = () => {
       // pre-migration payload lands in the owned bucket instead of vanishing.
       if (filters.ownership === "owned" && !isOwned(game)) return false;
       if (filters.ownership === "not_owned" && isOwned(game)) return false;
+
+      // Times played is another independent axis, so it composes with the rest
+      // rather than replacing them — "Completed" + "Replayed (2+)" is exactly the
+      // finished-and-beaten-again shelf, which is the slice most worth isolating.
+      // Matching against the shared option list keeps the predicate and the
+      // dropdown from drifting apart.
+      const timesPlayedOption = TIMES_PLAYED_FILTERS.find((o) => o.value === filters.plays);
+      if (timesPlayedOption && !timesPlayedOption.test(game)) return false;
 
       if (filters.platform) {
         const platforms = game.owned_platforms || [];
@@ -163,10 +173,20 @@ export const LibraryView: React.FC = () => {
       switch (filters.sort) {
         case "rating":
           return (b.personal_rating ?? -1) - (a.personal_rating ?? -1);
+        // Both playtime sorts moved to the all-runs total. Ranking by the first
+        // run alone would push a game beaten five times to the bottom of "Most
+        // Playtime" while the card beside it showed five times the hours, so the
+        // old ordering became wrong the moment a replay could exist rather than
+        // merely incomplete. The labels say "All Runs" so the change is visible
+        // in the dropdown, not silent.
         case "playtime_asc":
-          return (a.playtime ?? 0) - (b.playtime ?? 0);
+          return totalPlaytime(a) - totalPlaytime(b);
         case "playtime":
-          return (b.playtime ?? 0) - (a.playtime ?? 0);
+          return totalPlaytime(b) - totalPlaytime(a);
+        // Replayed-first: `timesPlayed` rather than a raw read, so a payload from
+        // before the feature sorts as one playthrough instead of undefined.
+        case "times_played":
+          return timesPlayed(b) - timesPlayed(a) || a.title.localeCompare(b.title);
         case "title":
           return a.title.localeCompare(b.title);
         case "custom":
@@ -453,7 +473,7 @@ export const LibraryView: React.FC = () => {
           style={{ height: showFilters ? filtersPanelHeight : 0 }}
           className="overflow-hidden transition-[height] duration-[160ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
         >
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
               {/* Status Selector */}
               <div className="relative">
                   <label htmlFor="filter-status" className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted mb-1">Status</label>
@@ -523,6 +543,29 @@ export const LibraryView: React.FC = () => {
                 </div>
               </div>
 
+              {/* Times Played Selector — another independent axis, listed unconditionally
+                  like Ownership so the option survives an empty result set and
+                  the control keeps its shape as the library changes. */}
+              <div className="relative">
+                <label htmlFor="filter-plays" className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted mb-1">Times Played</label>
+                <div className="relative">
+                  <select
+                    id="filter-plays"
+                    value={filters.plays}
+                    onChange={(e) => setFilter("plays", e.target.value)}
+                    className="w-full pl-3 pr-10 py-2.5 bg-brand-bg border border-brand-border rounded-none text-xs font-black uppercase tracking-wider text-white focus:outline-none focus:border-brand-accent cursor-pointer appearance-none"
+                  >
+                    <option value="">All Playcounts</option>
+                    {TIMES_PLAYED_FILTERS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-brand-muted">
+                    <ChevronDown className="w-4 h-4" />
+                  </div>
+                </div>
+              </div>
+
               {/* Sort Order Selector */}
               <div className="relative">
                 <label htmlFor="filter-sort" className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted mb-1">Sort By</label>
@@ -535,8 +578,9 @@ export const LibraryView: React.FC = () => {
                   >
                     <option value="recent">Recently Added</option>
                     <option value="rating">Highest Rating</option>
-                    <option value="playtime">Most Playtime</option>
-                    <option value="playtime_asc">Least Playtime</option>
+                    <option value="playtime">Most Playtime (All Runs)</option>
+                    <option value="playtime_asc">Least Playtime (All Runs)</option>
+                    <option value="times_played">Most Times Played</option>
                     <option value="title">Alphabetical (A-Z)</option>
                     <option value="custom">Custom Order (Drag to Arrange)</option>
                   </select>
@@ -818,7 +862,7 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
       }}
       tabIndex={0}
       role="button"
-      aria-label={`${selectMode ? (selected ? "Deselect" : "Select") : "View details for"} ${game.title}${isOwned(game) ? "" : ", not owned"}`}
+      aria-label={`${selectMode ? (selected ? "Deselect" : "Select") : "View details for"} ${game.title}${isOwned(game) ? "" : ", not owned"}${isReplayed(game) ? `, played ${timesPlayed(game)} times` : ""}`}
       aria-pressed={selectMode ? selected : undefined}
       draggable={reorderable}
       onDragStart={reorderable ? (e) => { e.dataTransfer.setData("text/plain", String(game.id)); e.dataTransfer.effectAllowed = "move"; onDragStart?.(game); } : undefined}
@@ -877,6 +921,20 @@ const LibraryGameCard = React.memo<LibraryGameCardProps>(({
             className="absolute bottom-2.5 left-2.5 z-10 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[10px] font-black uppercase tracking-widest text-zinc-300 border border-dashed border-zinc-500"
           >
             Not Owned
+          </span>
+        )}
+
+        {/* Times-played badge, bottom-right. Bottom-right because the corners already
+            carry: selection checkbox and status swatch at the top, and the
+            not-owned chip at the bottom-left. It appears only for a game that
+            has actually been replayed, so a library with no replays renders
+            exactly as it did before this existed. */}
+        {!selectMode && isReplayed(game) && (
+          <span
+            title={`Played ${timesPlayed(game)} times · ${formatPlaytimePrecise(totalPlaytime(game))} total`}
+            className="absolute bottom-2.5 right-2.5 z-10 bg-zinc-950/90 backdrop-blur-sm px-2 py-1 text-[10px] font-black uppercase tracking-widest text-brand-accent border border-brand-accent/50"
+          >
+            ×{timesPlayed(game)}
           </span>
         )}
 

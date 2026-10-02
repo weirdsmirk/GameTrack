@@ -174,8 +174,8 @@ interface GameTrackState {
   loadingGames: boolean;
   lastGamesFetch: number;
   gamesError: string | null;
-  filters: { status: string; ownership: string; platform: string; sort: string; search: string; hideCompleted: boolean; hideEndless: boolean };
-  setFilter: (key: "status" | "ownership" | "platform" | "sort" | "search" | "hideCompleted" | "hideEndless", value: string | boolean) => void;
+  filters: { status: string; ownership: string; platform: string; plays: string; sort: string; search: string; hideCompleted: boolean; hideEndless: boolean };
+  setFilter: (key: "status" | "ownership" | "platform" | "plays" | "sort" | "search" | "hideCompleted" | "hideEndless", value: string | boolean) => void;
   resetFilters: () => void;
   fetchGames: (force?: boolean) => Promise<void>;
   addGame: (gameData: Partial<Game>) => Promise<boolean>;
@@ -251,6 +251,14 @@ interface GameTrackState {
 
   summary: LibrarySummary | null;
   genreAnalytics: GenreAnalytics[];
+  /**
+   * The single most-replayed title, or null when nothing has been replayed
+   * twice. Kept as a summary row rather than derived in the view because the
+   * per-game counts live on the games list, which the analytics payload does not
+   * carry — deriving it here would mean shipping the whole library to a panel
+   * that needs one number.
+   */
+  mostReplayed: { title: string; id: number; times_played: number } | null;
   suggestions: NextToPlaySuggestion[];
   recentActivity: Game[];
   loadingAnalytics: boolean;
@@ -334,7 +342,7 @@ const omitKeys = <V,>(record: Record<number, V>, keys: Set<number>): Record<numb
 };
 
 const FILTERS_KEY = "gametrack_library_filters";
-const DEFAULT_FILTERS = { status: "", ownership: "", platform: "", sort: "recent", search: "", hideCompleted: false, hideEndless: false };
+const DEFAULT_FILTERS = { status: "", ownership: "", platform: "", plays: "", sort: "recent", search: "", hideCompleted: false, hideEndless: false };
 
 function loadSavedFilters(): GameTrackState["filters"] {
   try {
@@ -343,6 +351,9 @@ function loadSavedFilters(): GameTrackState["filters"] {
       status: typeof parsed.status === "string" ? parsed.status : DEFAULT_FILTERS.status,
       ownership: typeof parsed.ownership === "string" ? parsed.ownership : DEFAULT_FILTERS.ownership,
       platform: typeof parsed.platform === "string" ? parsed.platform : DEFAULT_FILTERS.platform,
+      // Absent on filters saved before replays existed — treat as "all", which
+      // is what a saved filter with no plays key meant at the time.
+      plays: typeof parsed.plays === "string" ? parsed.plays : DEFAULT_FILTERS.plays,
       sort: typeof parsed.sort === "string" ? parsed.sort : DEFAULT_FILTERS.sort,
       search: typeof parsed.search === "string" ? parsed.search : DEFAULT_FILTERS.search,
       hideCompleted: parsed.hideCompleted === true,
@@ -722,7 +733,29 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         if (!res.ok) throw new Error("Failed to fetch games");
         const data = await res.json();
         if (requestId === gamesRequestId) {
-          set({ games: data, lastGamesFetch: Date.now() });
+          /* `selectedGame` is a detached copy, so replacing `games` leaves the
+             open details modal reading a snapshot taken when it was opened. That
+             was already true for every field a background refetch could change —
+             but a modal is a live view of one row, and after logging a replay
+             the denormalised totals on that row change without the modal's copy
+             changing. The user would save a replay and be told "Played 1×" while
+             the library behind it said 2. Re-point the selection at the freshly
+             fetched row so the modal tracks the same object as the grid.
+
+             Deliberately only when the id still exists: a game removed by a
+             background action should close the modal's subject, not leave it
+             rendering a row that is no longer in the library. */
+          set((s) => {
+            const selected = s.selectedGame;
+            const refreshed = selected
+              ? (data as Game[]).find((g) => g.id === selected.id) ?? null
+              : null;
+            return {
+              games: data,
+              lastGamesFetch: Date.now(),
+              selectedGame: selected ? refreshed : selected,
+            };
+          });
         }
       } catch (err: unknown) {
         if (requestId === gamesRequestId) {
@@ -852,13 +885,16 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     if (state.loadingPlaythroughs[gameId]) return;
     if (!force && gameId in state.playthroughs) return;
 
-    set((s) => ({ loadingPlaythroughs: { ...s.loadingPlaythroughs, [gameId]: true } }));
+    set((s) => (s.loadingPlaythroughs[gameId]
+      ? {}
+      : { loadingPlaythroughs: { ...s.loadingPlaythroughs, [gameId]: true } }));
     try {
       const res = await fetch(`/api/games/${gameId}/playthroughs`);
       if (!res.ok) throw await getApiError(res, "Failed to load replays");
       const data = await res.json();
+      const runs = (data.playthroughs ?? []) as Playthrough[];
       set((s) => ({
-        playthroughs: { ...s.playthroughs, [gameId]: data.playthroughs ?? [] },
+        playthroughs: { ...s.playthroughs, [gameId]: runs },
         loadingPlaythroughs: { ...s.loadingPlaythroughs, [gameId]: false },
       }));
     } catch (err: unknown) {
@@ -1434,6 +1470,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
 
   // ── Analytics ──────────────────────────────────────────────────
   summary: cachedAnalytics?.summary ?? null,
+  mostReplayed: null,
   genreAnalytics: cachedAnalytics?.genreAnalytics ?? [],
   suggestions: [],
   recentActivity: cachedAnalytics?.recentActivity ?? [],
@@ -1455,11 +1492,16 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       set({
         summary: data.summary,
         genreAnalytics: data.genreAnalytics,
+        mostReplayed: data.mostReplayed ?? null,
         recentActivity: data.recentActivity,
         lastAnalyticsFetch: ts,
       });
 
       try {
+        // mostReplayed is deliberately left out of the cache: it is a single
+        // label, it is absent from every cache written before replays existed
+        // (so reading it back would need its own backfill for no benefit), and
+        // it corrects itself on the first fetch after a reload.
         safeSetItem(ANALYTICS_CACHE_KEY, JSON.stringify({
           savedAt: ts,
           summary: data.summary,
