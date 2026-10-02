@@ -14,3 +14,15 @@ coverage/
 *.db-shm
 *.db-wal
 data/
+
+# Merge and editor leftovers. Absent from a clean tree, but a single conflicted
+# merge leaves .orig and .rej files that git helpfully offers to commit — and
+# `git add -A` would take them. Cheap to prevent.
+*.orig
+*.rej
+*~
+
+# TypeScript incremental build info. This project is `noEmit` with no
+# `incremental`, so it is never produced today; ignored anyway because turning
+# `incremental` on is a one-line change that would otherwise start committing
+# machine-local build caches.

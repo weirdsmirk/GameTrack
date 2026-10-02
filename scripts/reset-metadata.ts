@@ -17,11 +17,7 @@
 import "dotenv/config";
 import fs from "fs";
 import path from "path";
-import db from "../server/db";
-import { mapIgdbGame } from "../server/igdb";
-import { getSteamPosterImage } from "../server/steam";
-import { DATA_DIR } from "../server/paths";
-import { assertIgdbReachable, findIgdbMatch, sleep } from "./lib/igdb-match";
+import { handleUsage, wantsUsage } from "./lib/maintenance-guard";
 
 /** IGDB allows ~4 requests/second — stay comfortably under that. */
 const REQUEST_DELAY_MS = 260;
@@ -59,7 +55,14 @@ function isRawgUrl(url: string | null | undefined): boolean {
  * Decide the poster for a row: Steam cover for Steam-owned games, IGDB cover
  * otherwise. Local uploads win over everything; a stale RAWG URL is dropped.
  */
-function resolvePoster(row: Row, igdbPoster: string | null, stats: Stats): string {
+interface IgdbDeps {
+  mapIgdbGame: typeof import("../server/igdb").mapIgdbGame;
+  getSteamPosterImage: typeof import("../server/steam").getSteamPosterImage;
+  findIgdbMatch: typeof import("./lib/igdb-match").findIgdbMatch;
+  sleep: typeof import("./lib/igdb-match").sleep;
+}
+
+function resolvePoster(row: Row, igdbPoster: string | null, stats: Stats, deps: IgdbDeps): string {
   if (isLocalUpload(row.poster_url)) {
     stats.keptPosters++;
     return row.poster_url;
@@ -67,7 +70,7 @@ function resolvePoster(row: Row, igdbPoster: string | null, stats: Stats): strin
 
   if (row.steam_appid != null) {
     stats.steamPosters++;
-    return getSteamPosterImage(row.steam_appid);
+    return deps.getSteamPosterImage(row.steam_appid);
   }
 
   if (igdbPoster) {
@@ -88,20 +91,21 @@ async function processRows(
   label: string,
   rows: Row[],
   applyRow: (row: Row, patch: Record<string, unknown>) => void,
-  stats: Stats
+  stats: Stats,
+  deps: IgdbDeps
 ): Promise<void> {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
     process.stdout.write(`[${label} ${i + 1}/${rows.length}] ${row.title}\n`);
 
     try {
-      const match = await findIgdbMatch(row.title, row.year);
+      const match = await deps.findIgdbMatch(row.title, row.year);
       if (!match) {
         stats.unmatched++;
         console.log("   -> no confident IGDB match; cleared stale id, kept existing text metadata");
-        applyRow(row, { igdb_id: null, poster_url: resolvePoster(row, null, stats) });
+        applyRow(row, { igdb_id: null, poster_url: resolvePoster(row, null, stats, deps) });
       } else {
-        const mapped = mapIgdbGame(match);
+        const mapped = deps.mapIgdbGame(match);
         const genres = mapped.genres.length ? mapped.genres : JSON.parse(row.genres || "[]");
         applyRow(row, {
           igdb_id: mapped.igdb_id,
@@ -109,7 +113,7 @@ async function processRows(
           genres: JSON.stringify(genres),
           synopsis: mapped.synopsis,
           critic_score: mapped.critic_score ?? row.critic_score,
-          poster_url: resolvePoster(row, mapped.poster_url, stats),
+          poster_url: resolvePoster(row, mapped.poster_url, stats, deps),
         });
         stats.matched++;
         console.log(`   -> IGDB #${mapped.igdb_id}${mapped.year ? ` (${mapped.year})` : ""}`);
@@ -127,7 +131,7 @@ async function processRows(
       }
     }
 
-    await sleep(REQUEST_DELAY_MS);
+    await deps.sleep(REQUEST_DELAY_MS);
   }
 }
 
@@ -137,9 +141,13 @@ function stampFor(label: string): string {
 }
 
 /** Snapshot the current ids so a re-run always has something to fall back on. */
-function backupIds(rows: { id: number; title: string; igdb_id: number | null }[], label: string): void {
+function backupIds(
+  rows: { id: number; title: string; igdb_id: number | null }[],
+  label: string,
+  dataDir: string
+): void {
   if (!rows.some((row) => row.igdb_id != null)) return;
-  const file = path.join(DATA_DIR, `igdb-id-backup-${label}-${stampFor(label)}.json`);
+  const file = path.join(dataDir, `igdb-id-backup-${label}-${stampFor(label)}.json`);
   fs.writeFileSync(file, JSON.stringify(rows, null, 2), { mode: 0o600 });
   console.log(`Backed up previous ${label} ids to ${file}`);
 }
@@ -157,24 +165,22 @@ Usage:
   npm run reset-metadata -- --help   show this
 `;
 
-/**
- * Whether to print usage instead of starting the reset.
- *
- * `--help` used to fall straight through to `run()`, which cleared `igdb_id` on
- * every row and then went looking for IGDB matches — so asking the script what it
- * did was itself the destructive act. An unrecognised argument stops here for the
- * same reason: guessing is how a probe turns into a rewrite.
- */
-function wantsUsage(argv: readonly string[]): boolean {
-  const unknown = argv.filter((a) => a !== "--help" && a !== "-h");
-  if (unknown.length > 0) {
-    console.error(`Unrecognised argument: ${unknown[0]}\n${USAGE}`);
-    return true;
-  }
-  return argv.some((a) => a === "--help" || a === "-h");
-}
+handleUsage(wantsUsage(process.argv.slice(2)), USAGE);
 
 async function run(): Promise<void> {
+  /* Everything that touches the database is loaded HERE, not at the top of the
+     file. ES module imports are hoisted and evaluated before any module-level
+     statement, so a static `import db from "../server/db"` would open — and write
+     to — the library even when this script was only asked what it would do. The
+     guard above has already exited by this point, so by the time these resolve no
+     database has been touched. */
+  const { default: db } = await import("../server/db");
+  const { DATA_DIR } = await import("../server/paths");
+  const { assertIgdbReachable, findIgdbMatch, sleep } = await import("./lib/igdb-match");
+  const { mapIgdbGame } = await import("../server/igdb");
+  const { getSteamPosterImage } = await import("../server/steam");
+  const deps: IgdbDeps = { mapIgdbGame, getSteamPosterImage, findIgdbMatch, sleep };
+
   console.log("Starting IGDB metadata + poster reset...\n");
   await assertIgdbReachable();
 
@@ -190,8 +196,8 @@ async function run(): Promise<void> {
   // Every stored id today may be a RAWG id, so wipe them before re-assigning —
   // otherwise stale values can collide with freshly matched IGDB ids. The ids
   // are backed up first (and the IGDB credential check above already passed).
-  backupIds(games, "games");
-  backupIds(wishlist, "wishlist");
+  backupIds(games, "games", DATA_DIR);
+  backupIds(wishlist, "wishlist", DATA_DIR);
 
   /* The wipe below and the re-link that follows are minutes apart, because
      every row costs an IGDB round trip. A Ctrl-C in that gap used to leave
@@ -261,9 +267,10 @@ async function run(): Promise<void> {
     "library",
     games,
     (row, patch) => updateGame.run({ id: row.id, updated_at: Date.now(), ...patch }),
-    stats
+    stats,
+    deps
   );
-  await processRows("wishlist", wishlist, (row, patch) => updateWishlist.run({ id: row.id, ...patch }), stats);
+  await processRows("wishlist", wishlist, (row, patch) => updateWishlist.run({ id: row.id, ...patch }), stats, deps);
 
   console.log("\n──────────────────────────────────────────────");
   console.log(`Matched against IGDB : ${stats.matched}`);

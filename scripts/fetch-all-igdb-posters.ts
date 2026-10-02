@@ -10,10 +10,17 @@
  * left alone. Stale RAWG CDN links are purged.
  */
 import "dotenv/config";
-import db from "../server/db";
-import { fetchFromIgdb, getIgdbImageUrl, type IgdbRawGame } from "../server/igdb";
-import { getSteamPosterImage } from "../server/steam";
-import { assertIgdbReachable, findIgdbMatch, sleep } from "./lib/igdb-match";
+import { handleUsage, wantsUsage } from "./lib/maintenance-guard";
+import type { IgdbRawGame } from "../server/igdb";
+
+interface IgdbDeps {
+  fetchFromIgdb: typeof import("../server/igdb").fetchFromIgdb;
+  getIgdbImageUrl: typeof import("../server/igdb").getIgdbImageUrl;
+  getSteamPosterImage: typeof import("../server/steam").getSteamPosterImage;
+  assertIgdbReachable: typeof import("./lib/igdb-match").assertIgdbReachable;
+  findIgdbMatch: typeof import("./lib/igdb-match").findIgdbMatch;
+  sleep: typeof import("./lib/igdb-match").sleep;
+}
 
 const REQUEST_DELAY_MS = 260;
 
@@ -34,14 +41,38 @@ function isRawgUrl(url: string | null | undefined): boolean {
   return Boolean(url && /rawg\.io/i.test(url));
 }
 
+const USAGE = `
+fetch-igdb-posters — re-point every library and wishlist row at an IGDB or Steam
+cover, touching no other metadata. Use it when only the artwork is stale.
+
+Rows with a stored IGDB id are looked up directly; rows without one fall back to
+the conservative title matcher. Steam-owned rows always get the portrait Steam
+cover, locally uploaded posters are left alone, and stale RAWG CDN links are cut.
+
+Usage:
+  npm run fetch-igdb-posters             run it
+  npm run fetch-igdb-posters -- --help   show this
+`;
+
+/* Checked here, before anything below is loaded. ES module imports are hoisted,
+   so a static `import db from "../server/db"` would open — and write to — the
+   library even when this script was only asked what it would do. */
+handleUsage(wantsUsage(process.argv.slice(2)), USAGE);
+
 /** IGDB cover for a known id, or null when the game has no artwork. */
-async function coverForId(igdbId: number): Promise<string | null> {
-  const rows = await fetchFromIgdb("games", `fields cover.image_id; where id = ${igdbId};`);
+async function coverForId(igdbId: number, deps: IgdbDeps): Promise<string | null> {
+  const rows = await deps.fetchFromIgdb("games", `fields cover.image_id; where id = ${igdbId};`);
   const game = (Array.isArray(rows) ? rows[0] : undefined) as IgdbRawGame | undefined;
-  return getIgdbImageUrl(game?.cover?.image_id);
+  return deps.getIgdbImageUrl(game?.cover?.image_id);
 }
 
 async function run(): Promise<void> {
+  const { default: db } = await import("../server/db");
+  const { fetchFromIgdb, getIgdbImageUrl } = await import("../server/igdb");
+  const { getSteamPosterImage } = await import("../server/steam");
+  const { assertIgdbReachable, findIgdbMatch, sleep } = await import("./lib/igdb-match");
+  const deps: IgdbDeps = { fetchFromIgdb, getIgdbImageUrl, getSteamPosterImage, assertIgdbReachable, findIgdbMatch, sleep };
+
   console.log("Refreshing posters (Steam covers for Steam rows, IGDB covers for the rest)...\n");
 
   const games = db.prepare(
@@ -72,7 +103,7 @@ async function run(): Promise<void> {
       }
 
       if (row.steam_appid != null) {
-        save(row, getSteamPosterImage(row.steam_appid));
+        save(row, deps.getSteamPosterImage(row.steam_appid));
         steamCount++;
         console.log("   -> Steam cover");
         continue;
@@ -83,16 +114,16 @@ async function run(): Promise<void> {
         let cover: string | null = null;
 
         if (igdbId != null) {
-          cover = await coverForId(igdbId);
+          cover = await coverForId(igdbId, deps);
         } else {
           // Rows without a stored id come from manual entry (or an ambiguous
           // title) — hit IGDB once before doing any title search so a
           // misconfigured environment never silently skips everything.
           if (!igdbChecked) {
             igdbChecked = true;
-            await assertIgdbReachable();
+            await deps.assertIgdbReachable();
           }
-          const match = await findIgdbMatch(row.title, row.year);
+          const match = await deps.findIgdbMatch(row.title, row.year);
           cover = getIgdbImageUrl(match?.cover?.image_id);
         }
 
@@ -112,7 +143,7 @@ async function run(): Promise<void> {
         console.error(`   -> failed: ${err instanceof Error ? err.message : String(err)}`);
       }
 
-      await sleep(REQUEST_DELAY_MS);
+      await deps.sleep(REQUEST_DELAY_MS);
     }
   };
 

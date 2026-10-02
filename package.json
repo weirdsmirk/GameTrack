@@ -17,7 +17,6 @@
     "typecheck": "tsc --noEmit",
     "reset-metadata": "tsx scripts/reset-metadata.ts",
     "fetch-igdb-posters": "tsx scripts/fetch-all-igdb-posters.ts",
-    "fix-one": "tsx scripts/fix-one.ts",
     "test": "vitest run"
   },
   "dependencies": {

@@ -10,7 +10,7 @@ import { normalizeName } from "../../server/steam";
 import { fetchFromIgdb, type IgdbRawGame } from "../../server/igdb";
 
 /** Strip "(Classic)", "[GOTY]" and similar human suffixes before searching IGDB. */
-export function stripEditionSuffix(title: string): string {
+function stripEditionSuffix(title: string): string {
   return title
     .replace(/\s*[(\[][^)\]]*(classic|goty|game of the year|definitive|remastered|remake|director'?s cut|enhanced|complete|ultimate|deluxe|anniversary|special|collector'?s|legendary|premium)[^)\]]*[)\]]\s*$/i, "")
     .replace(/\s+[-–—:]\s*[^-\–—:]*\b(classic|goty|game of the year|definitive|remastered|remake|director'?s cut|enhanced|complete|ultimate|deluxe|anniversary|special|collector'?s|legendary|premium)\b[^-\–—:]*$/i, "")
@@ -19,7 +19,7 @@ export function stripEditionSuffix(title: string): string {
 }
 
 /** Fields the matcher needs — includes `category` to spot DLC/packs. */
-export const MATCH_FIELDS =
+const MATCH_FIELDS =
   "name, category, first_release_date, genres.name, summary, storyline, cover.image_id, rating, aggregated_rating, platforms.name, platforms.slug";
 
 /** IGDB categories that are not a standalone game: DLC, mod, pack, update. */
@@ -28,7 +28,7 @@ const NON_GAME_CATEGORIES = new Set([1, 5, 13, 14]);
 
 
 /** Strip characters that would break out of an Apicalypse string literal. */
-export function escapeIgdbQuery(s: string): string {
+function escapeIgdbQuery(s: string): string {
   return s.replace(/[\\"\r\n;]/g, "").trim();
 }
 
