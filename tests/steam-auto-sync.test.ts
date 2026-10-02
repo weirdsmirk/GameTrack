@@ -10,7 +10,7 @@ import type { SteamSettings } from "../src/types";
  * code. Two of them are the whole reason this file exists:
  *
  *  - It must stay silent unless Steam is linked. A sync that can only fail,
- *    announced 20 seconds early, is worse than no feature at all: the user gets a
+ *    announced ahead of time, is worse than no feature at all: the user gets a
  *    warning about a library rewrite and then an error toast, on every reload.
  *  - It must be announced *before* it happens, because a Steam sync rewrites
  *    library rows. A user watching rows change for a reason they cannot see cannot
@@ -99,12 +99,12 @@ describe("automatic Steam sync", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("warns that the sync is coming, 20 seconds out, when Steam is linked", () => {
+  it("warns that the sync is coming, 15 seconds out, when Steam is linked", () => {
     useGameTrackStore.setState({ steamSettings: linked() } as never);
     useGameTrackStore.getState().scheduleAutoSteamSync();
 
     const w = warnings();
-    expect(w.map((t) => t.message)).toEqual(["Steam sync will start in 20 seconds"]);
+    expect(w.map((t) => t.message)).toEqual(["Steam sync will start in 15 seconds"]);
     // A warning must not be mistaken for the neutral info notes or, worse, for
     // the accent fill that means "done".
     expect(w.every((t) => t.type === "warning")).toBe(true);
@@ -123,7 +123,7 @@ describe("automatic Steam sync", () => {
     useGameTrackStore.setState({ steamSettings: linked() } as never);
     useGameTrackStore.getState().scheduleAutoSteamSync();
 
-    await vi.advanceTimersByTimeAsync(19_999);
+    await vi.advanceTimersByTimeAsync(14_999);
     expect(syncCalls(fetchMock)).toBe(0);
 
     await vi.advanceTimersByTimeAsync(1);
@@ -134,7 +134,7 @@ describe("automatic Steam sync", () => {
     vi.stubGlobal("fetch", vi.fn(okSync));
     useGameTrackStore.setState({ steamSettings: linked() } as never);
     useGameTrackStore.getState().scheduleAutoSteamSync();
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(15_000);
 
     const messages = useGameTrackStore.getState().toasts.map((t) => `${t.type}: ${t.message}`);
     expect(messages).toContain("info: Steam sync in progress");
@@ -155,7 +155,7 @@ describe("automatic Steam sync", () => {
     // effect under StrictMode, which double-invokes.
     expect(warnings()).toHaveLength(1);
 
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(15_000);
     expect(syncCalls(fetchMock)).toBe(1);
   });
 
@@ -165,17 +165,17 @@ describe("automatic Steam sync", () => {
     useGameTrackStore.setState({ steamSettings: linked() } as never);
 
     useGameTrackStore.getState().scheduleAutoSteamSync();
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(15_000);
     expect(syncCalls(fetchMock)).toBe(1);
 
     // The module-level guard must be released on fire, or the feature would work
     // exactly once per page load instead of once per reload. Exactly one warning
-    // is present because advancing the clock 20s also expired the first one —
+    // is present because advancing the clock 15s also expired the first one —
     // its own 5s life ran out long before the sync did, which is the point of
     // raising the notice as a heads-up rather than as a pending indicator.
     useGameTrackStore.getState().scheduleAutoSteamSync();
-    expect(warnings().map((t) => t.message)).toEqual(["Steam sync will start in 20 seconds"]);
-    await vi.advanceTimersByTimeAsync(20_000);
+    expect(warnings().map((t) => t.message)).toEqual(["Steam sync will start in 15 seconds"]);
+    await vi.advanceTimersByTimeAsync(15_000);
     expect(syncCalls(fetchMock)).toBe(2);
   });
 });

@@ -665,8 +665,13 @@ let customizationWrite: Promise<Response | null> = Promise.resolve(null);
 
 /**
  * How long after page load the automatic Steam sync runs.
+ *
+ * Long enough that the library has painted and the user is not mid-click, short
+ * enough that a reload is a reasonable way to pick up library changes made
+ * elsewhere. The warning toast derives its countdown from this value rather than
+ * hardcoding a number, so the two cannot disagree.
  */
-const AUTO_STEAM_SYNC_DELAY_MS = 20_000;
+const AUTO_STEAM_SYNC_DELAY_MS = 15_000;
 
 /**
  * The pending auto-sync timer, or null when none is scheduled.
