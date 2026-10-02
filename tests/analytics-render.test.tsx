@@ -83,6 +83,13 @@ beforeAll(() => {
       total_games: 3, active_games: 1, completed_games: 1, total_playtime_hours: 51,
       average_playtime_per_game: 17, last_updated: Date.now(),
       owned_games: 3, not_owned_games: 0, owned_playtime_hours: 51, not_owned_playtime_hours: 0,
+      // Replays, held to the same reconciling identities the server guarantees:
+      // times_played - total_games === replay_runs (4 - 3 = 1), and
+      // total_playtime_hours + replay_playtime_hours === all_playthroughs_hours
+      // (51 + 7 = 58). A view asserting on these figures is therefore testing
+      // real invariants rather than arbitrary numbers.
+      times_played: 4, replayed_games: 1, most_times_played: 2,
+      replay_playtime_hours: 7, replay_runs: 1, all_playthroughs_hours: 58,
     },
     fetchAnalytics: async () => {},
     setSettingsOpen: () => {},

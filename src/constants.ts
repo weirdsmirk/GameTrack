@@ -323,6 +323,57 @@ export const platformsSelectable = (ownership: OwnershipStatus): boolean => owne
 export const PLATFORMS_LOCKED_REASON =
   "Platforms track copies you own, so they are unavailable on a game marked Not Owned.";
 
+// ── Replays ─────────────────────────────────────────────────────────
+
+/**
+ * How many times a game has been played in total — its own run plus every
+ * replay.
+ *
+ * Like `isOwned`, this exists so a payload predating the feature reads correctly
+ * instead of as zero. A missing or nonsensical value means "played once", which
+ * is what every row meant before replays could be recorded; the alternative is
+ * worse than absent — `0` is falsy, so a naive `times_played > 1` test would
+ * still hide the badge, but `times_played - 1` in a sum or an average would
+ * report a negative count of replays.
+ */
+export const timesPlayed = (game: { times_played?: number | null }): number => {
+  const n = Number(game.times_played);
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+};
+
+/** Replay count only — the same figure minus the game's own playthrough. */
+export const replayCount = (game: { times_played?: number | null }): number =>
+  timesPlayed(game) - 1;
+
+/** True when the game has been played more than once. */
+export const isReplayed = (game: { times_played?: number | null }): boolean =>
+  timesPlayed(game) > 1;
+
+/** Hours logged on replays only; the game's own hours are `game.playtime`. */
+export const replayPlaytime = (game: { replay_playtime?: number | null }): number => {
+  const n = Number(game.replay_playtime);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+
+/**
+ * Hours across every playthrough — first run plus replays.
+ *
+ * Reported separately from `game.playtime` rather than replacing it: the
+ * playtime field the details form edits is run #1, and having the total silently
+ * absorb it would make saving an edit appear to do nothing to the number.
+ */
+export const totalPlaytime = (game: {
+  playtime?: number | null;
+  replay_playtime?: number | null;
+}): number => (Number(game.playtime) || 0) + replayPlaytime(game);
+
+/** Options for the library's "times played" filter. */
+export const TIMES_PLAYED_FILTERS = [
+  { value: "replayed", label: "Replayed (2+)", test: (g: { times_played?: number | null }) => isReplayed(g) },
+  { value: "once", label: "Played Once", test: (g: { times_played?: number | null }) => !isReplayed(g) },
+  { value: "3plus", label: "3+ Times", test: (g: { times_played?: number | null }) => timesPlayed(g) >= 3 },
+] as const;
+
 // ── Discover genre filter ──────────────────────────────────────────
 // Our dropdown labels are not IGDB genre names, so every option maps to the
 // exact IGDB genre name(s) it should match. This is the single source of truth

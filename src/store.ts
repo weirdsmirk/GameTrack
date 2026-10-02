@@ -3,7 +3,7 @@ import {
   Game, LibrarySummary,
   GenreAnalytics, NextToPlaySuggestion,
   IGDBGame, SteamSettings, DiscoverLists, CustomizationSettings, WishlistItem, ManualWishlistEntry,
-  PlayingConflict
+  PlayingConflict, Playthrough
 } from "./types";
 import { isThemeId, applyTheme, applyThemeWithReboot } from "./themes";
 import { Platform, slugifyPlatformLabel, mergeCustomPlatforms, igdbGenreNamesFor, isOwned } from "./constants";
@@ -189,6 +189,22 @@ interface GameTrackState {
   resetGamePoster: (id: number) => Promise<string | null>;
   resetGameMetadata: (id: number) => Promise<Game | null>;
 
+  /**
+   * Replays (playthroughs #2..n) for one game.
+   *
+   * Held per game id and cleared by `deleteGame`/`deleteGames`, because a replay
+   * list outlives neither the modal nor the page: reopening a game should show
+   * its history without a round trip, and the list is worthless — worse than
+   * empty — once its parent is gone. Loading is tracked separately per game so
+   * opening a second game's details does not show the first game's runs.
+   */
+  playthroughs: Record<number, Playthrough[]>;
+  loadingPlaythroughs: Record<number, boolean>;
+  fetchPlaythroughs: (gameId: number, force?: boolean) => Promise<void>;
+  addPlaythrough: (gameId: number, data: Partial<Playthrough>) => Promise<boolean>;
+  updatePlaythrough: (playthroughId: number, gameId: number, data: Partial<Playthrough>) => Promise<boolean>;
+  deletePlaythrough: (playthroughId: number, gameId: number) => Promise<boolean>;
+
   trendingGames: IGDBGame[];
   discoverSearchResults: IGDBGame[];
   discoverQuery: string;
@@ -302,6 +318,21 @@ function getInitialTab(): GameTrackState["activeTab"] {
   return (VALID_TABS as readonly string[]).includes(stored || "") ? stored as GameTrackState["activeTab"] : "dashboard";
 }
 
+/** Copy a keyed record without one entry — used to evict per-game caches. */
+const omitKey = <V,>(record: Record<number, V>, key: number): Record<number, V> => {
+  if (!(key in record)) return record;
+  const next = { ...record };
+  delete next[key];
+  return next;
+};
+
+/** Copy a keyed record without a set of entries. */
+const omitKeys = <V,>(record: Record<number, V>, keys: Set<number>): Record<number, V> => {
+  let next = record;
+  for (const key of keys) next = omitKey(next, key);
+  return next;
+};
+
 const FILTERS_KEY = "gametrack_library_filters";
 const DEFAULT_FILTERS = { status: "", ownership: "", platform: "", sort: "recent", search: "", hideCompleted: false, hideEndless: false };
 
@@ -386,9 +417,25 @@ function loadCachedAnalytics() {
       ownership.owned_playtime_hours = summary.total_playtime_hours ?? 0;
       ownership.not_owned_playtime_hours = 0;
     }
+    // Same reasoning for replays. A cache written before this feature existed is
+    // not missing data — it describes a library in which every game was played
+    // exactly once, because there was no way to record otherwise. Backfilling
+    // "one playthrough each, no replays" keeps all three reconciling identities
+    // true (times_played - total_games === replay_runs, and the hour totals
+    // still sum to all_playthroughs_hours) rather than rendering `undefined`
+    // panels until the cache ages out on its own.
+    const replays: Partial<LibrarySummary> = {};
+    if (typeof summary.times_played !== "number") {
+      replays.times_played = summary.total_games;
+      replays.replayed_games = 0;
+      replays.most_times_played = 1;
+      replays.replay_runs = 0;
+      replays.replay_playtime_hours = 0;
+      replays.all_playthroughs_hours = summary.total_playtime_hours ?? 0;
+    }
     return {
       savedAt: parsed.savedAt as number,
-      summary: { ...summary, ...ownership } as LibrarySummary,
+      summary: { ...summary, ...ownership, ...replays } as LibrarySummary,
       genreAnalytics: parsed.genreAnalytics as GenreAnalytics[],
       // Cached rows predate ownership_status; `isOwned()` reads a missing value
       // as owned, which is exactly right for them.
@@ -540,6 +587,8 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     set({ activeTab: tab, selectedGame: null });
   },
   selectedGame: null,
+  playthroughs: {},
+  loadingPlaythroughs: {},
   setSelectedGame: (game) => {
     // Note: synopsis/poster enrichment happens in GameDetailsModal's own
     // effect — firing it here too would double-PATCH the same game on open.
@@ -740,6 +789,11 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       set((state) => ({
         games: state.games.filter((g) => g.id !== id),
         selectedGame: state.selectedGame?.id === id ? null : state.selectedGame,
+        // The runs are gone with the game (the API cascades), so keeping the
+        // cached list would leave the UI able to render history for a title that
+        // no longer exists — and would reappear if a new game reused the id.
+        playthroughs: omitKey(state.playthroughs, id),
+        loadingPlaythroughs: omitKey(state.loadingPlaythroughs, id),
       }));
       get().showToast("Game removed from library", "info");
       get().fetchAnalytics();
@@ -769,12 +823,104 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       set((state) => ({
         games: state.games.filter((g) => !idSet.has(g.id)),
         selectedGame: state.selectedGame && idSet.has(state.selectedGame.id) ? null : state.selectedGame,
+        // Drop every deleted game's runs in the same pass — see deleteGame.
+        playthroughs: omitKeys(state.playthroughs, idSet),
+        loadingPlaythroughs: omitKeys(state.loadingPlaythroughs, idSet),
       }));
       get().showToast(`Deleted ${ids.length} ${ids.length === 1 ? "game" : "games"}`, "info");
       get().fetchAnalytics();
       return true;
     } catch (err: unknown) {
       get().showToast(getErrorMessage(err) || "Error deleting games", "error");
+      return false;
+    }
+  },
+
+  /**
+   * Load a game's replays, once per game unless forced.
+   *
+   * `force` exists for the moment a replay is added/edited/deleted: those
+   * actions already splice the new list into the cache from their own response,
+   * so re-fetching would be redundant — but a refresh is what guarantees the
+   * cached list matches the server's renumbered `sequence` values, which a
+   * splice cannot know (deleting a middle replay renumbers everything after it).
+   * So mutations do NOT splice: they refresh. Correctness over one extra request
+   * on an action the user takes a few times a session.
+   */
+  fetchPlaythroughs: async (gameId, force) => {
+    const state = get();
+    if (state.loadingPlaythroughs[gameId]) return;
+    if (!force && gameId in state.playthroughs) return;
+
+    set((s) => ({ loadingPlaythroughs: { ...s.loadingPlaythroughs, [gameId]: true } }));
+    try {
+      const res = await fetch(`/api/games/${gameId}/playthroughs`);
+      if (!res.ok) throw await getApiError(res, "Failed to load replays");
+      const data = await res.json();
+      set((s) => ({
+        playthroughs: { ...s.playthroughs, [gameId]: data.playthroughs ?? [] },
+        loadingPlaythroughs: { ...s.loadingPlaythroughs, [gameId]: false },
+      }));
+    } catch (err: unknown) {
+      set((s) => ({ loadingPlaythroughs: { ...s.loadingPlaythroughs, [gameId]: false } }));
+      // Only report a failure the user is actually waiting on. The details modal
+      // prefetches for games they may never open, and a toast per prefetch would
+      // fire on every card click in the grid.
+      if (get().selectedGame?.id === gameId) {
+        get().showToast(getErrorMessage(err) || "Error loading replays", "error");
+      }
+    }
+  },
+
+  addPlaythrough: async (gameId, data) => {
+    try {
+      const res = await fetch(`/api/games/${gameId}/playthroughs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw await getApiError(res, "Failed to log replay");
+      // Refresh rather than append: the server owns the sequence numbering.
+      await get().fetchPlaythroughs(gameId, true);
+      await get().fetchGames(true);
+      get().fetchAnalytics();
+      get().showToast("Replay logged", "info");
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error logging replay", "error");
+      return false;
+    }
+  },
+
+  updatePlaythrough: async (playthroughId, gameId, data) => {
+    try {
+      const res = await fetch(`/api/playthroughs/${playthroughId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw await getApiError(res, "Failed to update replay");
+      await get().fetchPlaythroughs(gameId, true);
+      await get().fetchGames(true);
+      get().fetchAnalytics();
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error updating replay", "error");
+      return false;
+    }
+  },
+
+  deletePlaythrough: async (playthroughId, gameId) => {
+    try {
+      const res = await fetch(`/api/playthroughs/${playthroughId}`, { method: "DELETE" });
+      if (!res.ok) throw await getApiError(res, "Failed to delete replay");
+      await get().fetchPlaythroughs(gameId, true);
+      await get().fetchGames(true);
+      get().fetchAnalytics();
+      get().showToast("Replay removed", "info");
+      return true;
+    } catch (err: unknown) {
+      get().showToast(getErrorMessage(err) || "Error deleting replay", "error");
       return false;
     }
   },

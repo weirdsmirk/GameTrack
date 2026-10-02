@@ -31,6 +31,42 @@ export interface Game {
   steam_appid?: number | null;
   custom_order?: number | null; // hand-arranged library position; null = unplaced
   metadata_custom?: number; // 1 when the user edited metadata (title/year/genres/synopsis/score/poster) — Steam sync preserves it
+  /**
+   * Total playthroughs: the game's own run plus every replay. Always >= 1.
+   * Denormalised on the server and refreshed inside the same transaction as any
+   * replay change, so a badge can trust it without fetching the runs. Read it
+   * through `timesPlayed()` from constants rather than directly, so a payload
+   * predating this feature (where the field is absent) still counts as one
+   * playthrough instead of reading as zero.
+   */
+  times_played?: number;
+  /** Hours logged across replays only. Playthrough #1 is `playtime`. */
+  replay_playtime?: number;
+}
+
+/**
+ * One playthrough of a game after the first. Runs #2..n live here; the game row
+ * itself is run #1 and is never mirrored into this list, so a game's own
+ * playtime, status and completion date stay exactly where every existing screen
+ * already reads them — which is why adding replays required no change to the
+ * status filters, the grid, the duplicate detector or the Steam sync.
+ */
+export interface Playthrough {
+  id: number;
+  game_id: number;
+  /** Display ordinal — 2 for the first replay. Contiguous by construction. */
+  sequence: number;
+  status: "backlog" | "playing" | "completed" | "endless";
+  playtime: number;
+  personal_rating: number | null;
+  /** Null both when finished-but-undated and when not finished yet. */
+  date_completed: number | null;
+  /** Where this run happened. Free text, because a replay is often on a
+   *  platform you do not own — hence not constrained to the owned platforms. */
+  platform: string | null;
+  notes: string;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface LibrarySummary {
@@ -49,6 +85,26 @@ export interface LibrarySummary {
   not_owned_games: number;
   owned_playtime_hours: number;
   not_owned_playtime_hours: number;
+  /**
+   * Replay figures. Deliberately reported ALONGSIDE `total_playtime_hours`
+   * rather than folded into it: that field has always meant first-playthrough
+   * hours and is the numerator behind `average_playtime_per_game`, so widening
+   * its meaning silently would inflate an existing stat. The three invariants a
+   * view can rely on:
+   *
+   *   times_played - total_games === replay_runs
+   *   total_playtime_hours + replay_playtime_hours === all_playthroughs_hours
+   *   replayed_games <= total_games, most_times_played <= times_played
+   *
+   * Because they reconcile, a screen can label each figure honestly instead of
+   * implying the legacy total already accounts for replays.
+   */
+  times_played: number;
+  replayed_games: number;
+  most_times_played: number;
+  replay_playtime_hours: number;
+  replay_runs: number;
+  all_playthroughs_hours: number;
 }
 
 export interface GenreAnalytics {
