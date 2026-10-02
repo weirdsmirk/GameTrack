@@ -1402,10 +1402,25 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                       ? `Playtime for ${selectedGame.title}: ${playtimeTitle(selectedGame)}. Open replay history.`
                       : undefined}
                     hiddenBorder={selectedGame.hide_playtime === 1}
-                    valueClassName={selectedGame.hide_playtime === 1 ? "text-red-400/80 line-through decoration-2 decoration-red-500/40" : "text-white"}
+                    /* No line-through. It was here to say "this number is
+                       suppressed", but the value being struck out is the word
+                       HIDDEN — so the label reading "hidden" was itself struck
+                       through, which reads as a crossed-out label rather than a
+                       suppressed figure. The eye icon, the red and the dashed
+                       frame already carry it, and none of them contradict the
+                       words. */
+                    valueClassName={selectedGame.hide_playtime === 1 ? "text-red-400/80" : "text-white"}
                     value={
                       selectedGame.hide_playtime === 1
-                        ? <><EyeOff className="w-3.5 h-3.5 shrink-0" />{"Hidden"}</>
+                        ? /* Inline-flex, so the icon sits beside the word.
+                             lucide renders <svg display:block> to stop SVGs
+                             opening a baseline gap, which means inside a block
+                             heading the icon became its own line and the cell read
+                             as a stacked badge rather than one value. */
+                          <span className="inline-flex items-center gap-1.5">
+                            <EyeOff className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                            Hidden
+                          </span>
                         : <>{formatPlaytimePrecise(totalPlaytime(selectedGame))}
                             {/* The run count is part of the affordance — it is what
                                 tells you there is something to open — so it is
