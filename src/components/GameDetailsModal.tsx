@@ -8,9 +8,10 @@ import { formatPlaytimePrecise, formatDateShort } from "../utils/time";
 import { motion, AnimatePresence } from "motion/react";
 import { uploadPoster } from "../utils/image";
 import { useModalA11y } from "../hooks/useModalA11y";
-import { STATUSES, getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms, OWNERSHIP_STATUSES, getOwnershipLabel, platformsSelectable, PLATFORMS_LOCKED_REASON, isOwned, isReplayed, timesPlayed, type OwnershipStatus } from "../constants";
+import { STATUSES, getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms, OWNERSHIP_STATUSES, getOwnershipLabel, platformsSelectable, PLATFORMS_LOCKED_REASON, isOwned, isReplayed, timesPlayed, totalPlaytime, type OwnershipStatus } from "../constants";
 import { PosterImage } from "./PosterImage";
 import { ReplayHistory } from "./ReplayHistory";
+import type { Game } from "../types";
 import { lockBodyScroll } from "../utils/scrollLock";
 
 /**
@@ -37,6 +38,20 @@ import { lockBodyScroll } from "../utils/scrollLock";
  * (`new Date(value + "T00:00:00")`), so reading it in local time too makes
  * load and save the same instant and the round-trip stops drifting.
  */
+/**
+ * The playtime cell's accessible name and tooltip.
+ *
+ * Stating the split here is what lets the cell itself show only the all-runs
+ * total under the plain word "Playtime". For a game with one run this is just the
+ * hours; for a replayed one it says how much of the total came from the first
+ * playthrough, which is otherwise the only figure this cell used to display.
+ */
+const playtimeTitle = (game: Game): string => {
+  const total = formatPlaytimePrecise(totalPlaytime(game));
+  if (!isReplayed(game)) return total;
+  return `${total} across ${timesPlayed(game)} playthroughs — ${formatPlaytimePrecise(game.playtime)} on the first`;
+};
+
 const formatDateInputValue = (d: Date): string => {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -1206,33 +1221,42 @@ export const GameDetailsModal: React.FC = React.memo(() => {
             <div className="px-6 py-5 md:px-8 md:py-6 border-t border-brand-border/60 shrink-0 bg-zinc-950/85 backdrop-blur-sm space-y-3">
               {/* Registry Metrics */}
               <div className="grid grid-cols-3 gap-3">
-                {/* The hours cell is the entry point to replay history, so it is a button.
+                {/* The playtime cell is the entry point to replay history, so it is a button.
 
-                      Hours is the field a replay actually changes — a second run
-                      adds time without touching anything else on this row — so
-                      this is the metric a user is reaching for when they think
+                      Playtime is the field a replay actually changes — a second
+                      run adds time without touching anything else on this row —
+                      so this is the metric a user is reaching for when they think
                       "I beat this again". Putting the disclosure here keeps the
                       read view's scroll area to synopsis + metrics and moves the
                       growing per-run list into a layer that can hold it.
 
-                      Kept visually identical to its two siblings, with the
-                      affordance carried by hover/focus alone: an always-visible
-                      chevron would make one cell in a row of three read as
-                      "different kind of thing" rather than "same thing, opens".
+                      Labelled "Playtime" and showing the ALL-RUNS total. The
+                      alternative was to keep the game's own `playtime` (run #1
+                      only) and call it something like "First Run Hours", but then
+                      the number a plain word promises is not the number shown —
+                      a game beaten three times for 31h reported "Playtime 4h".
+                      The total is what "playtime" means; the per-run split is one
+                      click away, and the first run is listed there as Playthrough 1.
 
-                      Relabelled once replayed, because this cell reads the game's
-                      own `playtime` — playthrough #1 only. Calling it "Aggregate
-                      Hours" next to a replay dialog totalling every run would put
-                      two different numbers under the same word. */}
+                      The clickable affordance is a DASHED RULE under the value,
+                      present at rest rather than only on hover. Hover-only signals
+                      do not work for the two cases that matter most here — a
+                      keyboard user tabbing through, and a touch user who never
+                      generates a hover state at all. The rule turns accent on
+                      hover/focus, so it reads as the same object getting more
+                      committed rather than as a new one appearing. Deliberately
+                      not a chevron: that would make one cell in a row of three
+                      look like a different *kind* of thing rather than the same
+                      thing that opens something. */}
                   <button
                     type="button"
                     onClick={() => setReplayModalOpen(true)}
                     aria-haspopup="dialog"
-                    aria-label={`${isReplayed(selectedGame) ? "First run hours" : "Aggregate hours"} for ${selectedGame.title}. Open replay history.`}
-                    className={`text-left bg-zinc-900/60 border p-3.5 flex flex-col justify-between h-[76px] w-full cursor-pointer transition-colors hover:bg-zinc-900 focus:outline-none focus-visible:border-brand-accent ${selectedGame.hide_playtime === 1 ? "border-dashed border-red-500/25" : "border-brand-border/50"}`}
+                    aria-label={`Playtime for ${selectedGame.title}: ${playtimeTitle(selectedGame)}. Open replay history.`}
+                    className={`group text-left bg-zinc-900/60 border p-3.5 flex flex-col justify-between h-[76px] w-full cursor-pointer transition-colors hover:bg-zinc-900 focus:outline-none focus-visible:border-brand-accent ${selectedGame.hide_playtime === 1 ? "border-dashed border-red-500/25" : "border-brand-border/50 hover:border-brand-accent/50"}`}
                   >
                     <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">
-                      {isReplayed(selectedGame) ? "First Run Hours" : "Aggregate Hours"}
+                      Playtime
                     </p>
                     {selectedGame.hide_playtime === 1 ? (
                       <h5 className="text-sm sm:text-lg font-black text-red-400/80 mt-2 leading-none uppercase inline-flex items-center gap-1.5 line-through decoration-2 decoration-red-500/40" title="Playtime is hidden — shown only to you">
@@ -1240,17 +1264,41 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                         Hidden
                       </h5>
                     ) : (
-                      <h5 className="text-sm sm:text-lg font-black text-white mt-2 leading-none uppercase flex items-baseline gap-2">
-                        {formatPlaytimePrecise(selectedGame.playtime)}
-                        {/* The one cue that this cell opens something. Only shown
-                            when there is more than one run, because "×1" on a game
-                            played once would be noise on every card in the
-                            library. */}
-                        {isReplayed(selectedGame) && (
-                          <span className="text-[10px] font-black text-brand-accent tracking-widest">
-                            ×{timesPlayed(selectedGame)}
-                          </span>
-                        )}
+                      /* The dashed rule is the clickable signal, and it is visible AT REST, not
+                         just on hover. It cannot be hover-only: a keyboard user
+                         tabbing to the cell never generates a hover state, and a
+                         touch user never does either — so a hover-only affordance
+                         is invisible to exactly the people who most need to be
+                         told the thing is interactive.
+
+                         `zinc-500`, not `brand-border`. The structural border token
+                         is #27272A on a #18181B cell — measured at 1.3:1 against
+                         the painted background, which is why the first attempt read
+                         as a faint smudge rather than a rule. Right for a frame,
+                         wrong for a signal. Zinc-600 only reached 2.51:1; zinc-500
+                         clears the 3:1 that WCAG asks of a meaningful UI boundary,
+                         while still sitting below the white value so it never
+                         competes with the number itself. It goes accent on
+                         hover/focus, so the interaction reads as escalation rather
+                         than as a change of object.
+
+                         `w-fit` so the rule hugs the text; stretched to the cell's
+                         full width it would read as a divider between the three
+                         metrics, which is the opposite message. */
+                      <h5 className="text-sm sm:text-lg font-black text-white mt-2 leading-none uppercase w-fit border-b-2 border-dashed border-zinc-500 group-hover:border-brand-accent group-focus-visible:border-brand-accent transition-colors pb-1">
+                        <span className="flex items-baseline gap-2">
+                          {formatPlaytimePrecise(totalPlaytime(selectedGame))}
+                          {/* The run count, which is also the other half of the
+                              affordance: it tells you there is something to open.
+                              Only rendered when there is more than one run —
+                              "×1" on every game in an un-replayed library would be
+                              noise on every cell. */}
+                          {isReplayed(selectedGame) && (
+                            <span className="text-[10px] font-black text-brand-accent tracking-widest">
+                              ×{timesPlayed(selectedGame)}
+                            </span>
+                          )}
+                        </span>
                       </h5>
                     )}
                   </button>
