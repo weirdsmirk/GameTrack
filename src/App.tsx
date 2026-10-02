@@ -47,7 +47,7 @@ export default function App() {
     showToast,
     customizations, updateCustomizations,
     games, loadingAnalytics, loadingWishlist, loadingLists, loadingDiscover,
-    hasMoreTrending,
+    trendingSettled,
     trendingGames, discoverSearchResults, discoverQuery, wishlist,
   } = useGameTrackStore(useShallow((s) => ({
     activeTab: s.activeTab, setActiveTab: s.setActiveTab, fetchGames: s.fetchGames,
@@ -60,7 +60,7 @@ export default function App() {
     updateCustomizations: s.updateCustomizations, games: s.games,
     loadingAnalytics: s.loadingAnalytics, loadingWishlist: s.loadingWishlist,
     loadingLists: s.loadingLists, loadingDiscover: s.loadingDiscover,
-    hasMoreTrending: s.hasMoreTrending,
+    trendingSettled: s.trendingSettled,
     trendingGames: s.trendingGames, discoverSearchResults: s.discoverSearchResults,
     discoverQuery: s.discoverQuery, wishlist: s.wishlist,
   })));
@@ -298,21 +298,26 @@ export default function App() {
       case "dashboard":
         return !loadingGames;
       case "discover":
-        /* "Settled", not "non-empty".
+        /* "Settled", not "non-empty" and not "no more pages".
 
            This used to require `trendingGames.length > 0`, which made an empty
            result indistinguishable from a request still in flight — so the gate
-           never released and DiscoverView's own error panel and empty state were
+           never released and DiscoverView's error panel and empty state were
            unreachable. Two ordinary situations land there: IGDB credentials are
            OPTIONAL in this app, so a fresh install with none configured settles on
-           an empty feed, and a failed request settles empty too. Either way the
-           user got `<Spinner label="Loading page">` for the rest of the session,
-           with no error, no explanation and only a reload as a way out.
+           an empty feed, and a failed request settles empty too.
 
-           `hasMoreTrending` is what actually settles: the store clears it once a
-           fetch completes, successfully or not, so it covers the empty result, the
-           error, and the exhausted-pagination case in one term. */
-        return !loadingLists && !loadingDiscover && !hasMoreTrending;
+           The attempted fix — `!hasMoreTrending` — was wrong in a way that made
+           it worse, because `hasMoreTrending` means "is there another page", not
+           "did the request finish". It is `true` before the first request and is
+           only ever cleared by a request that SUCCEEDS with a short or empty page,
+           so a 429, a network error or an abort all left it `true` and the gate
+           shut again — silently, since the view holding the error message was the
+           thing never rendered.
+
+           `trendingSettled` is set by every terminal path of `fetchTrending`:
+           success, empty, throttled, and failed. */
+        return !loadingLists && !loadingDiscover && trendingSettled;
       case "analytics":
         return !loadingAnalytics;
       case "wishlist":

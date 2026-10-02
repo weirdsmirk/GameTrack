@@ -229,6 +229,27 @@ interface GameTrackState {
   searchPage: number;
   hasMoreTrending: boolean;
   hasMoreSearch: boolean;
+  /**
+   * Whether the trending feed has finished settling for the current view —
+   * successfully, empty, throttled or failed. `true` means the request reached a
+   * terminal state and Discover can be revealed; `false` means one is in flight or
+   * has not started.
+   *
+   * This exists because `hasMoreTrending` is NOT that signal, and reading it as
+   * one is what left the Discover page spinning forever. `hasMoreTrending` means
+   * "there is another page of results", so it is `true` before the first request,
+   * and a request only ever clears it by *succeeding* with a short or empty page.
+   * Every failure path — a 429, a network error, an abort, a genre switch that
+   * never resolves — left it `true`, so a gate written as `!hasMoreTrending` could
+   * never open on failure. The user saw an endless spinner with no error, because
+   * the view carrying the error state was itself never rendered.
+   *
+   * Kept as its own bit so "did the request finish" stops being inferred from a
+   * field about pagination: the next early return added to `fetchTrending` now
+   * cannot silently re-break the gate, and success/error/throttle are all just
+   * places that set this one flag.
+   */
+  trendingSettled: boolean;
   /** Epoch ms until which /api/discover must not be called (0 = clear). */
   discoverCooldownUntil: number;
   setDiscoverGenre: (genre: string) => void;
@@ -1100,6 +1121,9 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   trendingPage: cachedDiscover?.trendingPage ?? 1,
   searchPage: 1,
   hasMoreTrending: cachedDiscover?.hasMoreTrending ?? true,
+  // A restored cache is a feed that already finished settling, so the view may be
+  // revealed immediately. Without one there is nothing to show yet.
+  trendingSettled: cachedDiscover != null,
   hasMoreSearch: true,
   discoverCooldownUntil: 0,
   discoverLists: cachedDiscover?.discoverLists ?? null,
@@ -1155,7 +1179,14 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     const controller = new AbortController();
     trendingController = controller;
 
-    set({ loadingTrending: true, discoverError: null });
+    // Only a fresh page-1 fetch closes the gate. Clearing this on `loadMore` would
+    // slam the page loader back up in the middle of an infinite scroll, over a
+    // feed that is already on screen and perfectly usable.
+    set((s) => ({
+      loadingTrending: true,
+      discoverError: null,
+      trendingSettled: loadMore ? s.trendingSettled : false,
+    }));
     try {
       // Genre filtering runs server-side over the whole ranked pool, so every
       // page delivered here already matches the active filter. The page size
@@ -1170,7 +1201,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       if (cooldown) {
         // Park the feed instead of hammering: this is what used to leave the
         // "Loading more games..." spinner running forever without new cards.
-        set({ discoverCooldownUntil: Date.now() + cooldown });
+        set({ discoverCooldownUntil: Date.now() + cooldown, trendingSettled: true });
         get().showToast("Discover is throttled by the server", "info", "Retrying automatically in a few seconds.");
         return;
       }
@@ -1190,6 +1221,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
         trendingGenre: genre,
         hasMoreTrending: hasMore,
         discoverError: null,
+        trendingSettled: true,
       }));
       saveDiscoverCache({
         savedAt: Date.now(),
@@ -1205,6 +1237,11 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       console.error(err);
       set({
         discoverError: loadMore ? null : "Could not reach the game registry. The discovery service is temporarily unavailable. Please try again in a moment.",
+        // This is the path that used to hang the page. Marking it settled is what
+        // lets DiscoverView render at all — and rendering it is the only way its
+        // error panel and Reconnect button become reachable, so leaving this
+        // unset hid the recovery behind the very spinner it was explaining.
+        trendingSettled: true,
       });
     } finally {
       if (!controller.signal.aborted) setDiscoverLoading(set, { trending: false });
@@ -1231,6 +1268,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       trendingGenre: genre,
       trendingPage: 1,
       hasMoreTrending: true,
+      trendingSettled: false,
       // An active search must not show the previous genre's results while the
       // re-queried page 1 is in flight.
       discoverSearchResults: [],
