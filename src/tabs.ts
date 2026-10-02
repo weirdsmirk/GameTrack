@@ -15,3 +15,24 @@ export const TABS = [
 ] as const;
 
 export type TabId = (typeof TABS)[number]["id"];
+
+/**
+ * Everything `activeTab` can be: the menu pages, plus `wishlist`.
+ *
+ * `wishlist` has no menu position, so it is absent from `TABS` and therefore
+ * from `TabId` — but it is a real destination the app navigates to. Written
+ * inline in the store's state interface it appeared twice, which is how the
+ * `TabId` alias below ended up exported and unused while the union it was meant
+ * to express was maintained by hand in two places.
+ */
+export type ActiveTab = TabId | "wishlist";
+
+/**
+ * The tabs that may be restored from storage on reload.
+ *
+ * Derived from `TABS` rather than listed again. It was previously a hand-kept
+ * copy of the same four ids, and the two lists had to agree without anything
+ * making them: add a tab to the menu and the new page silently failed to survive
+ * a reload, with no error — it just always came back on CENTRAL.
+ */
+export const RESTORABLE_TABS: readonly TabId[] = TABS.map((t) => t.id);

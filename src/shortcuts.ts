@@ -63,17 +63,6 @@ export const FIXED_SHORTCUTS: readonly { keys: string[]; label: string }[] = [
   { keys: ["G", "D"], label: "CENTRAL" },
 ] as const;
 
-/** The shipped bindings, used as the reset target and as the fallback. */
-export const DEFAULT_SHORTCUTS: Readonly<Record<ShortcutActionId, string>> = Object.freeze(
-  SHORTCUT_ACTIONS.reduce(
-    (acc, action) => {
-      acc[action.id] = action.defaultCode;
-      return acc;
-    },
-    {} as Record<ShortcutActionId, string>
-  )
-);
-
 /**
  * Coerces whatever was in localStorage into a usable binding map. A stored map
  * is untrusted input: it may be from an older version, hand-edited, or from a

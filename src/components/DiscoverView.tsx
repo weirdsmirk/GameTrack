@@ -8,7 +8,7 @@ import { PosterImage } from "./PosterImage";
 import { preloadImages } from "../utils/image";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useModalA11y } from "../hooks/useModalA11y";
-import { DISCOVER_GENRES, gameMatchesDiscoverGenre, libraryGridClass } from "../constants";
+import { DISCOVER_GENRES, gameMatchesDiscoverGenre, libraryGridClass, isDiscoverGenre, type DiscoverGenre } from "../constants";
 import { lockBodyScroll } from "../utils/scrollLock";
 
 // The genre filter itself is applied server-side (IGDB filters the ranked
@@ -635,7 +635,7 @@ interface TabbedCuratedSectionProps {
   genreLabel: string;
   /** Raw genre filter value and its setter — the select moved up into this row. */
   discoverGenre: string;
-  onGenreChange: (genre: string) => void;
+  onGenreChange: (genre: DiscoverGenre) => void;
   showRating?: boolean;
   onCardClick: (game: IGDBGame) => void;
   onAddGame: (game: IGDBGame) => void;
@@ -737,7 +737,15 @@ const TabbedCuratedSection: React.FC<TabbedCuratedSectionProps> = ({
           <select
             id="discover-genre"
             value={discoverGenre}
-            onChange={(e) => onGenreChange(e.target.value)}
+            onChange={(e) => {
+              // A <select> always reports a plain string, so it is narrowed here
+              // rather than cast at the store boundary. Anything unrecognised —
+              // a browser restoring a stale form value, a future option removed
+              // from the list — is ignored, leaving the filter where it was
+              // rather than setting a genre IGDB will match nothing against.
+              const value = e.target.value;
+              if (isDiscoverGenre(value)) onGenreChange(value);
+            }}
             className={`appearance-none pl-3.5 pr-9 py-1.5 text-[11px] font-black uppercase tracking-wider border transition-colors cursor-pointer focus:outline-none focus:border-brand-accent ${
               discoverGenre
                 ? "bg-brand-accent text-brand-accent-ink border-brand-accent"

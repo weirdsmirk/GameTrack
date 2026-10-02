@@ -6,11 +6,12 @@ import {
   PlayingConflict, Playthrough
 } from "./types";
 import { isThemeId, applyTheme, applyThemeWithReboot } from "./themes";
-import { Platform, slugifyPlatformLabel, mergeCustomPlatforms, igdbGenreNamesFor, isOwned } from "./constants";
+import { Platform, slugifyPlatformLabel, mergeCustomPlatforms, igdbGenreNamesFor, isOwned, isDiscoverGenre, type DiscoverGenre } from "./constants";
+import { RESTORABLE_TABS, type ActiveTab } from "./tabs";
 import {
   loadBindings, saveBindings, type ShortcutBindings, type ShortcutActionId
 } from "./shortcuts";
-import { gamesToCsv, gamesToMarkdown } from "./utils/export";
+import { gamesToCsv, gamesToMarkdown, downloadBlob } from "./utils/export";
 import { toLocalISODate } from "./utils/time";
 
 export interface ToastAction {
@@ -192,8 +193,8 @@ async function syncGameField(id: number, igdbId: number, field: "synopsis" | "po
 }
 
 interface GameTrackState {
-  activeTab: "dashboard" | "library" | "discover" | "analytics" | "wishlist";
-  setActiveTab: (tab: "dashboard" | "library" | "discover" | "analytics" | "wishlist") => void;
+  activeTab: ActiveTab;
+  setActiveTab: (tab: ActiveTab) => void;
   selectedGame: Game | null;
   setSelectedGame: (game: Game | null) => void;
   isAddGameOpen: boolean;
@@ -245,7 +246,7 @@ interface GameTrackState {
   discoverSearchResults: IGDBGame[];
   discoverQuery: string;
   /** Selected Discover genre filter ("" = all genres). */
-  discoverGenre: string;
+  discoverGenre: DiscoverGenre;
   /** Genre the currently loaded trending list was fetched with. */
   trendingGenre: string;
   loadingDiscover: boolean;
@@ -287,7 +288,7 @@ interface GameTrackState {
   trendingSettled: boolean;
   /** Epoch ms until which /api/discover must not be called (0 = clear). */
   discoverCooldownUntil: number;
-  setDiscoverGenre: (genre: string) => void;
+  setDiscoverGenre: (genre: DiscoverGenre) => void;
   discoverLists: DiscoverLists | null;
   loadingLists: boolean;
   lastListsFetch: number;
@@ -379,16 +380,16 @@ interface GameTrackState {
 }
 
 const TAB_KEY = "gametrack_active_tab";
-// Wishlist is a full page but has no sidebar entry (it's opened from the
-// Library header), so it must never be restored on reload.
-const VALID_TABS = ["dashboard", "library", "discover", "analytics"] as const;
 
-function getInitialTab(): GameTrackState["activeTab"] {
+
+function getInitialTab(): ActiveTab {
   // Via safeGetItem: this runs at module load, and merely *touching*
   // window.localStorage throws SecurityError in a sandboxed iframe — which
   // would take the whole store (and therefore the app) down at import time.
   const stored = safeGetItem(TAB_KEY);
-  return (VALID_TABS as readonly string[]).includes(stored || "") ? stored as GameTrackState["activeTab"] : "dashboard";
+  return (RESTORABLE_TABS as readonly string[]).includes(stored || "")
+    ? (stored as ActiveTab)
+    : "dashboard";
 }
 
 /**
@@ -577,6 +578,25 @@ function loadCachedDiscover() {
 }
 
 const cachedDiscover = loadCachedDiscover();
+
+/**
+ * The genre to restore, validated.
+ *
+ * Guards the cached *object*, not the value: `isDiscoverGenre("")` is true —
+ * the empty string is the legitimate "All Genres" choice — so guarding the
+ * `?? ""` fallback and then reading through `cachedDiscover!` dereferenced null
+ * on a first visit. An unknown or absent value becomes "All Genres", which is
+ * also what stops a hand-edited localStorage entry from being forwarded to IGDB
+ * as a genre that matches no rows.
+ *
+ * The explicit `undefined` test is not redundant with the guard: caches written
+ * before genre filtering existed carry no `trendingGenre` key at all, so the
+ * field is optional in the parsed shape and would not narrow.
+ */
+const cachedGenre: DiscoverGenre =
+  cachedDiscover?.trendingGenre !== undefined && isDiscoverGenre(cachedDiscover.trendingGenre)
+    ? cachedDiscover.trendingGenre
+    : "";
 
 function saveDiscoverCache(snapshot: {
   savedAt: number;
@@ -1177,8 +1197,8 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   trendingGames: cachedDiscover?.trendingGames ?? [],
   discoverSearchResults: [],
   discoverQuery: "",
-  discoverGenre: cachedDiscover?.trendingGenre ?? "",
-  trendingGenre: cachedDiscover?.trendingGenre ?? "",
+  discoverGenre: cachedGenre,
+  trendingGenre: cachedGenre,
   loadingDiscover: false,
   loadingTrending: false,
   loadingSearch: false,
@@ -1785,15 +1805,9 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     try {
       const res = await fetch("/api/export");
       if (!res.ok) throw new Error("Export failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `gametrack-library-${toLocalISODate(new Date())}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      // The response is already a Blob, so it goes straight to the downloader
+      // rather than being read into a string and re-wrapped.
+      downloadBlob(`gametrack-library-${toLocalISODate(new Date())}.json`, await res.blob());
       get().showToast("Library exported", "success", "Backup saved to downloads");
       return true;
     } catch (err: unknown) {
@@ -1820,17 +1834,10 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     const stamp = toLocalISODate(new Date());
     const csv = format === "csv";
     const contents = csv ? gamesToCsv(games) : gamesToMarkdown(games);
-    const blob = new Blob([contents], {
-      type: csv ? "text/csv;charset=utf-8" : "text/markdown;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `gametrack-library-${stamp}.${csv ? "csv" : "md"}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    downloadBlob(
+      `gametrack-library-${stamp}.${csv ? "csv" : "md"}`,
+      new Blob([contents], { type: csv ? "text/csv;charset=utf-8" : "text/markdown;charset=utf-8" })
+    );
     get().showToast(
       `Library exported as ${csv ? "CSV" : "Markdown"}`,
       "success",

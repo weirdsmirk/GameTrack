@@ -9,10 +9,6 @@ coverage/
 .env.*
 !.env.example
 
-# Development artifacts
-next_prompt.txt
-metadata.json
-
 # SQLite database files
 *.db
 *.db-shm

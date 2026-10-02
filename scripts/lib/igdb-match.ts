@@ -1,3 +1,4 @@
+import { normalizeName } from "../../server/steam";
 /**
  * Shared IGDB title-matching helpers for the maintenance scripts.
  *
@@ -24,9 +25,7 @@ export const MATCH_FIELDS =
 /** IGDB categories that are not a standalone game: DLC, mod, pack, update. */
 const NON_GAME_CATEGORIES = new Set([1, 5, 13, 14]);
 
-export function normalizeName(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/gi, "");
-}
+
 
 /** Strip characters that would break out of an Apicalypse string literal. */
 export function escapeIgdbQuery(s: string): string {

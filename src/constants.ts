@@ -385,9 +385,6 @@ export const timesPlayed = (game: { times_played?: number | null }): number => {
 };
 
 /** Replay count only — the same figure minus the game's own playthrough. */
-export const replayCount = (game: { times_played?: number | null }): number =>
-  timesPlayed(game) - 1;
-
 /** True when the game has been played more than once. */
 export const isReplayed = (game: { times_played?: number | null }): boolean =>
   timesPlayed(game) > 1;
@@ -443,7 +440,30 @@ export const DISCOVER_GENRES = [
   "Puzzle",
 ] as const;
 
-export type DiscoverGenre = (typeof DISCOVER_GENRES)[number];
+/**
+ * The genre filter's value, including the empty string.
+ *
+ * `""` is not an oversight in the list above — the "All Genres" option is a
+ * separate `<option value="">`, and it is also what the store falls back to when
+ * there is no cached Discover state. Without it here the alias could not describe
+ * the default state, which is why it sat exported and unused while the real type
+ * had degraded to a bare `string`.
+ */
+export type DiscoverGenre = "" | (typeof DISCOVER_GENRES)[number];
+
+/**
+ * Narrow an arbitrary string to a genre the app knows about.
+ *
+ * A type guard rather than a cast because the two callers both handle genuinely
+ * untrusted input: the `<select>` reports `e.target.value` as a plain `string`,
+ * and the restored Discover cache is read straight out of localStorage. Casting
+ * either would silence the compiler while still letting a hand-edited or stale
+ * value reach IGDB as a genre name that matches nothing — which renders as an
+ * empty Discover page, not as an error.
+ */
+export function isDiscoverGenre(value: string): value is DiscoverGenre {
+  return value === "" || (DISCOVER_GENRES as readonly string[]).includes(value);
+}
 
 /** Discover genre option → the IGDB genre name(s) it matches. */
 export const DISCOVER_GENRE_ALIASES: Record<string, readonly string[]> = {

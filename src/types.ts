@@ -187,12 +187,6 @@ export interface CustomizationSettings {
   showShortcutHint: boolean;
 }
 
-export interface DuplicateGroup {
-  key: string;
-  reason: string;
-  games: { id: number; title: string; year: number | null; status: string; playtime: number }[];
-}
-
 export interface PlayingConflict {
   currentGame: Game;
   pendingTitle: string;

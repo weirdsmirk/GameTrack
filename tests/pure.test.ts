@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { mapIgdbGame, getIgdbImageUrl, upgradeIgdbPosterUrl } from "../server/igdb";
-import { isNonGameApp } from "../server/steam";
-import { normalizePlatformIds, isOwned, platformsSelectable, mergePlatformTags, replayAllowed } from "../src/constants";
+import { isNonGameApp, normalizeName } from "../server/steam";
+import { normalizePlatformIds, isOwned, platformsSelectable, mergePlatformTags, replayAllowed, isDiscoverGenre, DISCOVER_GENRES, type DiscoverGenre } from "../src/constants";
 import { upgradeIgdbPosterUrl as clientUpgrade } from "../src/utils/image";
 import { formatDateShort, toLocalISODate } from "../src/utils/time";
 
@@ -246,5 +246,45 @@ describe("replayAllowed", () => {
     const completed = { status: "completed", times_played: 4 } as const;
     expect(replayAllowed(endless.status)).toBe(false);
     expect(replayAllowed(completed.status)).toBe(true);
+  });
+});
+
+describe("isDiscoverGenre", () => {
+  it("accepts the empty string, which is the real 'All Genres' value", () => {
+    // The store's own default. If this returned false the filter could never be
+    // cleared, and the type it narrows to would not describe its own default.
+    expect(isDiscoverGenre("")).toBe(true);
+  });
+
+  it("accepts every option the dropdown offers", () => {
+    for (const genre of DISCOVER_GENRES) expect(isDiscoverGenre(genre)).toBe(true);
+  });
+
+  it("rejects a typo, so it cannot reach IGDB as a genre matching nothing", () => {
+    // A stale browser-restored form value or a hand-edited localStorage entry
+    // lands here. Accepted silently it renders an empty Discover page with no
+    // error, which is the worst possible way to fail.
+    expect(isDiscoverGenre("Acton")).toBe(false);
+    expect(isDiscoverGenre("all genres")).toBe(false);
+    expect(isDiscoverGenre("' OR 1=1")).toBe(false);
+  });
+
+  it("narrows the type, not just the value", () => {
+    const raw: string = "RPG";
+    // Compile-time assertion: this only typechecks if the guard is a type guard.
+    const narrowed: DiscoverGenre = isDiscoverGenre(raw) ? raw : "";
+    expect(narrowed).toBe("RPG");
+  });
+});
+
+describe("normalizeName is shared, not duplicated", () => {
+  it("folds titles the same way for the server sync and the maintenance scripts", () => {
+    // Previously a byte-identical copy lived in both files. Two implementations of
+    // one matching rule means a hand-run fix and an automatic sync can disagree
+    // about whether two titles are the same game — and the symptom looks like bad
+    // data rather than the fork that caused it.
+    expect(normalizeName("The Witcher® 3: Wild Hunt")).toBe("thewitcher3wildhunt");
+    expect(normalizeName("the witcher 3 - wild hunt")).toBe("thewitcher3wildhunt");
+    expect(normalizeName("Portal 2")).toBe(normalizeName("portal  2"));
   });
 });

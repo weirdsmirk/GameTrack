@@ -92,8 +92,21 @@ export function gamesToMarkdown(games: Game[]): string {
   return lines.join("\n");
 }
 
-export function downloadTextFile(filename: string, contents: string, mime: string) {
-  const blob = new Blob([contents], { type: mime });
+/**
+ * Hand a Blob to the browser as a file download.
+ *
+ * Exists because three separate places needed the identical eight lines — create
+ * a blob URL, click a synthetic anchor, revoke the URL — and two of them had been
+ * copy-pasted into the store while this module's own `downloadTextFile` sat unused
+ * beside them. Three copies means a fix to any one of them (a missing
+ * `revokeObjectURL` that leaks, the anchor some browsers refuse to click once
+ * detached) has to be made three times, and had been missed twice.
+ *
+ * Takes a Blob rather than a string so the JSON export can pass through the blob
+ * `fetch` already produced, instead of reading a whole response into memory
+ * purely to hand back the same bytes as a string.
+ */
+export function downloadBlob(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -102,4 +115,8 @@ export function downloadTextFile(filename: string, contents: string, mime: strin
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+export function downloadTextFile(filename: string, contents: string, mime: string): void {
+  downloadBlob(filename, new Blob([contents], { type: mime }));
 }

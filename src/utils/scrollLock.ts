@@ -32,8 +32,3 @@ export function lockBodyScroll(): () => void {
     if (holders === 0) document.body.style.overflow = "";
   };
 }
-
-/** Test seam — not used in app code. */
-export function bodyScrollHolders(): number {
-  return holders;
-}

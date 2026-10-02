@@ -144,6 +144,36 @@ function backupIds(rows: { id: number; title: string; igdb_id: number | null }[]
   console.log(`Backed up previous ${label} ids to ${file}`);
 }
 
+const USAGE = `
+reset-metadata — re-match every library and wishlist row against IGDB.
+
+DESTRUCTIVE: it clears igdb_id on every row before re-fetching, so an
+interrupted run leaves the library unlinked. It writes two backups first (an
+id map and a full database copy), but "it made a backup" is a poor substitute
+for "it did not run".
+
+Usage:
+  npm run reset-metadata             run it
+  npm run reset-metadata -- --help   show this
+`;
+
+/**
+ * Whether to print usage instead of starting the reset.
+ *
+ * `--help` used to fall straight through to `run()`, which cleared `igdb_id` on
+ * every row and then went looking for IGDB matches — so asking the script what it
+ * did was itself the destructive act. An unrecognised argument stops here for the
+ * same reason: guessing is how a probe turns into a rewrite.
+ */
+function wantsUsage(argv: readonly string[]): boolean {
+  const unknown = argv.filter((a) => a !== "--help" && a !== "-h");
+  if (unknown.length > 0) {
+    console.error(`Unrecognised argument: ${unknown[0]}\n${USAGE}`);
+    return true;
+  }
+  return argv.some((a) => a === "--help" || a === "-h");
+}
+
 async function run(): Promise<void> {
   console.log("Starting IGDB metadata + poster reset...\n");
   await assertIgdbReachable();
@@ -245,7 +275,11 @@ async function run(): Promise<void> {
   console.log("Reset complete.");
 }
 
-run().catch((err) => {
-  console.error("Reset failed:", err);
-  process.exit(1);
-});
+if (wantsUsage(process.argv.slice(2))) {
+  console.log(USAGE);
+} else {
+  run().catch((err) => {
+    console.error("Reset failed:", err);
+    process.exit(1);
+  });
+}
