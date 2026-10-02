@@ -54,6 +54,17 @@ db.exec(`
        not-owned title can legitimately carry the platform it was played on. */
     ownership_status TEXT NOT NULL DEFAULT 'owned'
       CHECK (ownership_status IN ('owned', 'not_owned')),
+    /* Playthrough bookkeeping. A game's own row IS playthrough #1 — its
+       status/playtime/date_completed columns keep exactly the meaning they
+       always had, so no existing query, filter or sync had to be rewritten to
+       accommodate replays. The playthroughs table below holds runs #2..n only.
+       times_played and replay_playtime are denormalised from that table
+       (times_played = 1 + row count) so the library grid and the analytics
+       totals can read them without a join per row. They are recomputed inside
+       the same transaction as every playthrough mutation, so they cannot drift
+       from the rows they summarise. */
+    times_played INTEGER NOT NULL DEFAULT 1 CHECK (times_played >= 1),
+    replay_playtime REAL NOT NULL DEFAULT 0 CHECK (replay_playtime >= 0),
     status TEXT NOT NULL DEFAULT 'backlog'
       CHECK (status IN ('backlog', 'playing', 'completed', 'endless')),
     playtime REAL DEFAULT 0,
@@ -73,9 +84,50 @@ db.exec(`
     value TEXT NOT NULL
   );
 
+  /* Replays. Only runs #2..n live here — playthrough #1 is the games row
+     itself, so the table never holds a duplicate of data the game already has.
+     The sequence column is the display ordinal (2 for the first replay) and is
+     kept contiguous so the UI can print "Replay 2", "Replay 3" without gaps
+     after a middle row is deleted; the id column remains the stable identity.
+     ON DELETE CASCADE is what ties the rows to the game: every delete path in
+     routes.ts (single, bulk, wipe, duplicate-merge loser) removes the parent
+     row, and this is the only reason no delete path has to remember to clean
+     up. */
+  CREATE TABLE IF NOT EXISTS playthroughs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK (sequence >= 2),
+    /* A replay can be in any of the same states as a game: started and not
+       finished ('playing'), finished ('completed'), or kept indefinitely
+       ('endless'). 'backlog' is the honest default for a row the user has
+       merely marked as replayed without yet saying how it went. */
+    status TEXT NOT NULL DEFAULT 'backlog'
+      CHECK (status IN ('backlog', 'playing', 'completed', 'endless')),
+    playtime REAL NOT NULL DEFAULT 0 CHECK (playtime >= 0),
+    personal_rating INTEGER
+      CHECK (personal_rating IS NULL OR (personal_rating >= 0 AND personal_rating <= 10)),
+    /* Nullable rather than defaulted: "finished this replay but never wrote
+       down when" and "has not finished it yet" are different facts, and
+       collapsing them to one value would invent a date on save. */
+    date_completed INTEGER,
+    /* Which platform this particular run happened on. Deliberately NOT the
+       game's owned_platforms list — that records copies you own, and a replay
+       can be on a friend's console or a shared install. It is also not subject
+       to the ownership/platform invariant, for the same reason. */
+    platform TEXT,
+    notes TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE (game_id, sequence)
+  );
+
   -- Indexes for common query patterns
   CREATE INDEX IF NOT EXISTS idx_games_date ON games(date_added DESC);
   CREATE INDEX IF NOT EXISTS idx_games_status ON games(status);
+  -- Only playthroughs columns, so this index is safe in the IF NOT EXISTS block
+  -- (unlike idx_games_ownership below, which references a games column that the
+  -- base CREATE TABLE lacks on a pre-v16 database).
+  CREATE INDEX IF NOT EXISTS idx_playthroughs_game ON playthroughs(game_id);
   -- Note: idx_games_ownership is deliberately NOT created here. This block is
   -- CREATE TABLE IF NOT EXISTS, so against an existing database it is a no-op —
   -- but an index on a column the base CREATE TABLE does not have, referencing a
@@ -91,7 +143,7 @@ db.exec(`
 // only after a block completes successfully; a failed migration fails loudly
 // at startup instead of being silently re-run every boot.
 
-const SCHEMA_VERSION = 16;
+const SCHEMA_VERSION = 17;
 
 function migrateTo(target: number) {
   const current = Number(db.pragma("user_version", { simple: true })) || 0;
@@ -337,6 +389,75 @@ function runMigration(version: number) {
       db.exec("ALTER TABLE games ADD COLUMN ownership_status TEXT NOT NULL DEFAULT 'owned' CHECK (ownership_status IN ('owned', 'not_owned'))");
     }
     db.exec("CREATE INDEX IF NOT EXISTS idx_games_ownership ON games(ownership_status)");
+  }
+
+  if (version === 17) {
+    // Replays — a game finished more than once.
+    //
+    // The games row stays playthrough #1 and keeps its existing meaning for
+    // status/playtime/date_completed, so this migration rewrites nothing: every
+    // pre-existing game is simply "played once", which is the honest reading of
+    // a library where the app had no way to record a second run. Backfilling a
+    // synthetic playthrough row per game would have implied a detail — when,
+    // how long — that nobody recorded.
+    //
+    // The `playthroughs` table and its index are already created by the base
+    // schema block (they reference no column that the base games table lacks),
+    // so both a fresh install and an upgrade converge here; the IF NOT EXISTS
+    // below keeps that true for a database created before this block existed.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS playthroughs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        game_id INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+        sequence INTEGER NOT NULL CHECK (sequence >= 2),
+        status TEXT NOT NULL DEFAULT 'backlog'
+          CHECK (status IN ('backlog', 'playing', 'completed', 'endless')),
+        playtime REAL NOT NULL DEFAULT 0 CHECK (playtime >= 0),
+        personal_rating INTEGER
+          CHECK (personal_rating IS NULL OR (personal_rating >= 0 AND personal_rating <= 10)),
+        date_completed INTEGER,
+        platform TEXT,
+        notes TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_playthroughs_game ON playthroughs(game_id);
+    `);
+
+    const cols = db.prepare("PRAGMA table_info(games)").all() as any[];
+    if (!cols.some((col) => col.name === "times_played")) {
+      db.exec("ALTER TABLE games ADD COLUMN times_played INTEGER NOT NULL DEFAULT 1 CHECK (times_played >= 1)");
+    }
+    if (!cols.some((col) => col.name === "replay_playtime")) {
+      db.exec("ALTER TABLE games ADD COLUMN replay_playtime REAL NOT NULL DEFAULT 0 CHECK (replay_playtime >= 0)");
+    }
+
+    // Repair rather than trust: an older build (or a hand-edited database) could
+    // have left the denormalised totals disagreeing with the rows they
+    // summarise. Recomputing from the rows is the only source of truth.
+    const drifted = (db.prepare(`
+      SELECT g.id AS id FROM games g
+      LEFT JOIN (
+        SELECT game_id, COUNT(*) AS n, COALESCE(SUM(playtime), 0) AS t
+        FROM playthroughs GROUP BY game_id
+      ) p ON p.game_id = g.id
+      WHERE g.times_played != COALESCE(p.n, 0) + 1
+         OR ABS(COALESCE(g.replay_playtime, 0) - COALESCE(p.t, 0)) > 0.000001
+    `).all() as { id: number }[]).map((r) => r.id);
+    if (drifted.length) {
+      const setTotals = db.prepare("UPDATE games SET times_played = ?, replay_playtime = ? WHERE id = ?");
+      const sumRows = db.prepare(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(playtime), 0) AS t FROM playthroughs WHERE game_id = ?"
+      );
+      const apply = db.transaction((ids: number[]) => {
+        for (const id of ids) {
+          const agg = sumRows.get(id) as { n: number; t: number };
+          setTotals.run((agg.n || 0) + 1, agg.t || 0, id);
+        }
+      });
+      apply(drifted);
+      console.log(`[db] Recomputed replay totals for ${drifted.length} game(s) during migration.`);
+    }
   }
 }
 

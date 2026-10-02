@@ -68,6 +68,14 @@ interface GameRow {
   date_added: number; date_completed: number | null; created_at: number; updated_at: number;
   hide_playtime: number; steam_appid: number | null; custom_order: number | null;
   metadata_custom: number;
+  times_played: number; replay_playtime: number;
+}
+
+/** Raw row shape for a replay — no JSON columns, so it maps straight through. */
+interface PlaythroughRow {
+  id: number; game_id: number; sequence: number; status: string;
+  playtime: number; personal_rating: number | null; date_completed: number | null;
+  platform: string | null; notes: string; created_at: number; updated_at: number;
 }
 
 interface WishlistRow {
@@ -92,7 +100,14 @@ function parseGame(row: unknown): Game | null {
   const owned_platforms = ownership_status === "not_owned"
     ? []
     : safeJsonParse<string[]>(r.owned_platforms, []);
-  return { ...r, genres, owned_platforms, ownership_status } as Game;
+  // The replay totals are denormalised columns that syncReplayTotals maintains,
+  // so they are correct by construction — but coerced here for the same reason
+  // ownership is: a client that reads them to decide whether to show a "played
+  // twice" badge must never see undefined (which would be falsy and hide a
+  // replay the user did log) or a count below 1.
+  const times_played = Math.max(1, Number(r.times_played) || 1);
+  const replay_playtime = Math.max(0, Number(r.replay_playtime) || 0);
+  return { ...r, genres, owned_platforms, ownership_status, times_played, replay_playtime } as Game;
 }
 
 function parseWishlistItem(row: unknown): WishlistItem | null {
@@ -166,6 +181,54 @@ const GameUpdateSchema = GameSchema.partial();
 
 export type Game = z.infer<typeof GameSchema> & { id: number };
 
+/**
+ * One replay of a game (runs #2..n; the game row itself is run #1).
+ *
+ * `date_completed` is deliberately nullable with no default: "finished this
+ * replay but never wrote down when" and "has not finished it yet" are different
+ * facts, and defaulting one to the other would silently invent a date — or, on
+ * the create path, back-date a run the user is only now starting to log.
+ *
+ * `platform` is free-form text, not an id from the platform table, because a
+ * replay is frequently on a platform you do not hold a copy on — a friend's
+ * console, a shared install. Constraining it to owned platforms would make the
+ * common case unrepresentable.
+ */
+const PlaythroughSchema = z.object({
+  status: z.enum(VALID_STATUSES).default("backlog"),
+  playtime: z.number().min(0).max(100_000).optional().default(0),
+  personal_rating: z.number().int().min(0).max(10).nullable().optional(),
+  date_completed: z.number().int().min(0).max(MAX_TIMESTAMP_MS).nullable().optional(),
+  platform: z.string().trim().max(100).nullable().optional(),
+  notes: z.string().max(2_000).optional().default(""),
+});
+const PlaythroughUpdateSchema = PlaythroughSchema.partial();
+
+export type Playthrough = z.infer<typeof PlaythroughSchema> & {
+  id: number;
+  game_id: number;
+  sequence: number;
+  created_at: number;
+  updated_at: number;
+};
+
+/**
+ * Normalise a replay row for the wire. `platform` is blanked to null rather
+ * than left as "", so "no platform recorded" has exactly one representation and
+ * the client never has to treat "" and null as different states.
+ */
+function parsePlaythrough(row: unknown): Playthrough | null {
+  if (!row) return null;
+  const r = row as PlaythroughRow;
+  return {
+    ...r,
+    platform: r.platform ? r.platform : null,
+    notes: r.notes ?? "",
+    personal_rating: r.personal_rating ?? null,
+    date_completed: r.date_completed ?? null,
+  } as Playthrough;
+}
+
 const WishlistSchema = z.object({
   title: z.string().trim().min(1).max(300),
   year: z.number().int().min(1950).max(2100).nullable().optional(),
@@ -227,6 +290,16 @@ const PlatformSettingsSchema = z.object({
 const ImportSchema = z.object({ games: z.array(z.any()) });
 
 const MAX_IMPORT_ROWS = 2000;
+
+/**
+ * Ceiling on replays attached to one game.
+ *
+ * Nobody has finished Bloodborne four hundred times, so a real library never
+ * approaches this; it exists so a malformed or hostile import cannot append
+ * hundreds of thousands of rows to a single game, and so the sequence
+ * renumbering stays bounded. Well above any plausible genuine use.
+ */
+const MAX_REPLAYS_PER_GAME = 500;
 
 /**
  * Coerce a client-supplied ownership_status to one of the two stored values.
@@ -295,7 +368,105 @@ const stmts = {
     VALUES (@igdb_id, @title, @year, @genres, @synopsis, @poster_url, @critic_score, @owned_platforms, @date_added)
   `),
   deleteWishlistItem: db.prepare("DELETE FROM wishlist WHERE id = ?"),
+
+  // ── Playthroughs (replays; runs #2..n) ──
+  // Ordered by sequence, not id: the UI prints "Replay N" from sequence, and
+  // renumbering after a delete keeps those labels contiguous. id stays the
+  // identity a client PATCHes against.
+  getPlaythroughsByGame: db.prepare(
+    "SELECT * FROM playthroughs WHERE game_id = ? ORDER BY sequence ASC"
+  ),
+  getPlaythroughById: db.prepare("SELECT * FROM playthroughs WHERE id = ?"),
+  getAllPlaythroughs: db.prepare(
+    "SELECT * FROM playthroughs ORDER BY game_id ASC, sequence ASC"
+  ),
+  /** Next display ordinal for a game. MAX + 1 because sequence 1 is the game row. */
+  nextPlaythroughSequence: db.prepare(
+    "SELECT COALESCE(MAX(sequence), 1) + 1 AS next FROM playthroughs WHERE game_id = ?"
+  ),
+  insertPlaythrough: db.prepare(`
+    INSERT INTO playthroughs (game_id, sequence, status, playtime, personal_rating,
+      date_completed, platform, notes, created_at, updated_at)
+    VALUES (@game_id, @sequence, @status, @playtime, @personal_rating,
+      @date_completed, @platform, @notes, @created_at, @updated_at)
+  `),
+  updatePlaythrough: db.prepare(`
+    UPDATE playthroughs SET status = @status, playtime = @playtime,
+      personal_rating = @personal_rating, date_completed = @date_completed,
+      platform = @platform, notes = @notes, updated_at = @updated_at
+    WHERE id = @id
+  `),
+  deletePlaythrough: db.prepare("DELETE FROM playthroughs WHERE id = ?"),
+  setPlaythroughSequence: db.prepare("UPDATE playthroughs SET sequence = ? WHERE id = ?"),
+  /** Re-attach a loser's replays to the keeper during a duplicate merge. */
+  movePlaythroughsToGame: db.prepare("UPDATE playthroughs SET game_id = ?, updated_at = ? WHERE game_id = ?"),
+  /** The aggregates the games row caches — the only source of truth for both. */
+  sumPlaythroughs: db.prepare(
+    "SELECT COUNT(*) AS n, COALESCE(SUM(playtime), 0) AS t FROM playthroughs WHERE game_id = ?"
+  ),
+  setReplayTotals: db.prepare(
+    "UPDATE games SET times_played = ?, replay_playtime = ? WHERE id = ?"
+  ),
 };
+
+/**
+ * Recompute a game's denormalised replay totals from its playthrough rows.
+ *
+ * Called inside the same transaction as every mutation of those rows — insert,
+ * update, delete, and the duplicate-merge re-parent — so the cached columns on
+ * `games` can never disagree with the rows they summarise. Deriving rather than
+ * incrementing is deliberate: an increment has to be right at every call site,
+ * and a retry or a future code path that forgets one silently corrupts the
+ * number the library badge and the analytics totals both read.
+ *
+ * No-ops on an unknown game id, which is what makes it safe to call
+ * unconditionally after a delete.
+ */
+function syncReplayTotals(gameId: number) {
+  const agg = stmts.sumPlaythroughs.get(gameId) as { n: number; t: number };
+  stmts.setReplayTotals.run((agg.n || 0) + 1, agg.t || 0, gameId);
+}
+
+/**
+ * Push a game's replay ordinals above the legal range without changing their
+ * relative order.
+ *
+ * The table carries `UNIQUE (game_id, sequence)`, so any operation that brings
+ * new rows in under ordinals the keeper already uses — a duplicate merge — has
+ * to move the keeper's rows out of the way first. Parking the keeper before the
+ * move is what makes that insert legal.
+ *
+ * Idempotent: parking an already-parked row just pushes it further out, and the
+ * offset is large enough that a parked value can never coincide with a final
+ * one (MAX_REPLAYS_PER_GAME is 500). The column's `CHECK (sequence >= 2)` still
+ * holds while parked, so the statement cannot fail on the way in.
+ */
+const SEQUENCE_PARK_OFFSET = 1_000_000;
+const parkSequences = (gameId: number) =>
+  db.prepare("UPDATE playthroughs SET sequence = sequence + ? WHERE game_id = ?")
+    .run(SEQUENCE_PARK_OFFSET, gameId);
+
+/**
+ * Rewrite a game's replay ordinals to 2..n with no gaps, preserving order.
+ *
+ * `sequence` exists purely so the UI can say "Replay 3" instead of showing a
+ * raw row id, and a gap reads as a bug ("Replay 4, Replay 6") rather than as a
+ * replay that was deleted. Renumbering on delete keeps the labels honest; the
+ * stable identity is `id`, which no caller holds across this operation.
+ *
+ * Parking first is load-bearing. Writing the final ordinals one at a time
+ * collides with a row that has not been rewritten yet, because the old ordinal
+ * is still live — so every row is pushed out of range first (which keeps them
+ * mutually distinct) and only then assigned its final value. No intermediate
+ * state can hold two rows at the same sequence.
+ */
+function resequencePlaythroughs(gameId: number) {
+  parkSequences(gameId);
+  const rows = db
+    .prepare("SELECT id FROM playthroughs WHERE game_id = ? ORDER BY sequence ASC, id ASC")
+    .all(gameId) as { id: number }[];
+  rows.forEach((row, index) => stmts.setPlaythroughSequence.run(index + 2, row.id));
+}
 
 // ── GAMES CRUD ────────────────────────────────────────────────────
 
@@ -327,7 +498,30 @@ apiRouter.get("/games", (_req: Request, res: Response) => {
 apiRouter.get("/export", (_req: Request, res: Response) => {
   try {
     const rows = stmts.getAllGames.all();
-    const payload = JSON.stringify(rows.map(parseGame), null, 2);
+    // parseGame returns null for a falsy row; filter before mapping so the
+    // nested-replay step below never dereferences one.
+    const games = rows.map(parseGame).filter((g): g is Game => g != null);
+    // Replays are nested under their game rather than exported as a second flat
+    // array: the payload is meant to round-trip through POST /api/import, and a
+    // game_id-keyed side array would need the importer to re-resolve ids that
+    // the import assigns itself. Nested, each game carries its own history.
+    const runs = stmts.getAllPlaythroughs.all() as PlaythroughRow[];
+    const byGame = new Map<number, Playthrough[]>();
+    for (const row of runs) {
+      const parsedRow = parsePlaythrough(row);
+      if (!parsedRow) continue;
+      const list = byGame.get(row.game_id) ?? [];
+      list.push(parsedRow);
+      byGame.set(row.game_id, list);
+    }
+    const payload = JSON.stringify(
+      games.map((g) => {
+        const list = byGame.get(g.id);
+        return list && list.length ? { ...g, playthroughs: list } : g;
+      }),
+      null,
+      2
+    );
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="gametrack-library-${new Date().toISOString().slice(0, 10)}.json"`);
     res.send(payload);
@@ -696,6 +890,167 @@ apiRouter.post("/games/bulk-delete", (req: Request, res: Response) => {
   }
 });
 
+// ── PLAYTHROUGHS (replays) ─────────────────────────────────────────
+//
+// A game played more than once. The games row is playthrough #1 and is never
+// duplicated here; these routes manage runs #2..n only. That split is the whole
+// design: the library keeps one row per title, so nothing downstream — the
+// grid, the filters, the duplicate detector, the Steam sync — has to learn what
+// a second copy of a game would even mean.
+//
+// Every mutation runs inside a transaction that also calls syncReplayTotals
+// (and resequencePlaythroughs on delete), so the denormalised totals on `games`
+// and the ordinals the UI prints are updated in the same atomic step as the rows
+// themselves. There is no path that writes a replay without refreshing them.
+
+// GET /api/games/:id/playthroughs — every run for a game, oldest first.
+// `times_played` is returned alongside so the client does not have to trust its
+// cached copy of the game row, which may predate the latest replay.
+apiRouter.get("/games/:id/playthroughs", (req: Request, res: Response) => {
+  try {
+    const paramParsed = IdParamSchema.safeParse(req.params);
+    if (!paramParsed.success) return res.status(400).json({ error: "Invalid game ID" });
+    const gameId = paramParsed.data.id;
+
+    const game = stmts.getGameById.get(gameId) as GameRow | undefined;
+    if (!game) return res.status(404).json({ error: "Game not found" });
+
+    const playthroughs = (stmts.getPlaythroughsByGame.all(gameId) as PlaythroughRow[])
+      .map(parsePlaythrough);
+    res.json({ playthroughs, times_played: (game.times_played as number) ?? playthroughs.length + 1 });
+  } catch (err) {
+    console.error("GET /api/games/:id/playthroughs error:", err);
+    res.status(500).json({ error: "Failed to fetch playthroughs" });
+  }
+});
+
+// POST /api/games/:id/playthroughs — log another run of this game.
+//
+// Defaults are honest rather than optimistic: a new replay starts as
+// 'backlog' with no date and zero playtime, because "I have beaten this again"
+// is the only fact the act of adding it asserts. Deciding it was completed, when
+// and for how long is the user's to fill in afterwards.
+apiRouter.post("/games/:id/playthroughs", (req: Request, res: Response) => {
+  try {
+    const paramParsed = IdParamSchema.safeParse(req.params);
+    if (!paramParsed.success) return res.status(400).json({ error: "Invalid game ID" });
+    const gameId = paramParsed.data.id;
+
+    if (!stmts.getGameById.get(gameId)) return res.status(404).json({ error: "Game not found" });
+
+    const runCount = stmts.getPlaythroughsByGame.all(gameId).length;
+    if (runCount >= MAX_REPLAYS_PER_GAME) {
+      return res.status(400).json({ error: `A game can hold at most ${MAX_REPLAYS_PER_GAME} replays.` });
+    }
+
+    const parsed = PlaythroughSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid playthrough data", details: parsed.error.flatten().fieldErrors });
+    }
+    const p = parsed.data;
+    const now = Date.now();
+
+    const create = db.transaction(() => {
+      const seq = (stmts.nextPlaythroughSequence.get(gameId) as { next: number }).next;
+      const result = stmts.insertPlaythrough.run({
+        game_id: gameId,
+        sequence: seq,
+        status: p.status,
+        playtime: p.playtime ?? 0,
+        personal_rating: p.personal_rating ?? null,
+        date_completed: p.date_completed ?? null,
+        platform: p.platform ? p.platform : null,
+        notes: p.notes ?? "",
+        created_at: now,
+        updated_at: now,
+      });
+      syncReplayTotals(gameId);
+      return result.lastInsertRowid;
+    });
+
+    const id = create();
+    res.status(201).json(parsePlaythrough(stmts.getPlaythroughById.get(id)));
+  } catch (err) {
+    console.error("POST /api/games/:id/playthroughs error:", err);
+    res.status(500).json({ error: "Failed to add playthrough" });
+  }
+});
+
+// PUT /api/playthroughs/:id — update one replay in place.
+//
+// The game is never touched here. A replay's status is its own: you can be part
+// way through a second run of a finished game, which is exactly the state that
+// "one status per game" could not express before this existed.
+apiRouter.put("/playthroughs/:id", (req: Request, res: Response) => {
+  try {
+    const paramParsed = IdParamSchema.safeParse(req.params);
+    if (!paramParsed.success) return res.status(400).json({ error: "Invalid playthrough ID" });
+    const id = paramParsed.data.id;
+
+    const existing = stmts.getPlaythroughById.get(id) as PlaythroughRow | undefined;
+    if (!existing) return res.status(404).json({ error: "Playthrough not found" });
+
+    const parsed = PlaythroughUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid playthrough data", details: parsed.error.flatten().fieldErrors });
+    }
+    const p = parsed.data;
+    // Same omitted-key guard the games PUT uses: zod's `.default()` fires for
+    // absent keys on a partial schema, so reading `p.status` directly would reset
+    // every omitted field to its default on any unrelated edit.
+    const body = (req.body ?? {}) as any;
+    const sent = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
+
+    const apply = db.transaction(() => {
+      stmts.updatePlaythrough.run({
+        id,
+        status: sent("status") ? p.status : existing.status,
+        playtime: sent("playtime") ? p.playtime : existing.playtime,
+        personal_rating: sent("personal_rating") ? (p.personal_rating ?? null) : existing.personal_rating,
+        date_completed: sent("date_completed") ? (p.date_completed ?? null) : existing.date_completed,
+        platform: sent("platform") ? (p.platform ? p.platform : null) : existing.platform,
+        notes: sent("notes") ? p.notes : existing.notes,
+        updated_at: Date.now(),
+      });
+      syncReplayTotals(existing.game_id);
+    });
+    apply();
+
+    res.json(parsePlaythrough(stmts.getPlaythroughById.get(id)));
+  } catch (err) {
+    console.error("PUT /api/playthroughs/:id error:", err);
+    res.status(500).json({ error: "Failed to update playthrough" });
+  }
+});
+
+// DELETE /api/playthroughs/:id — remove one replay.
+//
+// Re-ordinals the survivors so the UI keeps printing contiguous "Replay N"
+// labels, and refreshes the game's totals — in the same transaction, so a game
+// is never left claiming a playthrough that no longer exists.
+apiRouter.delete("/playthroughs/:id", (req: Request, res: Response) => {
+  try {
+    const paramParsed = IdParamSchema.safeParse(req.params);
+    if (!paramParsed.success) return res.status(400).json({ error: "Invalid playthrough ID" });
+    const id = paramParsed.data.id;
+
+    const existing = stmts.getPlaythroughById.get(id) as PlaythroughRow | undefined;
+    if (!existing) return res.status(404).json({ error: "Playthrough not found" });
+
+    const apply = db.transaction(() => {
+      stmts.deletePlaythrough.run(id);
+      resequencePlaythroughs(existing.game_id);
+      syncReplayTotals(existing.game_id);
+    });
+    apply();
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /api/playthroughs/:id error:", err);
+    res.status(500).json({ error: "Failed to delete playthrough" });
+  }
+});
+
 // ── ANALYTICS ─────────────────────────────────────────────────────
 
 apiRouter.get("/analytics", (_req: Request, res: Response) => {
@@ -710,10 +1065,43 @@ apiRouter.get("/analytics", (_req: Request, res: Response) => {
         SUM(CASE WHEN ownership_status = 'owned' THEN 1 ELSE 0 END) as owned_games,
         SUM(CASE WHEN ownership_status = 'not_owned' THEN 1 ELSE 0 END) as not_owned_games,
         SUM(CASE WHEN ownership_status = 'owned' AND hide_playtime = 0 THEN playtime ELSE 0 END) as owned_playtime_hours,
-        SUM(CASE WHEN ownership_status = 'not_owned' AND hide_playtime = 0 THEN playtime ELSE 0 END) as not_owned_playtime_hours
+        SUM(CASE WHEN ownership_status = 'not_owned' AND hide_playtime = 0 THEN playtime ELSE 0 END) as not_owned_playtime_hours,
+        SUM(CASE WHEN times_played > 1 THEN 1 ELSE 0 END) as replayed_games,
+        MAX(times_played) as most_times_played,
+        /* Replay hours are NOT folded into total_playtime_hours. That figure has
+           always meant "hours on first playthroughs" and is the divisor's
+           numerator for average_playtime_per_game; quietly widening its meaning
+           would inflate an existing stat without saying so. The all-in figure is
+           published separately below, and the two are always reported together
+           so the reader can see exactly what each one counts. */
+        SUM(CASE WHEN hide_playtime = 0 THEN replay_playtime ELSE 0 END) as replay_playtime_hours,
+        SUM(times_played) as times_played
       FROM games
-      
+
     `).get() as any;
+
+    // Replay rows belonging to games whose playtime is hidden are excluded from
+    // both replay totals, matching how the games row's own playtime is treated
+    // — otherwise hiding a game's hours would still surface them through the
+    // replay figure.
+    const replayTotals = db.prepare(`
+      SELECT COUNT(*) AS total_runs,
+             COALESCE(SUM(CASE WHEN g.hide_playtime = 0 THEN p.playtime ELSE 0 END), 0) AS total_hours,
+             COUNT(DISTINCT p.game_id) AS games_with_replays
+      FROM playthroughs p
+      JOIN games g ON g.id = p.game_id
+    `).get() as { total_runs: number; total_hours: number; games_with_replays: number };
+
+    // "Most replayed" reads the runs directly rather than SUM(times_played),
+    // which only agrees with it when no game has been hidden from playtime
+    // reporting — see above.
+    const mostReplayed = db.prepare(`
+      SELECT g.title, g.id, g.times_played
+      FROM games g
+      WHERE g.times_played > 1
+      ORDER BY g.times_played DESC, g.title ASC
+      LIMIT 1
+    `).get() as { title: string; id: number; times_played: number } | undefined;
 
     // The `CASE` around `genres` is load-bearing. `json_each` raises a
     // malformed-JSON error on a bad value, and a table-valued function in the
@@ -754,7 +1142,23 @@ apiRouter.get("/analytics", (_req: Request, res: Response) => {
         not_owned_games: summary.not_owned_games || 0,
         owned_playtime_hours: summary.owned_playtime_hours || 0,
         not_owned_playtime_hours: summary.not_owned_playtime_hours || 0,
+        // Replays. `times_played` is every run of every game, so
+        // `times_played - total_games` is the number of replays logged, and
+        // `all_playthroughs_hours` is first-run hours plus replay hours. All
+        // three reconcile against the registry totals beside them by
+        // construction, which is what lets a view label each figure honestly
+        // instead of implying the legacy total already includes replays.
+        times_played: summary.times_played || 0,
+        replayed_games: summary.replayed_games || 0,
+        most_times_played: summary.most_times_played || 1,
+        replay_playtime_hours: replayTotals.total_hours || 0,
+        replay_runs: replayTotals.total_runs || 0,
+        all_playthroughs_hours:
+          parseFloat(
+            ((summary.total_playtime_hours || 0) + (replayTotals.total_hours || 0)).toFixed(1)
+          ),
       },
+      mostReplayed: mostReplayed ?? null,
       genreAnalytics,
       recentActivity,
     });
@@ -813,9 +1217,10 @@ apiRouter.post("/import", (req: Request, res: Response) => {
     /* Declared as its own transaction so better-sqlite3 compiles it to a
        SAVEPOINT when called from inside `insertMany`. That is what makes a
        single rejected row survivable: the rollback unwinds to the start of that
-       row, not to the start of the batch. */
+       row, not to the start of the batch. Returns the new id so a row's
+       playthroughs can be attached to it — see insertPlaythroughs below. */
     const insertOne = db.transaction((row: Record<string, unknown>) => {
-      stmts.insertGame.run(row);
+      return stmts.insertGame.run(row).lastInsertRowid;
     });
 
     const insertMany = db.transaction((items: any[]) => {
@@ -840,7 +1245,7 @@ apiRouter.post("/import", (req: Request, res: Response) => {
            SAVEPOINT, so one bad row rolls back to just before itself and the
            rest of the batch commits. */
         try {
-          insertOne({
+          const newGameId = insertOne({
             title: data.title,
             year: data.year ?? null,
             igdb_id: data.igdb_id ?? null,
@@ -865,6 +1270,39 @@ apiRouter.post("/import", (req: Request, res: Response) => {
             custom_order: null,
             metadata_custom: data.metadata_custom ?? 0,
           });
+
+          /* Replays nested on the exported game, restored in order. Read from the
+             RAW row, not the parsed one: GameSchema is not strict, so zod strips
+             the unrecognised `playthroughs` key and reading it off `data` would
+             always yield undefined — the backup would round-trip the games and
+             silently drop every playthrough in it. Each run is validated
+             independently and a malformed one is skipped rather than failing the
+             game, because losing a replay is recoverable and losing the game's
+             playtime is not. */
+          const rawRuns = (row as Record<string, unknown>).playthroughs;
+          if (Array.isArray(rawRuns)) {
+            const now = Date.now();
+            let seq = 2;
+            for (const raw of rawRuns.slice(0, MAX_REPLAYS_PER_GAME)) {
+              const run = PlaythroughSchema.safeParse(raw);
+              if (!run.success) continue;
+              const r = run.data;
+              stmts.insertPlaythrough.run({
+                game_id: newGameId,
+                sequence: seq++,
+                status: r.status,
+                playtime: r.playtime ?? 0,
+                personal_rating: r.personal_rating ?? null,
+                date_completed: r.date_completed ?? null,
+                platform: r.platform ? r.platform : null,
+                notes: r.notes ?? "",
+                created_at: now,
+                updated_at: now,
+              });
+            }
+            syncReplayTotals(Number(newGameId));
+          }
+
           imported++;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
@@ -1728,7 +2166,24 @@ apiRouter.post("/duplicates/merge", (req: Request, res: Response) => {
         updated_at: Date.now(),
         id: keepId,
       });
+      // The loser's replays are re-parented to the keeper, not cascaded away.
+      // Folding two rows of the same game together is exactly the case where a
+      // user has the most reason to have logged several runs, and ON DELETE
+      // CASCADE would discard that history at the moment it becomes most
+      // meaningful. Moving them keeps every playthrough in the merged game; the
+      // game's own run #1 still resolves to the keeper's, so the loser
+      // contributes its replays only.
+      //
+      // The keeper's ordinals are parked BEFORE the move: both rows number
+      // their replays from 2, so re-parenting the loser's in would otherwise put
+      // two rows on `UNIQUE (game_id, sequence)` and abort the whole merge with
+      // a 409 — the user would be told the merge collided on an external ID
+      // when nothing of the sort happened.
+      parkSequences(keepId);
+      stmts.movePlaythroughsToGame.run(keepId, Date.now(), removeId);
+      resequencePlaythroughs(keepId);
       stmts.deleteGame.run(removeId);
+      syncReplayTotals(keepId);
     });
     merge();
     res.json(parseGame(stmts.getGameById.get(keepId)));
