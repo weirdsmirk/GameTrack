@@ -7,7 +7,6 @@ coverage/
 *.log
 .env
 .env.*
-!.env.example
 
 # SQLite database files. The app uses exactly one — data/database.sqlite — and
 # these patterns exist so no other can ever reach the repository, including one

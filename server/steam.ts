@@ -268,12 +268,12 @@ const IGDB_GAME_FIELDS =
 /**
  * Fold a title down to comparable letters.
  *
- * Exported because `scripts/lib/igdb-match.ts` carried a byte-identical copy of
- * this. Two copies of a matching rule is the failure mode that produced the worst
- * bug in this codebase's history: a fix applied to one and not the other means a
- * hand-run fix and an automatic sync quietly disagree about whether two titles are
- * the same game, and the symptom — a game that will not match — looks like bad
- * data rather than two implementations of one rule.
+ * Exported so there is exactly one copy of this rule. Two copies is the failure
+ * mode that produced the worst bug in this codebase's history: a fix applied to
+ * one and not the other means a hand-run fix and an automatic sync quietly
+ * disagree about whether two titles are the same game, and the symptom — a game
+ * that will not match — looks like bad data rather than two implementations of
+ * one rule.
  */
 export function normalizeName(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/gi, "");

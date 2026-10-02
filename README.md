@@ -16,7 +16,7 @@ It also includes Steam sync, IGDB discovery, library filters, analytics, and Mar
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 22 or newer
 - npm
 
 ## Setup
@@ -27,23 +27,42 @@ Install the dependencies:
 npm install
 ```
 
-Copy the example environment file:
-
-```bash
-cp .env.example .env
-```
-
-Add IGDB credentials to `.env` if you want to use game discovery and metadata lookup:
+Then create a `.env` file in the project root. Every variable is optional except
+where noted, and the server boots fine with an empty one.
 
 ```env
+# IGDB credentials — required for Discover and metadata lookup.
+# From the Twitch Developer Portal (dev.twitch.tv/console/apps); IGDB is
+# authenticated through Twitch's client-credentials flow.
 IGDB_CLIENT_ID=your_twitch_client_id
 IGDB_CLIENT_SECRET=your_twitch_client_secret
-```
 
-Steam sync is optional. Add a Steam Web API key if you want to use it:
+# Steam Web API key — required to sync your Steam library and track playtime.
+STEAM_WEB_API_KEY=your_steam_web_api_key
 
-```env
-STEAM_WEB_API_KEY=your_steam_api_key
+# Bearer token for every /api request. Required whenever HOST is not a loopback
+# address — the server refuses to start otherwise. Recommended even on loopback
+# when the machine is shared. Set the matching VITE_API_TOKEN at build time for
+# the web client to send it automatically; it is baked into the bundle, so treat
+# it as a same-origin guard rather than a secret.
+# API_TOKEN=change-me
+# VITE_API_TOKEN=change-me
+
+# Data directory, defaulting to ./data. Useful for container volumes.
+# GAMETRACK_DATA_DIR=/path/to/data
+# GAMETRACK_DIST_DIR=/path/to/dist
+
+# Server binding and CORS.
+# PORT=3001
+# HOST=127.0.0.1
+# NODE_ENV=development
+# Extra browser origins allowed for state-changing requests, comma separated.
+# The loopback address is always allowed; add your real domain when deploying.
+# ALLOWED_ORIGINS=https://track.example.com
+
+# Express hop count or a named subnet, e.g. "1" or "loopback", when running
+# behind a reverse proxy. Leave unset to trust no proxy headers at all.
+# TRUST_PROXY=loopback
 ```
 
 ## Run locally
@@ -58,7 +77,7 @@ Then open [http://localhost:3001](http://localhost:3001).
 
 The SQLite database and uploaded posters are stored in `data/` by default. Set `GAMETRACK_DATA_DIR` in `.env` to use another location.
 
-The database is a single file, `data/database.sqlite`. That path is defined once, in `server/paths.ts`, and everything that needs it — the connection, the storage stats, the tests — reads it from there. The app takes no automatic backups and writes no second database: there is no backup directory, no snapshot, and no copy of the database anywhere in the project.
+The database is a single file, `data/database.sqlite`. That path is defined once, in `server/paths.ts`, and everything that needs it — the connection and the storage stats — reads it from there. The app takes no automatic backups and writes no second database: there is no backup directory, no snapshot, and no copy of the database anywhere in the project.
 
 ## Production
 
@@ -87,10 +106,7 @@ HSTS, so a token sent over it is readable on the wire.
 ## Useful commands
 
 ```bash
-npm test                   # run tests
 npm run typecheck          # check TypeScript (also runs as part of npm run build)
-npm run reset-metadata     # refresh library metadata from IGDB
-npm run fetch-igdb-posters # refresh IGDB posters
 npm run clean              # remove build output
 ```
 
@@ -98,16 +114,9 @@ npm run clean              # remove build output
 
 - `src/` contains the React app and UI components.
 - `server/` contains the SQLite setup and API routes.
-- `scripts/` contains maintenance scripts.
-- `tests/` contains API and UI tests.
 - `data/` contains local application data and is not committed.
 
 GameTrack is designed for personal, local use, and it does not keep copies for
 you. `data/database.sqlite` is the only database; if you want a second copy, take
 it yourself — `Settings → Export Library JSON` writes a portable snapshot to a
 location you choose, and the file itself is yours to copy or version as you like.
-
-`npm run reset-metadata` re-matches every row against IGDB. It writes nothing
-until every row has been looked up and then applies all of it in a single
-transaction, so an interrupted run leaves the library exactly as it was. Pass
-`--dry-run` to see what it would change first.

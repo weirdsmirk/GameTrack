@@ -25,8 +25,8 @@ export const POSTERS_DIR = path.join(DATA_DIR, "posters");
 /**
  * The one database file, and the only place in the project that names it.
  *
- * Everything that needs the database — the connection, the storage stats, the test
- * suite — reads `DB_PATH` from here rather than building a filename. That matters
+ * Everything that needs the database — the connection and the storage stats —
+ * reads `DB_PATH` from here rather than building a filename. That matters
  * because the filename used to appear in two places (`server/db.ts` and the
  * `/api/storage` size stat), and two places is one rename away from reporting the
  * size of a file that stopped existing.
@@ -39,10 +39,8 @@ export const DB_PATH = path.join(DATA_DIR, DB_FILE);
 export const DB_WAL_PATH = `${DB_PATH}-wal`;
 
 /**
- * Compiled frontend assets. Overridable with GAMETRACK_DIST_DIR so the test
- * suite can serve its own placeholder without writing into the repo's dist/ —
- * which is what the suite used to do, and which made a broken `vite build`
- * invisible to the SPA-fallback test.
+ * Compiled frontend assets. Overridable with GAMETRACK_DIST_DIR so a container
+ * can mount a prebuilt client separately from the project root.
  */
 export const DIST_DIR = process.env.GAMETRACK_DIST_DIR
   ? path.resolve(process.env.GAMETRACK_DIST_DIR)

@@ -35,9 +35,8 @@ if (!API_TOKEN && HOST !== "127.0.0.1" && !LOOPBACK_HOSTS.has(HOST)) {
 
 ensureDataDir();
 
-/* Module scope, not inside createApp: the registration used to live in the app
-   factory, so every call added another listener — the supertest suite builds an
-   app per file and was quietly accumulating them. These fire once per process.
+/* Module scope, not inside createApp: registering these in the app factory would
+   add another listener per app. These fire once per process.
 
    unhandledRejection is logged and the process keeps serving. That is the right
    call for this app: a rejected promise means one request failed, and the
@@ -73,11 +72,10 @@ function tokenMatches(supplied: string): boolean {
 }
 
 /**
- * Build the express app without binding a port — used by the real server
- * (startServer) and by supertest in the API smoke tests. `production` skips
- * the Vite dev middleware and enables the strict CSP.
+ * Build the express app without binding a port; startServer() is its only
+ * caller. `production` skips the Vite dev middleware and enables the strict CSP.
  */
-export async function createApp(production = false) {
+async function createApp(production = false) {
   const IS_PRODUCTION = production;
   const app = express();
   app.disable("x-powered-by");
@@ -178,24 +176,12 @@ export async function createApp(production = false) {
     ALLOWED_HOSTS.add(`localhost:${PORT}`);
     ALLOWED_HOSTS.add(`127.0.0.1:${PORT}`);
   }
-  // supertest binds its own ephemeral port, so the Host header it sends
-  // (127.0.0.1:<random>) never matches PORT. Test processes only, and only for
-  // loopback — this must not become a general "any host" escape hatch, so it is
-  // scoped to NODE_ENV=test and still requires a loopback hostname.
-  const IS_TEST = process.env.NODE_ENV === "test";
   app.use((req: Request, res: Response, next: NextFunction) => {
     // HTTP/1.1 requires Host; a missing one is malformed, and letting it
     // through would be a trivially exploitable bypass of this check.
     const host = req.headers.host?.trim().toLowerCase();
     if (!host) return res.status(403).send("Forbidden: Invalid request host.");
     if (ALLOWED_HOSTS.has(host)) return next();
-    // supertest binds its own ephemeral port, so the Host it sends
-    // (127.0.0.1:<random>) never matches PORT. Accept any port, but only for
-    // loopback names and only in a test process — never a general bypass.
-    if (IS_TEST) {
-      const [name] = host.split(":");
-      if (name && (name === "127.0.0.1" || name === "localhost" || name === "[::1]")) return next();
-    }
     return res.status(403).send("Forbidden: Invalid request host.");
   });
 
@@ -245,10 +231,10 @@ export async function createApp(production = false) {
        and is gated.
 
        Note this gate is a LAN/remote guard, not authentication of the app shell:
-       `/assets` and `/` are served ungated, and `.env.example` suggests baking
-       VITE_API_TOKEN into that bundle — which puts the token in a file every
-       visitor can read. The operator-facing token should be entered once and
-       kept in localStorage; see the note in src/utils/api.ts. */
+       `/assets` and `/` are served ungated, and VITE_API_TOKEN bakes a token
+       into that bundle — which puts the token in a file every visitor can read.
+       The operator-facing token should be entered once and kept in localStorage;
+       see the note in src/utils/api.ts. */
     const tokenGate = (req: Request, res: Response, next: NextFunction) => {
       const header = req.headers.authorization || "";
       const supplied = header.startsWith("Bearer ") ? header.slice(7) : "";
@@ -560,11 +546,7 @@ async function startServer() {
   process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
-// Tests import this module to build an app via createApp() — never start the
-// real listener (or schedule real Steam/IGDB calls) inside the test process.
-if (process.env.NODE_ENV !== "test") {
-  startServer().catch((err) => {
-    console.error("Failed to start server:", err);
-    process.exit(1);
-  });
-}
+startServer().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});

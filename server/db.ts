@@ -307,15 +307,14 @@ function runMigration(version: number) {
   if (version === 9) {
     // The RAWG era rewrote the whole id column with RAWG's own numbers, so the
     // values that survived the rename above are NOT IGDB ids — they would make
-    // the details modal and Discover resolve the wrong game. Clear them and
-    // let scripts/reset-metadata.ts repopulate real IGDB ids (it matches every
-    // title against IGDB and also restores the posters).
+    // the details modal and Discover resolve the wrong game. Clear them, and let
+    // the Settings → Re-link action (or a Steam sync) repopulate real IGDB ids.
     const staleIds = db.prepare("SELECT COUNT(*) AS n FROM games WHERE igdb_id IS NOT NULL").get() as { n: number };
     db.exec("UPDATE games SET igdb_id = NULL WHERE igdb_id IS NOT NULL");
     db.exec("UPDATE wishlist SET igdb_id = NULL WHERE igdb_id IS NOT NULL");
     if (staleIds.n > 0) {
       console.warn(
-        `[db] Cleared ${staleIds.n} RAWG-era external id(s) — run \`npm run reset-metadata\` to re-link them to IGDB.`
+        `[db] Cleared ${staleIds.n} RAWG-era external id(s) — re-link them to IGDB from Settings → Re-link.`
       );
     }
   }
@@ -576,8 +575,8 @@ function normalizeRawgRemnants() {
  * exact artwork for that appid); every other row uses its IGDB cover. The RAWG
  * era repointed both kinds of row at media.rawg.io, so Steam rows are repaired
  * here and non-Steam rows are blanked — a dead RAWG link is never rendered, and
- * the IGDB cover is restored by scripts/fetch-all-igdb-posters.ts or by the
- * details modal's "Sync Poster" action.
+ * the IGDB cover comes back on the next Steam sync or via the details modal's
+ * "Sync Poster" action.
  */
 export function normalizePosterPolicy(): number {
   // Custom uploads ("/posters/...") are user content — never rewrite them.
