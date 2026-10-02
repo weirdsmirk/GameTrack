@@ -17,7 +17,7 @@
 import "dotenv/config";
 import fs from "fs";
 import path from "path";
-import { handleUsage, wantsUsage } from "./lib/maintenance-guard";
+import { handleUsage, wantsDryRun, wantsUsage } from "./lib/maintenance-guard";
 
 /** IGDB allows ~4 requests/second — stay comfortably under that. */
 const REQUEST_DELAY_MS = 260;
@@ -103,7 +103,23 @@ async function processRows(
       if (!match) {
         stats.unmatched++;
         console.log("   -> no confident IGDB match; cleared stale id, kept existing text metadata");
-        applyRow(row, { igdb_id: null, poster_url: resolvePoster(row, null, stats, deps) });
+        /* Every named parameter the UPDATE references has to be present, even the
+           ones being kept: better-sqlite3 rejects the whole statement if any is
+           missing. This patch used to carry only `igdb_id` and `poster_url`, so
+           the write threw RangeError — and the catch below swallowed it as
+           "failed: Missing named parameter". The row's id still ended up NULL,
+           but only because the old code had already wiped every id up front; the
+           "clear the id on an unmatched row" behaviour was never actually being
+           applied by this statement at all. Passing the row's current values
+           states the intent directly and makes the write complete on its own. */
+        applyRow(row, {
+          igdb_id: null,
+          year: row.year,
+          genres: row.genres,
+          synopsis: row.synopsis,
+          critic_score: row.critic_score,
+          poster_url: resolvePoster(row, null, stats, deps),
+        });
       } else {
         const mapped = deps.mapIgdbGame(match);
         const genres = mapped.genres.length ? mapped.genres : JSON.parse(row.genres || "[]");
@@ -121,13 +137,32 @@ async function processRows(
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       if (/UNIQUE constraint failed/i.test(message)) {
-        // Two library rows map to the same IGDB game — keep the id on the first.
+        /* Duplicates are decided by the in-memory `claimed` set before anything is
+           written, so this branch is not expected to fire. It is kept rather than
+           deleted because the write is now one transaction: if an id ever did
+           collide, swallowing it here would still abort the batch, and the caller
+           would report success for a rollback. Failing loudly is the honest
+           outcome. */
         stats.duplicates++;
-        console.warn("   -> duplicate IGDB id already claimed by another row; id left empty");
-        applyRow(row, { igdb_id: null });
+        throw new Error(
+          `UNIQUE constraint failed on igdb_id despite pre-claim checks: ${message}`
+        );
       } else {
         stats.unmatched++;
         console.error(`   -> failed: ${message}`);
+        /* A lookup that errored is not the same as a lookup that found nothing, but
+           it ends the same way for this row. The script exists to clear ids that
+           may still be RAWG's, so leaving the old value in place because the
+           network blipped would preserve exactly the wrong id. The text metadata
+           is kept, as for a genuine no-match. */
+        applyRow(row, {
+          igdb_id: null,
+          year: row.year,
+          genres: row.genres,
+          synopsis: row.synopsis,
+          critic_score: row.critic_score,
+          poster_url: row.poster_url,
+        });
       }
     }
 
@@ -155,19 +190,26 @@ function backupIds(
 const USAGE = `
 reset-metadata — re-match every library and wishlist row against IGDB.
 
-DESTRUCTIVE: it clears igdb_id on every row before re-fetching, so an
-interrupted run leaves the library unlinked. It writes two backups first (an
-id map and a full database copy), but "it made a backup" is a poor substitute
-for "it did not run".
+For every row it looks the title up on IGDB and rewrites the IGDB id, year,
+genres, synopsis, critic score and poster art. Poster rules:
+  • rows synced from Steam  → the portrait Steam CDN cover (it always exists)
+  • everything else         → the IGDB cover art
+Locally uploaded posters (/posters/...) are never touched, and stale RAWG CDN
+URLs are always purged. Titles are matched conservatively — an ambiguous title is
+left with no IGDB id rather than linked to the wrong game.
+
+Nothing is written until every row has been looked up, so an interrupted run
+leaves the library exactly as it was.
 
 Usage:
-  npm run reset-metadata             run it
-  npm run reset-metadata -- --help   show this
+  npm run reset-metadata                 run it
+  npm run reset-metadata -- --dry-run    report what would change, write nothing
+  npm run reset-metadata -- --help       show this
 `;
 
-handleUsage(wantsUsage(process.argv.slice(2)), USAGE);
-
 async function run(): Promise<void> {
+  const dryRun = wantsDryRun(process.argv.slice(2));
+
   /* Everything that touches the database is loaded HERE, not at the top of the
      file. ES module imports are hoisted and evaluated before any module-level
      statement, so a static `import db from "../server/db"` would open — and write
@@ -181,7 +223,7 @@ async function run(): Promise<void> {
   const { getSteamPosterImage } = await import("../server/steam");
   const deps: IgdbDeps = { mapIgdbGame, getSteamPosterImage, findIgdbMatch, sleep };
 
-  console.log("Starting IGDB metadata + poster reset...\n");
+  console.log(`${dryRun ? "DRY RUN — " : ""}Starting IGDB metadata + poster reset...\n`);
   await assertIgdbReachable();
 
   const games = db.prepare(
@@ -193,43 +235,11 @@ async function run(): Promise<void> {
 
   console.log(`Found ${games.length} library game(s) and ${wishlist.length} wishlist item(s).\n`);
 
-  // Every stored id today may be a RAWG id, so wipe them before re-assigning —
-  // otherwise stale values can collide with freshly matched IGDB ids. The ids
-  // are backed up first (and the IGDB credential check above already passed).
+  // A plain JSON id map, written before anything else. Cheap insurance that costs
+  // no database write, so it is not the thing standing between a mistake and the
+  // library.
   backupIds(games, "games", DATA_DIR);
   backupIds(wishlist, "wishlist", DATA_DIR);
-
-  /* The wipe below and the re-link that follows are minutes apart, because
-     every row costs an IGDB round trip. A Ctrl-C in that gap used to leave
-     every row in the library with igdb_id = NULL — the RAWG-era links were
-     already gone and the new ones had not been written yet, so there was
-     nothing to fall back on and no script to put them back. Two guards close
-     that window:
-       1. `db.backup()` writes a byte-complete copy of the file next to it, so
-          there is something to restore from even if this process dies hard.
-       2. The SIGINT/SIGTERM handler below puts the in-memory snapshot back, so
-          a normal Ctrl-C is a no-op rather than a data-loss event. */
-  const snapshot = path.join(DATA_DIR, `igdb-reset-${stampFor("pre")}.db`);
-  await db.backup(snapshot);
-  console.log(`Backed up the database to ${snapshot}\n`);
-
-  const restoreIds = db.prepare("UPDATE games SET igdb_id = @igdb_id WHERE id = @id");
-  const restoreWishlistIds = db.prepare("UPDATE wishlist SET igdb_id = @igdb_id WHERE id = @id");
-  const undo = db.transaction((rows: Row[], stmt: typeof restoreIds) => {
-    for (const row of rows) stmt.run({ id: row.id, igdb_id: row.igdb_id });
-  });
-  const abort = (signal: string) => {
-    console.error(`\n${signal} received — restoring the pre-run IGDB ids.`);
-    undo(games, restoreIds);
-    undo(wishlist, restoreWishlistIds);
-    console.error("Restored. Nothing was lost. (To revert to the file backup, copy the .db above back over data/gametrack.db.)");
-    process.exit(130);
-  };
-  process.once("SIGINT", () => abort("SIGINT"));
-  process.once("SIGTERM", () => abort("SIGTERM"));
-
-  db.prepare("UPDATE games SET igdb_id = NULL").run();
-  db.prepare("UPDATE wishlist SET igdb_id = NULL").run();
 
   const updateGame = db.prepare(`
     UPDATE games
@@ -263,14 +273,60 @@ async function run(): Promise<void> {
     duplicates: 0,
   };
 
+  /* Writes are collected here and applied in one transaction at the end.
+
+     The previous shape nulled `igdb_id` on every row first, then spent minutes
+     doing one IGDB round trip per row to write the new ids back. For that whole
+     window the library was linked to nothing, and only two things stood between
+     an interrupted run and a fully unlinked library: a JSON file nobody restores
+     automatically, and a SIGINT handler that does not cover SIGKILL, an OOM, a
+     crashed connection or a pulled power cable.
+
+     Staging instead of streaming removes the window rather than trying to catch
+     the fall. The database is untouched for the entire slow phase, and the write
+     is a single transaction, so it either lands whole or not at all. */
+  const gameWrites: { id: number; params: Record<string, unknown> }[] = [];
+  const wishlistWrites: { id: number; params: Record<string, unknown> }[] = [];
+
+  /* Ids claimed by an earlier row in this run.
+
+     Duplicate detection is done here, in memory, rather than by catching the
+     UNIQUE violation the insert would raise. Inside one transaction that violation
+     rolls back the whole batch, so the old per-row catch could not have survived
+     being moved into a transaction — it has to be decided before the write, not
+     during it. First row to claim an id keeps it, exactly as before. */
+  const claimed = new Set<number>();
+  const stage = (
+    sink: { id: number; params: Record<string, unknown> }[],
+    row: Row,
+    patch: Record<string, unknown>
+  ) => {
+    const id = (patch.igdb_id as number | null | undefined) ?? null;
+    let effective = patch;
+    if (id != null && claimed.has(id)) {
+      stats.duplicates++;
+      console.warn("   -> duplicate IGDB id already claimed by another row; id left empty");
+      effective = { ...patch, igdb_id: null };
+    } else if (id != null) {
+      claimed.add(id);
+    }
+    sink.push({ id: row.id, params: { id: row.id, ...effective } });
+  };
+
   await processRows(
     "library",
     games,
-    (row, patch) => updateGame.run({ id: row.id, updated_at: Date.now(), ...patch }),
+    (row, patch) => stage(gameWrites, row, { updated_at: Date.now(), ...patch }),
     stats,
     deps
   );
-  await processRows("wishlist", wishlist, (row, patch) => updateWishlist.run({ id: row.id, ...patch }), stats, deps);
+  await processRows(
+    "wishlist",
+    wishlist,
+    (row, patch) => stage(wishlistWrites, row, patch),
+    stats,
+    deps
+  );
 
   console.log("\n──────────────────────────────────────────────");
   console.log(`Matched against IGDB : ${stats.matched}`);
@@ -279,11 +335,41 @@ async function run(): Promise<void> {
   console.log(`IGDB posters         : ${stats.igdbPosters}`);
   console.log(`Existing posters kept: ${stats.keptPosters}`);
   console.log(`Duplicate IGDB ids   : ${stats.duplicates}`);
-  console.log("Reset complete.");
+
+  if (dryRun) {
+    console.log(`\nDry run: ${gameWrites.length + wishlistWrites.length} row(s) would be rewritten. Nothing was written.`);
+    return;
+  }
+
+  // A byte-complete file copy, taken immediately before the single write rather
+  // than before the slow phase — so it reflects the true "before" state and is
+  // never stale.
+  const snapshot = path.join(DATA_DIR, `igdb-reset-${stampFor("pre")}.db`);
+  await db.backup(snapshot);
+  console.log(`Backed up the database to ${snapshot}`);
+
+  const applyAll = db.transaction(() => {
+    for (const write of gameWrites) updateGame.run(write.params);
+    for (const write of wishlistWrites) updateWishlist.run(write.params);
+  });
+  applyAll();
+
+  console.log(`\nRewrote ${gameWrites.length + wishlistWrites.length} row(s) in a single transaction. Reset complete.`);
 }
 
+/* One guard, at the entry point.
+
+   It lives here rather than at the top of the file because `run()` is what pulls
+   in the database-backed modules: ES module imports are hoisted, so a static
+   `import db from "../server/db"` would open — and write to — the library even
+   when this script was only asked to describe itself.
+
+   The explicit `else` matters as much as the exit. `handleUsage` calls
+   `process.exit(0)`, which is enough in production, but anything that intercepts
+   `process.exit` — a test spy, an embedding host — would otherwise fall straight
+   through into the destructive branch below. */
 if (wantsUsage(process.argv.slice(2))) {
-  console.log(USAGE);
+  handleUsage(true, USAGE);
 } else {
   run().catch((err) => {
     console.error("Reset failed:", err);

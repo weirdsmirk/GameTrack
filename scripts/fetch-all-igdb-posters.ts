@@ -54,11 +54,6 @@ Usage:
   npm run fetch-igdb-posters -- --help   show this
 `;
 
-/* Checked here, before anything below is loaded. ES module imports are hoisted,
-   so a static `import db from "../server/db"` would open — and write to — the
-   library even when this script was only asked what it would do. */
-handleUsage(wantsUsage(process.argv.slice(2)), USAGE);
-
 /** IGDB cover for a known id, or null when the game has no artwork. */
 async function coverForId(igdbId: number, deps: IgdbDeps): Promise<string | null> {
   const rows = await deps.fetchFromIgdb("games", `fields cover.image_id; where id = ${igdbId};`);
@@ -162,7 +157,21 @@ async function run(): Promise<void> {
   console.log("Poster refresh complete.");
 }
 
-run().catch((err) => {
-  console.error("Poster refresh failed:", err);
-  process.exit(1);
-});
+/* One guard, at the entry point.
+
+   It lives here rather than at the top of the file because `run()` is what pulls
+   in the database-backed modules: ES module imports are hoisted, so a static
+   `import db from "../server/db"` would open — and write to — the library even
+   when this script was only asked what it would do.
+
+   The explicit `else` matters as much as the exit: anything that intercepts
+   `process.exit` — a test spy, an embedding host — would otherwise fall straight
+   through into the branch that rewrites every poster in the library. */
+if (wantsUsage(process.argv.slice(2))) {
+  handleUsage(true, USAGE);
+} else {
+  run().catch((err) => {
+    console.error("Poster refresh failed:", err);
+    process.exit(1);
+  });
+}
