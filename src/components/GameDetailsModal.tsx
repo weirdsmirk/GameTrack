@@ -52,6 +52,83 @@ const playtimeTitle = (game: Game): string => {
   return `${total} across ${timesPlayed(game)} playthroughs — ${formatPlaytimePrecise(game.playtime)} on the first`;
 };
 
+/**
+ * Shared chrome for the three read-mode metric cells.
+ *
+ * These three sit in a row and read as one group, so they have to stay identical
+ * in everything except their label and value — which is exactly what breaks when
+ * each cell is written inline. The Playtime cell is a button that opens a dialog;
+ * Your Rating and Completed open the edit form on the matching field; and for an
+ * Endless title the Playtime cell drops back to a plain box. Written three times,
+ * those variants drift — the affordance ends up on two cells and not the third,
+ * or survives on one after the action behind it was removed.
+ */
+const METRIC_CELL_BASE =
+  "bg-zinc-900/60 border p-3.5 flex flex-col justify-between h-[76px]";
+const METRIC_LABEL =
+  "text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none";
+
+/**
+ * The dashed rule under a metric's value is the click affordance, and it is
+ * visible AT REST, not just on hover. It cannot be hover-only: a keyboard user
+ * tabbing to the cell never generates a hover state, and a touch user never does
+ * either — so a hover-only affordance is invisible to exactly the people who most
+ * need to be told the thing is interactive.
+ *
+ * `zinc-500`, not `brand-border`. The structural border token is #27272A on a
+ * #18181B cell — measured at 1.3:1 against the painted background, which reads as
+ * a faint smudge rather than a rule. Right for a frame, wrong for a signal.
+ * Zinc-600 only reached 2.51:1; zinc-500 clears the 3:1 that WCAG asks of a
+ * meaningful UI boundary, while still sitting below the value so it never competes
+ * with the number. It goes accent on hover/focus, so the interaction reads as
+ * escalation rather than as a change of object.
+ *
+ * `w-fit` so the rule hugs the text; stretched to the cell's full width it would
+ * read as a divider between the three metrics, which is the opposite message.
+ */
+const METRIC_VALUE_RULE =
+  "mt-2 leading-none uppercase w-fit border-b-2 border-dashed border-zinc-500 group-hover:border-brand-accent group-focus-visible:border-brand-accent transition-colors pb-1";
+
+/**
+ * One metric cell. Renders as a button when there is something to open and as a
+ * plain box when there is not, so "looks interactive" and "is interactive" cannot
+ * come apart.
+ */
+const MetricCell: React.FC<{
+  label: string;
+  /** Omitted for a read-only cell — which then gets no cursor, hover or rule. */
+  onOpen?: () => void;
+  ariaLabel?: string;
+  /** Playtime's own cell turns dashed/red while the hours are hidden. */
+  hiddenBorder?: boolean;
+  valueClassName?: string;
+  value: React.ReactNode;
+}> = ({ label, onOpen, ariaLabel, hiddenBorder = false, valueClassName = "text-white", value }) => {
+  const frame = hiddenBorder
+    ? "border-dashed border-red-500/25"
+    : "border-brand-border/50";
+  return onOpen ? (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={ariaLabel}
+      className={`group text-left w-full cursor-pointer transition-colors hover:bg-zinc-900 focus:outline-none focus-visible:border-brand-accent ${METRIC_CELL_BASE} ${frame} hover:border-brand-accent/50`}
+    >
+      <p className={METRIC_LABEL}>{label}</p>
+      <h5 className={`text-sm sm:text-lg font-black ${METRIC_VALUE_RULE} ${valueClassName}`}>
+        {value}
+      </h5>
+    </button>
+  ) : (
+    <div className={`${METRIC_CELL_BASE} ${frame}`}>
+      <p className={METRIC_LABEL}>{label}</p>
+      <h5 className={`text-sm sm:text-lg font-black mt-2 leading-none uppercase ${valueClassName}`}>
+        {value}
+      </h5>
+    </div>
+  );
+};
+
 const formatDateInputValue = (d: Date): string => {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -129,6 +206,12 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   // Replay history modal. Opens from the hours metric, so the read view's
   // per-run list stays out of the scroll area until it is asked for.
   const [replayModalOpen, setReplayModalOpen] = useState(false);
+  /**
+   * Which edit-form field the "Your Rating" and "Completed" metric cells should
+   * land on. Set by `openEditAt` and cleared by the effect below once it has
+   * fired, so it is a one-shot instruction rather than state the UI renders from.
+   */
+  const [editFocusTarget, setEditFocusTarget] = useState<"rating" | "completed" | null>(null);
   const [posterUrlInput, setPosterUrlInput] = useState("");
   const [posterSaving, setPosterSaving] = useState(false);
   const [resettingMetadata, setResettingMetadata] = useState(false);
@@ -609,51 +692,58 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     }
   };
 
-  /* The playtime metric cell, built once and rendered either as a button or as a
-     plain box depending on whether the game may be replayed.
-
-     Held in a variable rather than written twice: the two renderings differ only
-     in the wrapper element, and duplicating the inner markup is exactly how the
-     two would drift.
-
-     An endless title gets the PLAIN box, identical to its two siblings: no cursor,
-     no hover response, and above all no dashed rule. Keeping the affordance while
-     removing the action would be worse than either — a clickable-looking cell
-     that opens nothing, or one that opens an empty history. */
+  /* Whether the game may be replayed, which decides whether the Playtime cell
+     gets a click target at all. */
   const canReplaySelected = replayAllowed(selectedGame?.status);
-  const playtimeCellBody = (
-    <>
-      <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">
-        Playtime
-      </p>
-      {selectedGame?.hide_playtime === 1 ? (
-        <h5 className="text-sm sm:text-lg font-black text-red-400/80 mt-2 leading-none uppercase inline-flex items-center gap-1.5 line-through decoration-2 decoration-red-500/40" title="Playtime is hidden — shown only to you">
-          <EyeOff className="w-3.5 h-3.5 shrink-0" />
-          Hidden
-        </h5>
-      ) : (
-        <h5
-          className={
-            canReplaySelected
-              ? "text-sm sm:text-lg font-black text-white mt-2 leading-none uppercase w-fit border-b-2 border-dashed border-zinc-500 group-hover:border-brand-accent group-focus-visible:border-brand-accent transition-colors pb-1"
-              : "text-sm sm:text-lg font-black text-white mt-2 leading-none uppercase"
-          }
-        >
-          <span className="flex items-baseline gap-2">
-            {formatPlaytimePrecise(totalPlaytime(selectedGame ?? { playtime: 0 }))}
-            {/* The run count is part of the affordance — it is what tells you there
-                is something to open — so it is withheld along with the click
-                target rather than left behind on a cell that does nothing. */}
-            {canReplaySelected && isReplayed(selectedGame ?? { times_played: 1 }) && (
-              <span className="text-[10px] font-black text-brand-accent tracking-widest">
-                ×{timesPlayed(selectedGame ?? { times_played: 1 })}
-              </span>
-            )}
-          </span>
-        </h5>
-      )}
-    </>
-  );
+
+  /* Open the edit form already aimed at one field.
+
+     Opening it without an aim is not the same thing, and the difference is the
+     whole point of the request: a form that mounts with nothing focused leaves the
+     user to work out which of a dozen controls the metric they just clicked refers
+     to. Aiming it means the click and the caret are the same gesture. */
+  const openEditAt = (target: "rating" | "completed") => {
+    setEditFocusTarget(target);
+    setIsEditing(true);
+  };
+
+  /* Move the caret to the field the metric named.
+
+     Synchronous, with no requestAnimationFrame. A frame was the obvious-looking
+     way to wait for the form to exist — and it is wrong, because a rAF callback is
+     throttled to zero in a hidden or busy document. Measured here: with
+     `document.visibilityState === "hidden"` the callback simply never ran, so the
+     form opened with the caret still on the metric cell. `useEffect` is already
+     exactly the "after React has committed this render" hook, so the fields are
+     in the DOM by the time this body runs and there is nothing to wait for.
+
+     `preventScroll` on focus because the scroll is done explicitly with
+     `block: "center"` — the default would jump the panel to the element's own
+     edge, leaving its label above the fold.
+
+     The date input additionally gets `select()` so typing replaces the value
+     rather than appending inside it, which is the normal expectation for a field a
+     user has just been sent to.
+
+     The target is cleared on every path, including the one where the field is not
+     found, so a rename cannot wedge the form open on the next edit. */
+  useEffect(() => {
+    if (!isEditing || !editFocusTarget) return;
+    const group = '[role="radiogroup"][aria-label="Personal rating"]';
+    const el =
+      editFocusTarget === "completed"
+        ? document.getElementById("edit-game-completed")
+        : // Prefer the currently-selected cell, so re-entering the form to adjust an
+          // existing rating lands on that rating rather than on cell 1.
+          document.querySelector(`${group} [role="radio"][aria-checked="true"]`) ??
+          document.querySelector(`${group} [role="radio"]`);
+    if (el instanceof HTMLElement) {
+      el.scrollIntoView({ block: "center" });
+      el.focus({ preventScroll: true });
+      if (el instanceof HTMLInputElement) el.select();
+    }
+    setEditFocusTarget(null);
+  }, [isEditing, editFocusTarget]);
 
   return (
     <>
@@ -1294,52 +1384,76 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                       not a chevron: that would make one cell in a row of three
                       look like a different *kind* of thing rather than the same
                       thing that opens something. */}
-                  {canReplaySelected ? (
-                    <button
-                      type="button"
-                      onClick={() => setReplayModalOpen(true)}
-                      aria-haspopup="dialog"
-                      aria-label={`Playtime for ${selectedGame.title}: ${playtimeTitle(selectedGame)}. Open replay history.`}
-                      className={`group text-left bg-zinc-900/60 border p-3.5 flex flex-col justify-between h-[76px] w-full cursor-pointer transition-colors hover:bg-zinc-900 focus:outline-none focus-visible:border-brand-accent ${selectedGame.hide_playtime === 1 ? "border-dashed border-red-500/25" : "border-brand-border/50 hover:border-brand-accent/50"}`}
-                    >
-                      {playtimeCellBody}
-                    </button>
-                  ) : (
-                    /* Identical box to its two siblings — no cursor, no hover
-                       response, no dashed rule — so an endless title does not
-                       advertise an action that cannot be taken. */
-                    <div className={`bg-zinc-900/60 border p-3.5 flex flex-col justify-between h-[76px] ${selectedGame.hide_playtime === 1 ? "border-dashed border-red-500/25" : "border-brand-border/50"}`}>
-                      {playtimeCellBody}
-                    </div>
-                  )}
-                  
-                  <div className="bg-zinc-900/60 border border-brand-border/50 p-3.5 flex flex-col justify-between h-[76px]">
-                    <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">Your Rating</p>
-                    <h5 className="text-sm sm:text-lg font-black text-brand-accent mt-2 leading-none uppercase">
-                      {selectedGame.personal_rating !== null ? `${selectedGame.personal_rating}/10` : "—"}
-                    </h5>
-                  </div>
+                  {/* Playtime — the entry point to replay history. On an Endless
+                      title there is nothing to open, so `onOpen` is omitted and
+                      MetricCell renders a plain box: no cursor, no hover, no
+                      dashed rule. Keeping the affordance while removing the action
+                      would be worse than either — a clickable-looking cell that
+                      opens nothing.
 
-                  {/* The completion date, not the entry date. It is the one date a
-                      reader actually asks about — "when did I finish this?" —
-                      and the entry date survives as the library's default sort
-                      key.
+                      The value is the ALL-RUNS total, so the plain word "Playtime"
+                      is not a lie about a game beaten several times. The per-run
+                      split is one click away, with the first run listed as
+                      Playthrough 1. */}
+                  <MetricCell
+                    label="Playtime"
+                    onOpen={canReplaySelected ? () => setReplayModalOpen(true) : undefined}
+                    ariaLabel={canReplaySelected
+                      ? `Playtime for ${selectedGame.title}: ${playtimeTitle(selectedGame)}. Open replay history.`
+                      : undefined}
+                    hiddenBorder={selectedGame.hide_playtime === 1}
+                    valueClassName={selectedGame.hide_playtime === 1 ? "text-red-400/80 line-through decoration-2 decoration-red-500/40" : "text-white"}
+                    value={
+                      selectedGame.hide_playtime === 1
+                        ? <><EyeOff className="w-3.5 h-3.5 shrink-0" />{"Hidden"}</>
+                        : <>{formatPlaytimePrecise(totalPlaytime(selectedGame))}
+                            {/* The run count is part of the affordance — it is what
+                                tells you there is something to open — so it is
+                                withheld along with the click target rather than
+                                left behind on a cell that does nothing. */}
+                            {canReplaySelected && isReplayed(selectedGame) && (
+                              <span className="text-[10px] font-black text-brand-accent tracking-widest align-baseline">
+                                {" "}×{timesPlayed(selectedGame)}
+                              </span>
+                            )}
+                          </>
+                    }
+                  />
 
-                      Gated on the status as well as the date, for the same
-                      reason the analytics chart is: the server stamps
-                      `date_completed` when a title enters completed and never
-                      clears it on the way out, so a title moved back to backlog
-                      keeps a stale date. Showing it raw would put a completion
-                      date under a game with zero hours and no grade. An em dash
-                      matches the grade box above for "not recorded". */}
-                  <div className="bg-zinc-900/60 border border-brand-border/50 p-3.5 flex flex-col justify-between h-[76px]">
-                    <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">Completed</p>
-                    <h5 className="text-sm sm:text-lg font-black text-white mt-2 leading-none uppercase">
-                      {selectedGame.status === "completed" && selectedGame.date_completed
-                        ? formatDateShort(selectedGame.date_completed)
-                        : "—"}
-                    </h5>
-                  </div>
+                  {/* Your Rating — opens the edit form on the rating itself rather
+                      than merely opening it. Landing the user on a form with
+                      nothing focused and ten cells to find is the same as not
+                      knowing which cell the metric referred to. */}
+                  <MetricCell
+                    label="Your Rating"
+                    onOpen={() => openEditAt("rating")}
+                    ariaLabel={`Your rating for ${selectedGame.title}: ${selectedGame.personal_rating !== null ? `${selectedGame.personal_rating} out of 10` : "not rated"}. Edit your rating.`}
+                    valueClassName="text-brand-accent"
+                    value={selectedGame.personal_rating !== null ? `${selectedGame.personal_rating}/10` : "—"}
+                  />
+
+                  {/* Completed — the completion date, not the entry date. It is
+                      the one date a reader actually asks about ("when did I finish
+                      this?"), and the entry date survives as the library's default
+                      sort key.
+
+                      Gated on the status as well as the date, for the same reason
+                      the analytics chart is: the server stamps `date_completed`
+                      when a title enters completed and never clears it on the way
+                      out, so a title moved back to backlog keeps a stale date.
+                      Showing it raw would put a completion date under a game with
+                      zero hours and no grade. An em dash matches the rating box
+                      beside it for "not recorded". */}
+                  <MetricCell
+                    label="Completed"
+                    onOpen={() => openEditAt("completed")}
+                    ariaLabel={selectedGame.status === "completed" && selectedGame.date_completed
+                      ? `Completed on ${formatDateShort(selectedGame.date_completed)}. Edit the completion date.`
+                      : "No completion date recorded. Edit the completion date."}
+                    value={selectedGame.status === "completed" && selectedGame.date_completed
+                      ? formatDateShort(selectedGame.date_completed)
+                      : "—"}
+                  />
                 </div>
             </div>
           )}
