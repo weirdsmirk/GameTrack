@@ -254,7 +254,9 @@ const RunFacts: React.FC<{ status: Playthrough["status"]; playtime: number; date
  * are self-contained here: each control saves immediately and refreshes, so what
  * is on screen always matches what is stored.
  */
-export const ReplayHistory: React.FC<{ game: Game }> = ({ game }) => {
+export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host dialog already titles the panel, so the
+   *  name is not printed twice within one screen. */
+  hideHeading?: boolean }> = ({ game, hideHeading = false }) => {
   // `useShallow` is required, not stylistic: zustand v5 has no default shallow
   // equality, so a selector returning a fresh object literal compares unequal on
   // every store write and re-renders forever. Fetching also writes to the store
@@ -325,7 +327,7 @@ export const ReplayHistory: React.FC<{ game: Game }> = ({ game }) => {
       <div className="flex items-center justify-between gap-3">
         <h3
           id="replay-history-heading"
-          className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-brand-muted"
+          className={`flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-brand-muted ${hideHeading ? "sr-only" : ""}`}
         >
           <History className="w-3.5 h-3.5 shrink-0" />
           Replay History

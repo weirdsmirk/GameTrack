@@ -109,6 +109,9 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
   // Change Poster modal — URL entry or device upload.
   const [posterModalOpen, setPosterModalOpen] = useState(false);
+  // Replay history modal. Opens from the hours metric, so the read view's
+  // per-run list stays out of the scroll area until it is asked for.
+  const [replayModalOpen, setReplayModalOpen] = useState(false);
   const [posterUrlInput, setPosterUrlInput] = useState("");
   const [posterSaving, setPosterSaving] = useState(false);
   const [resettingMetadata, setResettingMetadata] = useState(false);
@@ -498,10 +501,11 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   // The parent dialog releases its focus trap while any child dialog is up, or
   // two traps would fight over Tab — the parent's would pull focus back out of
   // the confirmation on the very first Tab press.
-  const modalRef = useModalA11y(Boolean(selectedGame) && !posterModalOpen && !statusPickerOpen && !deleteConfirm);
+  const modalRef = useModalA11y(Boolean(selectedGame) && !posterModalOpen && !statusPickerOpen && !deleteConfirm && !replayModalOpen);
   const posterModalRef = useModalA11y(posterModalOpen);
   const statusPickerRef = useModalA11y(statusPickerOpen);
   const deleteConfirmRef = useModalA11y(deleteConfirm);
+  const replayModalRef = useModalA11y(replayModalOpen);
 
   // Set when the user presses inside the panel; a subsequent click landing on
   // the backdrop after a drag-select is then ignored (see handleBackdropClick).
@@ -517,6 +521,8 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         // time rather than dismissing the whole modal from three levels down.
         if (deleteConfirm) {
           setDeleteConfirm(false);
+        } else if (replayModalOpen) {
+          setReplayModalOpen(false);
         } else if (statusPickerOpen) {
           setStatusPickerOpen(false);
         } else if (posterModalOpen) {
@@ -534,7 +540,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
       document.body.style.overflow = "";
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedGame, setSelectedGame, isEditing, posterModalOpen, statusPickerOpen, deleteConfirm, showToast]);
+  }, [selectedGame, setSelectedGame, isEditing, posterModalOpen, statusPickerOpen, deleteConfirm, replayModalOpen, showToast]);
 
   const handleClose = () => {
     setSelectedGame(null);
@@ -1163,16 +1169,6 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                   )}
                 </div>
               </div>
-
-              {/* Replay history, below the synopsis. Read mode only: the replay
-                  controls save themselves, so putting them in the edit form
-                  would give the modal two Save buttons with different scopes.
-                  Always rendered, not gated on the count — the section doubles
-                  as the only place a replay can be added, so hiding it for
-                  un-replayed games would make the feature undiscoverable. */}
-              <div className="border-t border-brand-border/60 pt-5">
-                <ReplayHistory game={selectedGame} />
-              </div>
             </div>
           )}
           </div>
@@ -1182,14 +1178,31 @@ export const GameDetailsModal: React.FC = React.memo(() => {
             <div className="px-6 py-5 md:px-8 md:py-6 border-t border-brand-border/60 shrink-0 bg-zinc-950/85 backdrop-blur-sm space-y-3">
               {/* Registry Metrics */}
               <div className="grid grid-cols-3 gap-3">
-                <div className={`bg-zinc-900/60 border p-3.5 flex flex-col justify-between h-[76px] ${selectedGame.hide_playtime === 1 ? "border-dashed border-red-500/25" : "border-brand-border/50"}`}>
-                    {/* Relabelled once the game has been replayed. This cell reads
-                        the game's own `playtime`, which is playthrough #1 only —
-                        so after a replay exists it is no longer the game's hours,
-                        and leaving it called "Aggregate Hours" would put a number
-                        beside the Replay History total that silently excludes it.
-                        The all-runs total is stated in that section, where the
-                        per-run breakdown makes it checkable. */}
+                {/* The hours cell is the entry point to replay history, so it is a button.
+
+                      Hours is the field a replay actually changes — a second run
+                      adds time without touching anything else on this row — so
+                      this is the metric a user is reaching for when they think
+                      "I beat this again". Putting the disclosure here keeps the
+                      read view's scroll area to synopsis + metrics and moves the
+                      growing per-run list into a layer that can hold it.
+
+                      Kept visually identical to its two siblings, with the
+                      affordance carried by hover/focus alone: an always-visible
+                      chevron would make one cell in a row of three read as
+                      "different kind of thing" rather than "same thing, opens".
+
+                      Relabelled once replayed, because this cell reads the game's
+                      own `playtime` — playthrough #1 only. Calling it "Aggregate
+                      Hours" next to a replay dialog totalling every run would put
+                      two different numbers under the same word. */}
+                  <button
+                    type="button"
+                    onClick={() => setReplayModalOpen(true)}
+                    aria-haspopup="dialog"
+                    aria-label={`${isReplayed(selectedGame) ? "First run hours" : "Aggregate hours"} for ${selectedGame.title}. Open replay history.`}
+                    className={`text-left bg-zinc-900/60 border p-3.5 flex flex-col justify-between h-[76px] w-full cursor-pointer transition-colors hover:bg-zinc-900 focus:outline-none focus-visible:border-brand-accent ${selectedGame.hide_playtime === 1 ? "border-dashed border-red-500/25" : "border-brand-border/50"}`}
+                  >
                     <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">
                       {isReplayed(selectedGame) ? "First Run Hours" : "Aggregate Hours"}
                     </p>
@@ -1199,11 +1212,20 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                         Hidden
                       </h5>
                     ) : (
-                      <h5 className="text-sm sm:text-lg font-black text-white mt-2 leading-none uppercase">
+                      <h5 className="text-sm sm:text-lg font-black text-white mt-2 leading-none uppercase flex items-baseline gap-2">
                         {formatPlaytimePrecise(selectedGame.playtime)}
+                        {/* The one cue that this cell opens something. Only shown
+                            when there is more than one run, because "×1" on a game
+                            played once would be noise on every card in the
+                            library. */}
+                        {isReplayed(selectedGame) && (
+                          <span className="text-[10px] font-black text-brand-accent tracking-widest">
+                            ×{timesPlayed(selectedGame)}
+                          </span>
+                        )}
                       </h5>
                     )}
-                  </div>
+                  </button>
                   
                   <div className="bg-zinc-900/60 border border-brand-border/50 p-3.5 flex flex-col justify-between h-[76px]">
                     <p className="text-[8px] sm:text-[11px] text-brand-muted uppercase font-bold tracking-widest leading-none">Personal Grade</p>
@@ -1240,6 +1262,56 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
         </motion.div>
       </motion.div>
+      )}
+    </AnimatePresence>
+
+    {/* Replay history modal — opened from the hours metric. z-[70] matches the
+        poster dialog; the two are mutually exclusive (the poster dialog is
+        edit-mode only, and this one is read-mode only) so they never stack. */}
+    <AnimatePresence>
+      {selectedGame && replayModalOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80"
+          onClick={(e) => { if (e.target === e.currentTarget) setReplayModalOpen(false); }}
+        >
+          <motion.div
+            ref={replayModalRef}
+            initial={{ scale: 0.96, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.96, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="replay-modal-title"
+            className="relative w-full max-w-2xl max-h-[85vh] flex flex-col border border-brand-border bg-brand-bg text-white shadow-2xl"
+          >
+            <div className="px-5 py-4 border-b border-brand-border shrink-0 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p id="replay-modal-title" className="text-[11px] font-black uppercase tracking-widest text-brand-accent">
+                  Replay History
+                </p>
+                <p className="text-[11px] text-brand-muted truncate mt-0.5">
+                  {selectedGame.title}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReplayModalOpen(false)}
+                aria-label="Close replay history"
+                className="w-[34px] h-[34px] shrink-0 rounded-none bg-zinc-950 border border-brand-border text-brand-muted hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto overscroll-contain p-5">
+              <ReplayHistory game={selectedGame} hideHeading />
+            </div>
+          </motion.div>
+        </motion.div>
       )}
     </AnimatePresence>
 
