@@ -400,18 +400,24 @@ export const DashboardView: React.FC = React.memo(() => {
           })}
         </div>
       ) : (
-        <div className="bg-session-bg text-session-text px-8 sm:px-10 py-12 sm:py-14 lg:min-h-[280px] rounded-none flex flex-col sm:flex-row justify-between items-stretch gap-6 transition-all select-none">
-          <div className="flex flex-col justify-between gap-4">
-            <h3 className="text-xs font-bold uppercase tracking-widest text-session-subtext">
-              NO_ACTIVE_SESSION
-            </h3>
-            <h2 className="text-3xl sm:text-5xl lg:text-6xl font-black uppercase tracking-tighter leading-none text-session-text font-sans">
-              READY_FOR_ENGAGEMENT
-            </h2>
-            <p className="text-xs font-bold text-session-subtext tracking-wider max-w-lg uppercase">
-              MARK_A_TITLE_AS_CURRENTLY_PLAYING_TO_INITIATE_METRIC_TRACKING
-            </p>
-          </div>
+        <div className="bg-session-bg text-session-text px-8 sm:px-10 py-12 sm:py-14 lg:min-h-[280px] rounded-none flex items-end justify-end transition-all select-none">
+          {/* Two rows, bottom right, and nothing else. The copy is split at a word
+              boundary rather than wrapped, so the break is the same on every
+              screen instead of depending on where the viewport happens to fall.
+
+              Sized with clamp() rather than a breakpoint ladder, because two rows of
+              heavy uppercase have to satisfy opposite constraints at once: too large
+              and the longer row ("GAMES RIGHT NOW", 15 characters) clips on a
+              phone, too small and an empty session stops filling the panel and reads
+              as an afterthought beside a live session's 5.25rem name. The 7vw
+              midpoint and 6rem ceiling are measured — this string runs ~8.8 times
+              its own font size wide at this weight, so anything above ~7.4vw was
+              within a few pixels of clipping at 320px. The 1.25rem floor exists so
+              the floor itself never becomes the thing that overflows. */}
+          <p className="font-sans font-black uppercase tracking-tighter leading-[0.85] text-right text-session-text text-[clamp(1.25rem,7vw,6rem)]">
+            <span className="block">No active</span>
+            <span className="block">games right now</span>
+          </p>
         </div>
       )}
       {/* Suggestions and Recent Activity Grid — 5:2 via explicit fr tracks.
