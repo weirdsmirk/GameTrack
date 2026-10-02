@@ -7,7 +7,7 @@ import {
 } from "./types";
 import { isThemeId, applyTheme, applyThemeWithReboot } from "./themes";
 import { Platform, slugifyPlatformLabel, mergeCustomPlatforms, igdbGenreNamesFor, isOwned, isDiscoverGenre, type DiscoverGenre } from "./constants";
-import { RESTORABLE_TABS, type ActiveTab } from "./tabs";
+import { type ActiveTab } from "./tabs";
 import {
   loadBindings, saveBindings, type ShortcutBindings, type ShortcutActionId
 } from "./shortcuts";
@@ -379,19 +379,6 @@ interface GameTrackState {
   resetShortcuts: () => void;
 }
 
-const TAB_KEY = "gametrack_active_tab";
-
-
-function getInitialTab(): ActiveTab {
-  // Via safeGetItem: this runs at module load, and merely *touching*
-  // window.localStorage throws SecurityError in a sandboxed iframe — which
-  // would take the whole store (and therefore the app) down at import time.
-  const stored = safeGetItem(TAB_KEY);
-  return (RESTORABLE_TABS as readonly string[]).includes(stored || "")
-    ? (stored as ActiveTab)
-    : "dashboard";
-}
-
 /**
  * In-flight replay loads, keyed by game id.
  *
@@ -725,9 +712,12 @@ function setDiscoverLoading(
 }
 
 export const useGameTrackStore = create<GameTrackState>((set, get) => ({
-  activeTab: getInitialTab(),
+  // Always the dashboard on load. The active tab used to be persisted to
+  // localStorage and restored here, which meant the app reopened wherever it was
+  // last left — so a reload mid-session dropped you on Analytics or Discover
+  // instead of home. Nothing writes the key any more.
+  activeTab: "dashboard",
   setActiveTab: (tab) => {
-    if (tab !== "wishlist") safeSetItem(TAB_KEY, tab);
     set({ activeTab: tab, selectedGame: null });
   },
   selectedGame: null,
