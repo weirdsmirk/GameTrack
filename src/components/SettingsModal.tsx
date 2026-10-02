@@ -131,7 +131,7 @@ export const SettingsModal: React.FC = React.memo(() => {
 
   const handleConnectSteam = async () => {
     if (!steamProfile.trim()) {
-      showToast("Steam profile URL is required.", "error");
+      showToast("Steam profile URL is required.", "error", undefined, undefined, undefined, "steam");
       return;
     }
     setConnectingSteam(true);

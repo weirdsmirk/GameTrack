@@ -16,6 +16,12 @@ const TYPE_STYLES = {
      about what they just read. Theme-independent like `error`, and deliberately
      not the accent fill, which means "done". */
   warning: "bg-amber-500 text-black hover:bg-amber-400",
+  /* Valve's Steam blue, #1A9FFF, on black at 7.4:1. Fixed hex, not a theme
+     token, because Steam's identity does not change with the app's theme — and
+     a themed fill would stop reading as Steam. Every Steam toast wears this, so
+     linking, the pre-sync countdown, the sync itself and its failures read as one
+     thread instead of a scatter of green and red boxes. */
+  steam: "bg-[#1A9FFF] text-black hover:bg-[#38ACFF]",
 } as const;
 
 export const Toast: React.FC = () => {
@@ -48,7 +54,7 @@ export const Toast: React.FC = () => {
             onBlurCapture={() => resumeToast(toast.id)}
             role={toast.type === "error" ? "alert" : "status"}
             aria-live={toast.type === "error" ? "assertive" : "polite"}
-            className={`pointer-events-auto will-change-transform overflow-hidden cursor-pointer select-none w-[calc(100vw-3rem)] sm:w-auto sm:max-w-[340px] ${TYPE_STYLES[toast.type]}`}
+            className={`pointer-events-auto will-change-transform overflow-hidden cursor-pointer select-none w-[calc(100vw-3rem)] sm:w-auto sm:max-w-[340px] ${TYPE_STYLES[toast.fill ?? toast.type]}`}
           >
             <div className="px-4 py-3">
               <p className="text-[13px] font-sans font-semibold leading-snug">

@@ -26,8 +26,23 @@ export interface ToastAction {
   title?: string;
 }
 
-export interface ToastItem {
-  id: number;
+/**
+ * Fills a toast can wear regardless of its severity.
+ *
+ * `steam` is Valve's brand blue, #1A9FFF, and exists so that everything Steam
+ * does — linking, the countdown before an automatic sync, the sync itself, and
+ * its failures — reads as one continuous Steam thread rather than a scatter of
+ * accent-green and red boxes that happen to share a word. It is a fixed hex
+ * rather than a theme token for the same reason `error` is a fixed red: Steam's
+ * identity does not change with the app's theme, and a themed fill would stop
+ * reading as Steam at all.
+ *
+ * Black ink, measured at 7.4:1 — the second-highest contrast of any fill here
+ * and far above the 4.5:1 that 13px semibold text needs.
+ */
+export type ToastFill = "steam";
+
+export interface ToastItem {  id: number;
   /** The one line of text the popup shows — title and detail already joined. */
   message: string;
   /**
@@ -38,6 +53,19 @@ export interface ToastItem {
    * accent fill, which means "done, this worked".
    */
   type: "success" | "error" | "info" | "warning";
+  /**
+   * Overrides the fill the `type` would otherwise imply, without touching the
+   * `type` itself. Kept separate because `type` is doing two other jobs: it picks
+   * the default lifetime, and it decides whether the toast is announced
+   * assertively or politely. Folding "Steam" into it would mean a *failed* Steam
+   * sync could not also be red — or, worse, that calling it `steam` would stop
+   * it being announced as an error at all.
+   *
+   * So all Steam activity shares one fill, and severity stays intact underneath:
+   * a Steam failure is still `role="alert"`, still polite-to-assertive, still
+   * six seconds on screen. Only the colour changes.
+   */
+  fill?: ToastFill;
   duration: number;
   /**
    * Optional row of links under the message. Most toasts only report something;
@@ -306,7 +334,9 @@ interface GameTrackState {
     type?: "success" | "error" | "info" | "warning",
     description?: string,
     duration?: number,
-    actions?: ToastAction[]
+    actions?: ToastAction[],
+    /** Overrides the fill `type` implies. Severity and announcements are unaffected. */
+    fill?: ToastFill
   ) => void;
   dismissToast: (id: number) => void;
   pauseToast: (id: number) => void;
@@ -1811,7 +1841,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
 
   // ── Toasts (queue) ─────────────────────────────────────────────
   toasts: [],
-  showToast: (message, type = "info", description, duration, actions) => {
+  showToast: (message, type = "info", description, duration, actions, fill) => {
     const id = ++toastIdCounter;
     const ms = duration ?? (
       // A warning outlasts an info note: it is asking the reader to hold a piece
@@ -1823,7 +1853,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     // Toasts render as a single line of text, so the optional detail is folded
     // into the message here — once — instead of being a second line of copy.
     const text = description ? `${message} — ${description}` : message;
-    set((state) => ({ toasts: [...state.toasts, { id, message: text, type, duration: ms, actions }] }));
+    set((state) => ({ toasts: [...state.toasts, { id, message: text, type, duration: ms, actions, fill }] }));
     scheduleToastDismiss(id, ms, set);
   },
   dismissToast: (id) => {
@@ -1872,10 +1902,10 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       }
       const data = await res.json();
       set({ steamSettings: data });
-      get().showToast("Steam linked", "success", data.steamName || "connected");
+      get().showToast("Steam linked", "success", data.steamName || "connected", undefined, undefined, "steam");
       return true;
     } catch (err: unknown) {
-      get().showToast(getErrorMessage(err) || "Failed to connect Steam", "error");
+      get().showToast(getErrorMessage(err) || "Failed to connect Steam", "error", undefined, undefined, undefined, "steam");
       return false;
     }
   },
@@ -1887,7 +1917,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     // the completion toast below are raised from the same place. Short-lived on
     // purpose — it is a "this is happening" note, and the completion toast is
     // the one worth reading.
-    get().showToast("Steam sync in progress", "info", undefined, 5000);
+    get().showToast("Steam sync in progress", "info", undefined, 5000, undefined, "steam");
     try {
       const res = await fetch("/api/sync/steam", { method: "POST" });
       const data = await res.json().catch(() => null);
@@ -1900,14 +1930,17 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       get().showToast(
         "Steam sync complete",
         "success",
-        `${data.imported} imported · ${data.adopted} adopted · ${data.updated} updated`
+        `${data.imported} imported · ${data.adopted} adopted · ${data.updated} updated`,
+        undefined,
+        undefined,
+        "steam"
       );
       get().fetchGames(true);
       get().fetchAnalytics();
       return { ok: true, imported: data.imported, updated: data.updated, adopted: data.adopted, total: data.total };
     } catch (err: unknown) {
       const msg = getErrorMessage(err);
-      get().showToast(msg || "Steam sync failed", "error");
+      get().showToast(msg || "Steam sync failed", "error", undefined, undefined, undefined, "steam");
       return { ok: false, error: msg };
     }
   },
@@ -1950,7 +1983,11 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
     const seconds = Math.round(delayMs / 1000);
     get().showToast(
       `Steam sync will start in ${seconds} second${seconds === 1 ? "" : "s"}`,
-      "warning"
+      "warning",
+      undefined,
+      undefined,
+      undefined,
+      "steam"
     );
 
     autoSteamSyncTimer = setTimeout(() => {
