@@ -348,6 +348,27 @@ export const PLATFORMS_LOCKED_REASON =
 // ── Replays ─────────────────────────────────────────────────────────
 
 /**
+ * Whether a game may be replayed at all.
+ *
+ * `endless` is excluded, and not as a style preference. An endless title is one
+ * the user marked as having no end — Minecraft, Tetris, a roguelike they still
+ * boot up. Its playtime is one unbroken stretch rather than a set of discrete
+ * runs, so "which playthrough was that?" has no answer: there is no first run to
+ * be distinct from a second. Offering a replay on such a row invites splitting
+ * one continuous total into runs that never happened, which then feeds the
+ * replay badge, the analytics "total runs" figure and the per-run breakdown.
+ *
+ * Every other status may be replayed. A title in `backlog` or `playing` is
+ * unusual to replay but not incoherent — people log a second attempt at a game
+ * they bounced off, and the app's job is to record what the user says they did.
+ */
+export const replayAllowed = (status: string | null | undefined): boolean => status !== "endless";
+
+/** Shown in place of the "Log Replay" control while replays are unavailable. */
+export const REPLAY_UNAVAILABLE_REASON =
+  "Endless games are one continuous run, so there is no separate playthrough to log.";
+
+/**
  * How many times a game has been played in total — its own run plus every
  * replay.
  *

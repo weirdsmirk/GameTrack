@@ -5,7 +5,7 @@ import {
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import type { Game, Playthrough } from "../types";
-import { STATUSES, getStatusLabel, timesPlayed, replayPlaytime, totalPlaytime } from "../constants";
+import { STATUSES, getStatusLabel, timesPlayed, replayPlaytime, totalPlaytime, replayAllowed, REPLAY_UNAVAILABLE_REASON } from "../constants";
 import { formatPlaytimePrecise, formatDateShort } from "../utils/time";
 
 /**
@@ -321,6 +321,10 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
   const totalRuns = timesPlayed(game);
   const replayHours = replayPlaytime(game);
   const allHours = totalPlaytime(game);
+  // Recomputed whenever the game changes, not captured once: the user can flip a
+  // title to Endless from the edit form while this panel is mounted behind the
+  // dialog, and the control has to follow.
+  const canReplay = replayAllowed(game.status);
 
   return (
     <section aria-labelledby="replay-history-heading" className="space-y-3">
@@ -332,16 +336,27 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
           <History className="w-3.5 h-3.5 shrink-0" />
           Replay History
         </h3>
-        <button
-          type="button"
-          onClick={() => { setAdding((v) => !v); setEditingId(null); setConfirmId(null); }}
-          disabled={busy}
-          title="Log another playthrough of this game"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-none bg-transparent border border-brand-border text-brand-muted text-[10px] font-black uppercase tracking-widest hover:bg-brand-accent/10 hover:text-brand-accent hover:border-brand-accent/50 transition-colors cursor-pointer disabled:opacity-40"
-        >
-          {adding ? <X className="w-3 h-3 shrink-0" /> : <Plus className="w-3 h-3 shrink-0" />}
-          {adding ? "Cancel" : "Log Replay"}
-        </button>
+        {/* The add control is withheld outright for an endless title, not
+            disabled. A greyed-out button still advertises the action and still
+            costs the user a click to discover it is unavailable; not rendering it
+            says the thing does not exist here, which is the truth. The reason is
+            spelled out beneath so it reads as a decision rather than a gap. */}
+        {canReplay ? (
+          <button
+            type="button"
+            onClick={() => { setAdding((v) => !v); setEditingId(null); setConfirmId(null); }}
+            disabled={busy}
+            title="Log another playthrough of this game"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-none bg-transparent border border-brand-border text-brand-muted text-[10px] font-black uppercase tracking-widest hover:bg-brand-accent/10 hover:text-brand-accent hover:border-brand-accent/50 transition-colors cursor-pointer disabled:opacity-40"
+          >
+            {adding ? <X className="w-3 h-3 shrink-0" /> : <Plus className="w-3 h-3 shrink-0" />}
+            {adding ? "Cancel" : "Log Replay"}
+          </button>
+        ) : (
+          <span className="text-[10px] font-bold uppercase tracking-widest text-brand-muted/70 text-right">
+            Endless
+          </span>
+        )}
       </div>
 
       {/* The totals line reconciles the rows beneath it: run #1's hours come from
@@ -421,8 +436,9 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
 
         {!loading && runs.length === 0 && (
           <li className="px-3 py-2.5 text-[10px] font-semibold normal-case tracking-normal text-brand-muted/80">
-            No replays logged. The original run above is the only playthrough
-            recorded for this game.
+            {canReplay
+              ? "No replays logged. The original run above is the only playthrough recorded for this game."
+              : REPLAY_UNAVAILABLE_REASON}
           </li>
         )}
 

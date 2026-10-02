@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { mapIgdbGame, getIgdbImageUrl, upgradeIgdbPosterUrl } from "../server/igdb";
 import { isNonGameApp } from "../server/steam";
-import { normalizePlatformIds, isOwned, platformsSelectable, mergePlatformTags } from "../src/constants";
+import { normalizePlatformIds, isOwned, platformsSelectable, mergePlatformTags, replayAllowed } from "../src/constants";
 import { upgradeIgdbPosterUrl as clientUpgrade } from "../src/utils/image";
 import { formatDateShort, toLocalISODate } from "../src/utils/time";
 
@@ -212,5 +212,39 @@ describe("mergePlatformTags", () => {
     expect(mergePlatformTags(null, ["steam"])).toEqual(["steam"]);
     expect(mergePlatformTags(["steam"], undefined)).toEqual(["steam"]);
     expect(mergePlatformTags(null, undefined)).toEqual([]);
+  });
+});
+
+describe("replayAllowed", () => {
+  /* `endless` is excluded because an endless title is one unbroken stretch of
+     playtime, not a set of discrete runs — so "which playthrough was that?" has
+     no answer, and splitting it into runs invents detail that then feeds the
+     replay badge, the analytics run count and the per-run breakdown. */
+  it("refuses endless titles", () => {
+    expect(replayAllowed("endless")).toBe(false);
+  });
+
+  it("permits every other status", () => {
+    for (const status of ["backlog", "playing", "completed"]) {
+      expect(replayAllowed(status), status).toBe(true);
+    }
+  });
+
+  it("treats a missing status as permitted rather than silently blocking", () => {
+    // A payload predating the status field should not lose the feature. Every row
+    // has had a status since v1, but the reader is shared with partial objects and
+    // defaulting to `false` here would hide the control for no stated reason.
+    expect(replayAllowed(undefined)).toBe(true);
+    expect(replayAllowed(null)).toBe(true);
+    expect(replayAllowed("")).toBe(true);
+  });
+
+  it("is independent of how many times a game has been played", () => {
+    // The rule is about the STATUS, not the count: a title already replayed three
+    // times becoming endless is still one continuous run from here on.
+    const endless = { status: "endless", times_played: 4 } as const;
+    const completed = { status: "completed", times_played: 4 } as const;
+    expect(replayAllowed(endless.status)).toBe(false);
+    expect(replayAllowed(completed.status)).toBe(true);
   });
 });
