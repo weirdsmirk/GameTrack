@@ -619,11 +619,46 @@ migrateTo(SCHEMA_VERSION);
    which become savepoints here — still correct, just nested.
 
    This runs on every boot, so wrapping it costs nothing. */
+/**
+ * Re-point stored Steam posters at the CDN host that serves them directly.
+ *
+ * `getSteamPosterImage` used to emit `shared.cloudflare.steamstatic.com`, which
+ * 301-redirects to `shared.steamstatic.com`. Every poster therefore cost an extra
+ * round trip, and changing the helper alone would fix only rows written from
+ * then on — the poster_url already stored on every existing row would keep
+ * pointing at the slow redirector indefinitely. Idempotent string replacement,
+ * so it is safe to re-run on every boot alongside the IGDB upgrade above.
+ *
+ * Ordered after `normalizePosterPolicy`, which repopulates empty posters with
+ * the current helper's output and so already writes the new host.
+ */
+function repairSteamPosterHosts(): number {
+  let total = 0;
+  const apply = db.transaction(() => {
+    for (const table of ["games", "wishlist"] as const) {
+      const info = db
+        .prepare(
+          `UPDATE ${table}
+             SET poster_url = REPLACE(poster_url, ?, ?)
+           WHERE poster_url LIKE '%shared.cloudflare.steamstatic.com%'`
+        )
+        .run(
+          "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/",
+          "https://cdn.steamstatic.com/steam/apps/"
+        );
+      total += Number(info.changes) || 0;
+    }
+  });
+  apply();
+  return total;
+}
+
 function ensureSchemaIntegrity() {
   const apply = db.transaction(() => {
     normalizeRawgRemnants();
     normalizePosterPolicy();
     upgradeIgdbPosterQuality();
+    repairSteamPosterHosts();
   });
   apply();
 }

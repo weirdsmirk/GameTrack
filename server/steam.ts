@@ -236,9 +236,25 @@ export async function fetchSteamAppDetails(appid: number): Promise<SteamAppDetai
   }
 }
 
-/** Portrait Steam CDN poster for a given appid — exists for virtually all games. */
+/**
+ * Portrait Steam CDN poster for a given appid — exists for virtually all games.
+ *
+ * `cdn.steamstatic.com`, the host the Steam store itself serves artwork from.
+ *
+ * The previous host, `shared.cloudflare.steamstatic.com/store_item_assets/...`,
+ * is a redirector: every poster cost an extra 301 hop to
+ * `shared.steamstatic.com` before a byte was served. Measured over appids from a
+ * real library it cost 1.7s / 0.66s / 0.61s against 0.41s / 0.35s / 0.41s here —
+ * and on a cold cache one request took 35s. A library of 29 Steam posters behind
+ * a per-host connection limit queues badly against that, and a poster that has
+ * not finished loading is a blank tile; one that errors is the fallback art.
+ * That is what a wall of identical fallback posters is.
+ *
+ * Rows already holding the old URL are repaired on boot — see
+ * `repairSteamPosterHosts` in server/db.ts.
+ */
 export function getSteamPosterImage(appid: number): string {
-  return `https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/${appid}/library_600x900.jpg`;
+  return `https://cdn.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`;
 }
 
 interface IgdbExternal {
