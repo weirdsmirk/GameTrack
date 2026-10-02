@@ -47,6 +47,7 @@ export default function App() {
     showToast,
     customizations, updateCustomizations,
     games, loadingAnalytics, loadingWishlist, loadingLists, loadingDiscover,
+    hasMoreTrending,
     trendingGames, discoverSearchResults, discoverQuery, wishlist,
   } = useGameTrackStore(useShallow((s) => ({
     activeTab: s.activeTab, setActiveTab: s.setActiveTab, fetchGames: s.fetchGames,
@@ -59,6 +60,7 @@ export default function App() {
     updateCustomizations: s.updateCustomizations, games: s.games,
     loadingAnalytics: s.loadingAnalytics, loadingWishlist: s.loadingWishlist,
     loadingLists: s.loadingLists, loadingDiscover: s.loadingDiscover,
+    hasMoreTrending: s.hasMoreTrending,
     trendingGames: s.trendingGames, discoverSearchResults: s.discoverSearchResults,
     discoverQuery: s.discoverQuery, wishlist: s.wishlist,
   })));
@@ -196,6 +198,28 @@ export default function App() {
       return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
     };
 
+    /* Navigation shortcuts are suppressed while any overlay is up.
+
+       `setActiveTab` clears `selectedGame`, so an Option+digit pressed with the
+       details modal open closed it — discarding unsaved metadata edits with no
+       warning and no undo. `/` was worse: it closed the modal *and* moved focus
+       into the library search box behind it. Toggling Settings was also
+       stacking a second dialog over the first, and since both register their own
+       window-level Escape handler, one keypress then closed both.
+
+       `typing()` only excludes form fields, so it does not catch any of this —
+       the keystroke lands on the document, not on an input. */
+    const overlayOpen = () => {
+      const s = useGameTrackStore.getState();
+      return Boolean(
+        s.selectedGame ||
+        s.isAddGameOpen ||
+        s.isSettingsOpen ||
+        s.isShortcutsOpen ||
+        s.playingConflict
+      );
+    };
+
     const onKey = (e: KeyboardEvent) => {
       const store = useGameTrackStore.getState();
 
@@ -205,7 +229,7 @@ export default function App() {
       // by physical `code` for the reason in `shortcuts.ts` — Option rewrites
       // `key`, so Option+1 reports "¡" on a US layout — and the modifiers are
       // excluded explicitly so a user's Ctrl+Alt+digit is left to the browser.
-      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && !typing(e.target)) {
+      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && !typing(e.target) && !overlayOpen()) {
         const action = resolveShortcutAction(store.shortcuts, e.code);
         if (action) {
           e.preventDefault();
@@ -218,7 +242,7 @@ export default function App() {
         }
       }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "/" && !typing(e.target)) {
+      if (e.key === "/" && !typing(e.target) && !overlayOpen()) {
         e.preventDefault();
         store.setActiveTab("library");
         store.requestSearchFocus();
@@ -274,7 +298,21 @@ export default function App() {
       case "dashboard":
         return !loadingGames;
       case "discover":
-        return !loadingLists && !loadingDiscover && trendingGames.length > 0;
+        /* "Settled", not "non-empty".
+
+           This used to require `trendingGames.length > 0`, which made an empty
+           result indistinguishable from a request still in flight — so the gate
+           never released and DiscoverView's own error panel and empty state were
+           unreachable. Two ordinary situations land there: IGDB credentials are
+           OPTIONAL in this app, so a fresh install with none configured settles on
+           an empty feed, and a failed request settles empty too. Either way the
+           user got `<Spinner label="Loading page">` for the rest of the session,
+           with no error, no explanation and only a reload as a way out.
+
+           `hasMoreTrending` is what actually settles: the store clears it once a
+           fetch completes, successfully or not, so it covers the empty result, the
+           error, and the exhausted-pagination case in one term. */
+        return !loadingLists && !loadingDiscover && !hasMoreTrending;
       case "analytics":
         return !loadingAnalytics;
       case "wishlist":

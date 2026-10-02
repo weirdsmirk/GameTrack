@@ -9,6 +9,7 @@ import {
 import { THEMES } from "../themes";
 import { formatDateShort } from "../utils/time";
 import { Buttons } from "./Buttons";
+import { lockBodyScroll } from "../utils/scrollLock";
 
 export const SettingsModal: React.FC = React.memo(() => {
   const { 
@@ -69,7 +70,7 @@ export const SettingsModal: React.FC = React.memo(() => {
 
   useEffect(() => {
     if (!isSettingsOpen) return;
-    document.body.style.overflow = "hidden";
+    const releaseScrollLock = lockBodyScroll();
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setSettingsOpen(false);
@@ -77,7 +78,7 @@ export const SettingsModal: React.FC = React.memo(() => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = "";
+      releaseScrollLock();
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isSettingsOpen, setSettingsOpen]);
@@ -102,6 +103,16 @@ export const SettingsModal: React.FC = React.memo(() => {
         setImportingLibrary(false);
         if (libraryInputRef.current) libraryInputRef.current.value = "";
       }
+    };
+    /* Without this, a failed read left `importingLibrary` true forever: `onload`
+       never fires, so the Import button stayed disabled behind a spinner for the
+       rest of the session and the only recovery was closing and reopening the
+       modal. A read fails for ordinary reasons — the file was moved or unmounted
+       mid-read, permissions changed, it is too large to hold in memory. */
+    reader.onerror = () => {
+      setImportingLibrary(false);
+      showToast("Could not read that file.", "error");
+      if (libraryInputRef.current) libraryInputRef.current.value = "";
     };
     reader.readAsText(file);
   };

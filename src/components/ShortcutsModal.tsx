@@ -9,6 +9,7 @@ import {
 import { Keyboard, X, RotateCcw, Pencil, Check } from "lucide-react";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { KeyRow } from "./KeyRow";
+import { lockBodyScroll } from "../utils/scrollLock";
 
 /**
  * The keyboard cheat sheet, and the place to rebind it.
@@ -44,7 +45,7 @@ export const ShortcutsModal: React.FC = React.memo(() => {
 
   useEffect(() => {
     if (!isShortcutsOpen) return;
-    document.body.style.overflow = "hidden";
+    const releaseScrollLock = lockBodyScroll();
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // While a row is recording, the next bindable keypress is the binding and
@@ -67,7 +68,7 @@ export const ShortcutsModal: React.FC = React.memo(() => {
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => {
-      document.body.style.overflow = "";
+      releaseScrollLock();
       window.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [isShortcutsOpen, setShortcutsOpen, capturing, setShortcut]);

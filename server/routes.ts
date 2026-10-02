@@ -4,7 +4,7 @@ import fs from "fs";
 import crypto from "crypto";
 import db from "./db";
 import { z } from "zod";
-import { normalizePlatformIds, AVAILABLE_PLATFORMS } from "../src/constants";
+import { normalizePlatformIds, mergePlatformTags, AVAILABLE_PLATFORMS } from "../src/constants";
 import { DATA_DIR, POSTERS_DIR } from "./paths";
 
 import { mapIgdbGame, fetchCuratedLists, cachedFetchFromIgdb, getSearchPool, getTrendingPool, IgdbAuthError } from "./igdb";
@@ -27,13 +27,24 @@ export const apiRouter = Router();
 
 // ── Helpers ───────────────────────────────────────────────────────
 
-/** Parse JSON text columns defensively — a single corrupt row must never
- *  abort a whole transaction. */
-function safeJsonParse<T = unknown>(value: string | null | undefined, fallback: T): T {
+/** Parse a JSON *array* column defensively — a single corrupt row must never
+ *  abort a whole transaction.
+ *
+ *  The array check is load-bearing, not pedantry. The guard used to accept any
+ *  `typeof === "object"` value, which let a stored `'{}'` or `'{"0":"pc"}'` past
+ *  it in a column typed `string[]` everywhere else. That had two consequences,
+ *  both permanent: the client received an object where an array was promised (so
+ *  `(game.owned_platforms || []).join("; ")` in the CSV export threw), and — worse
+ *  — every `PUT /api/games/:id` fed that object into `resolveOwnedPlatforms` →
+ *  `normalizePlatformIds`, whose `for (const p of platforms)` raised
+ *  "platforms is not iterable" *inside* the update transaction. The write rolled
+ *  back and the endpoint answered 500 for every field, forever, with no way for
+ *  the user to repair the row short of editing the database file. */
+function safeJsonParse(value: string | null | undefined, fallback: string[]): string[] {
   if (!value) return fallback;
   try {
     const parsed = JSON.parse(value);
-    return (parsed === null || typeof parsed !== "object" ? fallback : parsed) as T;
+    return Array.isArray(parsed) ? (parsed as string[]) : fallback;
   } catch {
     return fallback;
   }
@@ -88,7 +99,7 @@ interface WishlistRow {
 function parseGame(row: unknown): Game | null {
   if (!row) return null;
   const r = row as GameRow;
-  const genres = safeJsonParse<string[]>(r.genres, []);
+  const genres = safeJsonParse(r.genres, []);
   // The ownership/platform invariant is enforced on read as well as on write
   // (see resolveOwnedPlatforms). A row that predates it, or that arrived through
   // an import which bypassed this module, must still never reach the client
@@ -99,7 +110,7 @@ function parseGame(row: unknown): Game | null {
   const ownership_status = resolveOwnershipStatus(r.ownership_status);
   const owned_platforms = ownership_status === "not_owned"
     ? []
-    : safeJsonParse<string[]>(r.owned_platforms, []);
+    : safeJsonParse(r.owned_platforms, []);
   // The replay totals are denormalised columns that syncReplayTotals maintains,
   // so they are correct by construction — but coerced here for the same reason
   // ownership is: a client that reads them to decide whether to show a "played
@@ -113,8 +124,8 @@ function parseGame(row: unknown): Game | null {
 function parseWishlistItem(row: unknown): WishlistItem | null {
   if (!row) return null;
   const r = row as WishlistRow;
-  const genres = safeJsonParse<string[]>(r.genres, []);
-  const owned_platforms = safeJsonParse<string[]>(r.owned_platforms, []);
+  const genres = safeJsonParse(r.genres, []);
+  const owned_platforms = safeJsonParse(r.owned_platforms, []);
   return { ...r, genres, owned_platforms } as WishlistItem;
 }
 
@@ -143,16 +154,27 @@ const GameSchema = z.object({
   igdb_id: z.number().int().nullable().optional(),
   genres: z.array(z.string().max(100)).max(50).optional().default([]),
   synopsis: z.string().max(10_000).optional().default(""),
-  // Note the explicit `!val.startsWith("//")`: a bare `startsWith("/")` also
-  // matches protocol-relative URLs, so "//evil.example/beacon.png" was accepted
-  // and stored. The client renders this straight into an <img src>, so a hostile
-  // import file turned into a request to an attacker-chosen host. Production CSP
-  // img-src blocks it, but dev mode serves no CSP at all.
+  // Local paths must be a genuine same-origin path. Two separate escapes are
+  // closed here, and both matter:
+  //
+  //  1. `//evil.example/beacon.png` — a protocol-relative URL. `startsWith("/")`
+  //     matches it, so the bare check accepted it.
+  //  2. `/\evil.example/beacon.png` — the same attack with a backslash. WHATWG
+  //     URL parsing treats "\" as "/" in the relative-slope state for special
+  //     schemes, so a `!startsWith("//")` guard still accepts it while the
+  //     browser resolves `new URL(v, origin)` to `http://evil.example/beacon.png`.
+  //
+  // The client renders this straight into an `<img src>`, so a hostile import
+  // file or backup turned into a request to an attacker-chosen host on every
+  // card render — a tracking pixel leaking the reader's IP and UA. Production CSP
+  // `img-src` blocks it because there is no wildcard, but dev mode ships no CSP
+  // at all (`server.ts`), so it fired there. Rejecting backslashes outright closes
+  // the class rather than this one instance of it.
   poster_url: z.string().max(2000).refine(
     val => val === ""
       || val.startsWith("http://")
       || val.startsWith("https://")
-      || (val.startsWith("/") && !val.startsWith("//")),
+      || (val.startsWith("/") && !/^[/\\]{2}/.test(val) && !val.includes("\\")),
     { message: "Must be an http(s) URL or a local poster path" }
   ).optional().default(""),
   critic_score: z.number().int().min(0).max(100).nullable().optional(),
@@ -235,16 +257,13 @@ const WishlistSchema = z.object({
   igdb_id: z.number().int().nullable().optional(),
   genres: z.array(z.string().max(100)).max(50).optional().default([]),
   synopsis: z.string().max(10_000).optional().default(""),
-  // Note the explicit `!val.startsWith("//")`: a bare `startsWith("/")` also
-  // matches protocol-relative URLs, so "//evil.example/beacon.png" was accepted
-  // and stored. The client renders this straight into an <img src>, so a hostile
-  // import file turned into a request to an attacker-chosen host. Production CSP
-  // img-src blocks it, but dev mode serves no CSP at all.
+  // Same local-path rule as poster_url on games, for the same reason — see the note
+  // there on the backslash form of the protocol-relative escape.
   poster_url: z.string().max(2000).refine(
     val => val === ""
       || val.startsWith("http://")
       || val.startsWith("https://")
-      || (val.startsWith("/") && !val.startsWith("//")),
+      || (val.startsWith("/") && !/^[/\\]{2}/.test(val) && !val.includes("\\")),
     { message: "Must be an http(s) URL or a local poster path" }
   ).optional().default(""),
   critic_score: z.number().int().min(0).max(100).nullable().optional(),
@@ -355,6 +374,22 @@ const stmts = {
     WHERE id = @id
   `),
   deleteGame: db.prepare("DELETE FROM games WHERE id = ?"),
+  /* Partial updates for the two reset endpoints. Deliberately NOT updateGame:
+     those endpoints `await` an outbound IGDB call, so a full-row write would
+     persist every other column from a snapshot taken before that await and revert
+     whatever the user changed in the meantime — including silently flipping a
+     not-owned row back to owned. Scoping the write to the columns each endpoint
+     owns makes concurrent edits to anything else impossible to clobber. */
+  resetMetadataFields: db.prepare(`
+    UPDATE games SET title = @title, year = @year, genres = @genres,
+      synopsis = @synopsis, poster_url = @poster_url, critic_score = @critic_score,
+      metadata_custom = 0, updated_at = @updated_at
+    WHERE id = @id
+  `),
+  resetPosterFields: db.prepare(`
+    UPDATE games SET poster_url = @poster_url, metadata_custom = 0, updated_at = @updated_at
+    WHERE id = @id
+  `),
   clearCustomOrder: db.prepare("UPDATE games SET custom_order = NULL"),
   setCustomOrder: db.prepare("UPDATE games SET custom_order = ? WHERE id = ?"),
   getSettings: db.prepare("SELECT value FROM settings WHERE key = ?"),
@@ -462,9 +497,24 @@ const parkSequences = (gameId: number) =>
  */
 function resequencePlaythroughs(gameId: number) {
   parkSequences(gameId);
+  /* Ordered by parking band FIRST, then sequence.
+
+     The merge parks the keeper's ordinals, moves the loser's replays in
+     un-parked, and calls this — which parks everything a second time. The two
+     bands are then distinguishable: the keeper's sit at 2×PARK, the loser's at
+     1×PARK. Ordering on raw sequence alone therefore listed the LOSER's runs
+     first and pushed the keeper's own first replay from ordinal 2 to 4, which
+     is the opposite of what the merge promises ("the loser contributes its
+     replays only") and visibly renumbered every surviving replay of the kept
+     row. The band-aware sort keeps the keeper's runs ahead of the newcomer's.
+
+     `>= PARK * 2` selects the keeper's band. Falls back to plain ordering for a
+     lone game, where everything is in the same band and only sequence matters. */
   const rows = db
-    .prepare("SELECT id FROM playthroughs WHERE game_id = ? ORDER BY sequence ASC, id ASC")
-    .all(gameId) as { id: number }[];
+    .prepare(
+      "SELECT id, sequence FROM playthroughs WHERE game_id = ? ORDER BY (sequence >= ?) DESC, sequence ASC, id ASC"
+    )
+    .all(gameId, SEQUENCE_PARK_OFFSET * 2) as { id: number }[];
   rows.forEach((row, index) => stmts.setPlaythroughSequence.run(index + 2, row.id));
 }
 
@@ -751,30 +801,33 @@ apiRouter.post("/games/:id/reset-metadata", async (req: Request, res: Response) 
       ? getSteamPosterImage(existing.steam_appid)
       : (mapped.poster_url || "");
 
-    stmts.updateGame.run({
+    /* Writes ONLY the fields this endpoint owns.
+
+       This used to be a full-row UPDATE built from the `existing` snapshot read
+       at the top of the handler. But the handler `await`s an outbound IGDB call
+       between that read and this write, which can take seconds — and every other
+       column was being rewritten verbatim from the pre-await snapshot. Anything
+       the user changed during that window was silently reverted: logged
+       playtime, a new rating, a status change, a hide-playtime toggle, an
+       ownership flip. The ownership columns made it worst: re-deriving them
+       from the stale snapshot *re-broke the not-owned invariant*, actively
+       reverting a flag back to "owned", and the re-read at the end then reported
+       that reverted state as a success.
+
+       A transaction would not have helped — the data is already stale by the
+       time it starts. Scoping the write to the columns this endpoint is
+       actually authoritative for is the fix: concurrent edits to anything else
+       cannot be clobbered, because they are never written. */
+    stmts.resetMetadataFields.run({
       title: mapped.title,
       year: mapped.year,
-      igdb_id: existing.igdb_id,
       genres: JSON.stringify(mapped.genres),
       synopsis: mapped.synopsis,
       poster_url: poster,
       critic_score: mapped.critic_score,
-      ownership_status: resolveOwnershipStatus(existing.ownership_status),
-      owned_platforms: resolveOwnedPlatforms(
-        resolveOwnershipStatus(existing.ownership_status),
-        safeJsonParse(existing.owned_platforms, [])
-      ),
-      status: existing.status,
-      playtime: existing.playtime,
-      personal_rating: existing.personal_rating,
-      date_added: existing.date_added,
-      date_completed: existing.date_completed,
-      hide_playtime: existing.hide_playtime,
-      steam_appid: existing.steam_appid,
-      custom_order: existing.custom_order,
       metadata_custom: 0,
       updated_at: Date.now(),
-      id: existing.id,
+      id: gameId,
     });
     res.json(parseGame(stmts.getGameById.get(gameId)));
   } catch (err) {
@@ -822,30 +875,17 @@ apiRouter.post("/games/:id/reset-poster", async (req: Request, res: Response) =>
       poster = mapIgdbGame(data[0]).poster_url || "";
     }
 
-    stmts.updateGame.run({
-      title: existing.title,
-      year: existing.year,
-      igdb_id: existing.igdb_id,
-      genres: existing.genres,
-      synopsis: existing.synopsis,
+    /* Poster-only write, for the same reason as reset-metadata above: the handler
+       `await`s IGDB for any row without a Steam appid (the common case for a
+       non-Steam library), and rewriting every other column from the pre-await
+       snapshot reverted anything the user changed during that window. The
+       `await` is conditional, so the bug was intermittent: Steam-linked rows
+       returned before yielding and had a zero-width window. */
+    stmts.resetPosterFields.run({
       poster_url: poster,
-      critic_score: existing.critic_score,
-      ownership_status: resolveOwnershipStatus(existing.ownership_status),
-      owned_platforms: resolveOwnedPlatforms(
-        resolveOwnershipStatus(existing.ownership_status),
-        safeJsonParse(existing.owned_platforms, [])
-      ),
-      status: existing.status,
-      playtime: existing.playtime,
-      personal_rating: existing.personal_rating,
-      date_added: existing.date_added,
-      date_completed: existing.date_completed,
-      hide_playtime: existing.hide_playtime,
-      steam_appid: existing.steam_appid,
-      custom_order: existing.custom_order,
       metadata_custom: 0,
       updated_at: Date.now(),
-      id: existing.id,
+      id: gameId,
     });
     res.json(parseGame(stmts.getGameById.get(gameId)));
   } catch (err) {
@@ -1594,13 +1634,34 @@ export async function runSteamSyncInternal(): Promise<{
 
     const getBySteamAppid = db.prepare("SELECT * FROM games WHERE steam_appid = ?");
     const getByTitle = db.prepare("SELECT id, owned_platforms, ownership_status, playtime FROM games WHERE steam_appid IS NULL AND lower(title) = lower(?)");
-    const delExcluded = db.prepare("DELETE FROM games WHERE (steam_appid = ? OR lower(title) = lower(?)) AND personal_rating IS NULL AND poster_url NOT LIKE '/posters/%'");
+    /* Junk removal matches on steam_appid ALONE.
+
+       This used to be `(steam_appid = ? OR lower(title) = lower(?))`. The title
+       disjunct matched *any* library row whose title case-insensitively equalled
+       the Steam app's raw name — not the row Steam was actually claiming.
+       `excludedAppids` is populated from DLC, soundtrack and software entries
+       (and from store lookups that 404), whose names are exactly the sort of
+       thing a real game shares: a title colliding with any of them was deleted
+       outright, by an automatic operation the user never ran and was never
+       shown.
+
+       The guards narrowed it to rows with no rating and no uploaded poster, but
+       they do not consult `ownership_status`, `hide_playtime`, `custom_order`,
+       playtime, or — the worst of it — the `playthroughs` history, which
+       `ON DELETE CASCADE` destroyed with the parent. Someone who had logged five
+       runs of such a game lost all five on the next sync, unrecoverably.
+
+       A title is not an identity. Only the appid is, and only the appid is what
+       Steam asserted about this row. */
+    const delExcluded = db.prepare(
+      "DELETE FROM games WHERE steam_appid = ? AND personal_rating IS NULL AND poster_url NOT LIKE '/posters/%'"
+    );
 
     if (excludedAppids.size) {
       const deleteJunk = db.transaction(() => {
         for (const g of ownedGames) {
           if (!excludedAppids.has(g.appid)) continue;
-          delExcluded.run(g.appid, g.name);
+          delExcluded.run(g.appid);
         }
       });
       deleteJunk();
@@ -1643,9 +1704,19 @@ export async function runSteamSyncInternal(): Promise<{
           // the user moves it — and it gates the platform list below, so the two
           // stay consistent even though only the second is being written.
           ownership_status: resolveOwnershipStatus(existing.ownership_status),
+          /* UNION, not replace. `game.owned_platforms` is the constant ["steam"]
+             that buildSyncedGame attaches to every synced row, so writing it
+             directly collapsed the column to exactly ["steam"] on every sync: a
+             title owned on PlayStation *and* Steam silently lost the PlayStation
+             tag, and any custom tag from PUT /api/settings/platforms was
+             destroyed for good, by an operation the user never explicitly ran.
+             The adoption path further down already unions, so the two writes to
+             the same column during one sync had opposite semantics. A sync can
+             only *add* evidence that a platform exists; it can never retract a
+             tag the user or another sync put there. */
           owned_platforms: resolveOwnedPlatforms(
             resolveOwnershipStatus(existing.ownership_status),
-            game.owned_platforms
+            mergePlatformTags(safeJsonParse(existing.owned_platforms, []), game.owned_platforms)
           ),
           status: existing.status,
           playtime: nextPlay,
@@ -1677,7 +1748,7 @@ export async function runSteamSyncInternal(): Promise<{
         // sync the user never asked to claim the game through.
         const titleOwnership = resolveOwnershipStatus(titleMatch.ownership_status);
         const mergedPlatforms = new Set<string>([
-          ...safeJsonParse<string[]>(titleMatch.owned_platforms, []),
+          ...safeJsonParse(titleMatch.owned_platforms, []),
           ...game.owned_platforms,
         ]);
         const nextPlay = Number(game.playtime) || 0;
@@ -1830,7 +1901,12 @@ apiRouter.post("/upload-poster", (req: Request, res: Response) => {
     }
 
     const ext = match[1] === "jpeg" ? "jpg" : match[1];
-    const filename = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+    // Full UUID, not an 8-hex-char slice. The slice was 32 bits, which combined with
+  // the known `Date.now()` prefix made the whole upload directory brute-forceable
+  // by anyone who could reach `/posters` — and since `/posters` cannot be gated
+  // (an `<img src>` cannot send a bearer token), filename entropy is what stands
+  // between an uploaded poster and a stranger. 122 bits instead of 32.
+  const filename = `${Date.now()}-${crypto.randomUUID()}.${ext}`;
     fs.writeFileSync(path.join(POSTERS_DIR, filename), buffer, { mode: 0o600 });
     res.json({ url: `/posters/${filename}` });
   } catch (err: unknown) {
@@ -2129,8 +2205,8 @@ apiRouter.post("/duplicates/merge", (req: Request, res: Response) => {
     if (!keep || !remove) return res.status(404).json({ error: "One of the games was not found" });
 
     const union = (a: string, b: string): string[] => {
-      const out = [...safeJsonParse<string[]>(a, [])];
-      for (const v of safeJsonParse<string[]>(b, [])) if (!out.includes(v)) out.push(v);
+      const out = [...safeJsonParse(a, [])];
+      for (const v of safeJsonParse(b, [])) if (!out.includes(v)) out.push(v);
       return out;
     };
     const merge = db.transaction(() => {

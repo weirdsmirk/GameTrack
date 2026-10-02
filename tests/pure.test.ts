@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { mapIgdbGame, getIgdbImageUrl, upgradeIgdbPosterUrl } from "../server/igdb";
 import { isNonGameApp } from "../server/steam";
-import { normalizePlatformIds, isOwned, platformsSelectable } from "../src/constants";
+import { normalizePlatformIds, isOwned, platformsSelectable, mergePlatformTags } from "../src/constants";
 import { upgradeIgdbPosterUrl as clientUpgrade } from "../src/utils/image";
-import { formatDateShort } from "../src/utils/time";
+import { formatDateShort, toLocalISODate } from "../src/utils/time";
 
 describe("mapIgdbGame", () => {
   it("emits the highest-quality WebP cover preset", () => {
@@ -150,5 +150,67 @@ describe("formatDateShort", () => {
     // %y would render 1999 as "99", which reads as 2099. Anything outside the
     // 2000-2099 window falls back to the full year.
     expect(formatDateShort(new Date(1999, 5, 4))).toBe("04/06/1999");
+  });
+});
+
+describe("toLocalISODate", () => {
+  /* Every user-entered date in this app is stored at LOCAL midnight, so
+     formatting one with toISOString() shifts it a day earlier for anyone west of
+     Greenwich. That is what the CSV/Markdown exports used to do to every
+     completion date they printed. */
+  const localMidnight = (y: number, m: number, d: number) => new Date(y, m - 1, d).getTime();
+
+  it("formats a local-midnight timestamp as the same calendar day", () => {
+    expect(toLocalISODate(localMidnight(2026, 9, 16))).toBe("2026-09-16");
+    expect(toLocalISODate(localMidnight(2026, 1, 1))).toBe("2026-01-01");
+    expect(toLocalISODate(localMidnight(2026, 12, 31))).toBe("2026-12-31");
+  });
+
+  it("zero-pads rather than emitting a bare month or day", () => {
+    expect(toLocalISODate(localMidnight(2026, 3, 7))).toBe("2026-03-07");
+  });
+
+  it("agrees with toISOString only when the local offset is not behind UTC", () => {
+    // Stated as a property rather than a fixed offset, because the suite must not
+    // depend on the machine's timezone: whatever the offset, the LOCAL reading is
+    // the one that matches the date the user typed.
+    const ms = localMidnight(2026, 9, 16);
+    const iso = new Date(ms).toISOString().slice(0, 10);
+    const local = toLocalISODate(ms);
+    const offsetMinutes = new Date(ms).getTimezoneOffset();
+    if (offsetMinutes > 0) {
+      // West of UTC: toISOString would have gone back a day.
+      expect(iso).not.toBe(local);
+    }
+    expect(local).toBe("2026-09-16");
+  });
+
+  it("returns an empty string for an unparseable value rather than 'Invalid Date'", () => {
+    expect(toLocalISODate(Number.NaN)).toBe("");
+  });
+});
+
+describe("mergePlatformTags", () => {
+  /* The Steam sync used to REPLACE this column with its own constant ["steam"],
+     which silently dropped every other tag — a PlayStation copy lost its tag, and
+     custom tags were destroyed permanently — on an operation the user never
+     explicitly ran. This is the additive rule every such writer must use. */
+  it("keeps existing tags and adds only what is new", () => {
+    expect(mergePlatformTags(["playstation"], ["steam"]).sort())
+      .toEqual(["playstation", "steam"]);
+  });
+
+  it("does not duplicate a tag present on both sides", () => {
+    expect(mergePlatformTags(["steam"], ["steam"])).toEqual(["steam"]);
+  });
+
+  it("normalises aliases so 'PC' and 'pc' collapse instead of accumulating", () => {
+    expect(mergePlatformTags(["pc"], ["PC"])).toHaveLength(1);
+  });
+
+  it("tolerates either side being absent", () => {
+    expect(mergePlatformTags(null, ["steam"])).toEqual(["steam"]);
+    expect(mergePlatformTags(["steam"], undefined)).toEqual(["steam"]);
+    expect(mergePlatformTags(null, undefined)).toEqual([]);
   });
 });

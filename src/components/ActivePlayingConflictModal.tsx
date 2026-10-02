@@ -4,6 +4,7 @@ import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import { Gamepad2 } from "lucide-react";
 import { useModalA11y } from "../hooks/useModalA11y";
+import { lockBodyScroll } from "../utils/scrollLock";
 
 export const ActivePlayingConflictModal: React.FC = React.memo(() => {
   // Selector, not the whole store: this modal is mounted permanently alongside
@@ -21,7 +22,7 @@ export const ActivePlayingConflictModal: React.FC = React.memo(() => {
 
   useEffect(() => {
     if (!playingConflict) return;
-    document.body.style.overflow = "hidden";
+    const releaseScrollLock = lockBodyScroll();
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !processing) {
@@ -30,7 +31,7 @@ export const ActivePlayingConflictModal: React.FC = React.memo(() => {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = "";
+      releaseScrollLock();
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [playingConflict, closePlayingConflict, processing]);

@@ -30,6 +30,32 @@ export const formatDateShort = (value: number | Date | null | undefined): string
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${year}`;
 };
 
+/**
+ * Epoch ms → `YYYY-MM-DD` in the viewer's own timezone.
+ *
+ * The obvious implementation, `new Date(ms).toISOString().slice(0, 10)`, is
+ * wrong for this app specifically. Every user-entered date here — a game's
+ * completion date, a replay's — is stored at *local* midnight (see
+ * `formatDateInputValue` in GameDetailsModal), because the value is read back and
+ * rendered with local getters. Converting to UTC first therefore shifts any
+ * timestamp that falls before 00:00Z to the **previous** day, which for anyone
+ * west of Greenwich is every single one of them.
+ *
+ * That is not theoretical: the CSV and Markdown exports formatted
+ * `completion_date` this way, so every completion date in a user's exported
+ * library read a day early. It also dated the export filenames themselves, which
+ * said tomorrow west of UTC and yesterday east of it.
+ *
+ * `formatDateShort` above is the same idea in display order (DD/MM/YY); this is
+ * the machine-readable ISO order spreadsheets and `Date` parsing both expect.
+ */
+export const toLocalISODate = (value: number | Date): string => {
+  const d = value instanceof Date ? value : new Date(value);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
 export const formatPlaytime = (hoursDecimal: number | undefined | null): string => {
   if (hoursDecimal === undefined || hoursDecimal === null || isNaN(hoursDecimal) || hoursDecimal < 0) {
     return "0H";

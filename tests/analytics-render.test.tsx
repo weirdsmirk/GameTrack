@@ -383,6 +383,13 @@ describe("Replay figures", () => {
   });
 
   afterEach(() => {
+    // `cleanup()` is required, not optional. Testing Library auto-cleanup only
+    // applies when it can hook the global afterEach itself; these tests import
+    // render/cleanup explicitly, so without this the three renders below stay
+    // mounted and the next test finds several copies of every role/img/heading
+    // in the document. The earlier describe in this file already worked this
+    // out — this one has to say so too.
+    cleanup();
     useGameTrackStore.setState({ mostReplayed: null });
   });
 });

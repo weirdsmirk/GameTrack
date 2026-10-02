@@ -610,10 +610,24 @@ migrateTo(SCHEMA_VERSION);
 // Defensive integrity check on startup — cheap, idempotent guards so a database
 // that never ran the versioned migrations (or was written by older code) still
 // boots on the IGDB schema.
+/* One transaction for all three.
+
+   `normalizeRawgRemnants` in particular drops and recreates the uniqueness index
+   on `games.igdb_id` — the constraint that POST /api/games and POST /api/import
+   both rely on to reject a duplicate. Run outside a transaction, a throw between
+   the DROP and the CREATE left that index permanently gone for the rest of the
+   boot: duplicate detection would silently stop working, with no error and no
+   retry until the next restart. The other two already had internal transactions,
+   which become savepoints here — still correct, just nested.
+
+   This runs on every boot, so wrapping it costs nothing. */
 function ensureSchemaIntegrity() {
-  normalizeRawgRemnants();
-  normalizePosterPolicy();
-  upgradeIgdbPosterQuality();
+  const apply = db.transaction(() => {
+    normalizeRawgRemnants();
+    normalizePosterPolicy();
+    upgradeIgdbPosterQuality();
+  });
+  apply();
 }
 
 ensureSchemaIntegrity();

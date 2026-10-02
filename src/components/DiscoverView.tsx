@@ -9,6 +9,7 @@ import { preloadImages } from "../utils/image";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useModalA11y } from "../hooks/useModalA11y";
 import { DISCOVER_GENRES, gameMatchesDiscoverGenre, libraryGridClass } from "../constants";
+import { lockBodyScroll } from "../utils/scrollLock";
 
 // The genre filter itself is applied server-side (IGDB filters the ranked
 // pool), so these helpers only drive the dropdown and the curated lists.
@@ -58,7 +59,7 @@ export const DiscoverView: React.FC = () => {
 
   useEffect(() => {
     if (!infoModalGame) return;
-    document.body.style.overflow = "hidden";
+    const releaseScrollLock = lockBodyScroll();
     
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -69,7 +70,7 @@ export const DiscoverView: React.FC = () => {
     
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = "";
+      releaseScrollLock();
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [infoModalGame]);

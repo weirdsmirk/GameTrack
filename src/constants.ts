@@ -178,6 +178,28 @@ export function normalizePlatformIds(platforms: string[] | null | undefined): st
   return [...out];
 }
 
+/**
+ * Combine two sets of platform tags, keeping what is already there and adding
+ * only what is new.
+ *
+ * This is the rule every *additive* writer of `owned_platforms` must use — the
+ * Steam sync above all. A sync can only ever supply evidence that a platform
+ * exists ("this appid is on Steam"); it can never retract a tag the user added, or
+ * one an earlier sync recorded. Replacing the column with the sync's own payload
+ * instead — which is what the Steam sync used to do, writing its constant
+ * `["steam"]` over a row that also said PlayStation — silently destroyed
+ * user-entered data on an operation they never explicitly ran.
+ *
+ * Normalised on the way through, so `"PC"` and `"pc"` collapse to one entry rather
+ * than accumulating as duplicates.
+ */
+export function mergePlatformTags(
+  existing: string[] | null | undefined,
+  incoming: string[] | null | undefined
+): string[] {
+  return normalizePlatformIds([...(existing ?? []), ...(incoming ?? [])]);
+}
+
 export interface StatusOption {
   value: "backlog" | "playing" | "completed" | "endless";
   label: string;

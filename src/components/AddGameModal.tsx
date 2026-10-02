@@ -7,6 +7,7 @@ import { useModalA11y } from "../hooks/useModalA11y";
 import { uploadPoster, upgradeIgdbPosterUrl } from "../utils/image";
 import { mergeCustomPlatforms, OWNERSHIP_STATUSES, platformsSelectable, PLATFORMS_LOCKED_REASON, type OwnershipStatus } from "../constants";
 import { IGDBGame } from "../types";
+import { lockBodyScroll } from "../utils/scrollLock";
 
 export const AddGameModal: React.FC = React.memo(() => {
   const {
@@ -289,7 +290,7 @@ export const AddGameModal: React.FC = React.memo(() => {
 
   useEffect(() => {
     if (!isAddGameOpen) return;
-    document.body.style.overflow = "hidden";
+    const releaseScrollLock = lockBodyScroll();
     
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -299,7 +300,7 @@ export const AddGameModal: React.FC = React.memo(() => {
     
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = "";
+      releaseScrollLock();
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isAddGameOpen, setAddGameOpen]);

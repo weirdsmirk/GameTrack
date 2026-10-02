@@ -11,6 +11,7 @@ import {
   loadBindings, saveBindings, type ShortcutBindings, type ShortcutActionId
 } from "./shortcuts";
 import { gamesToCsv, gamesToMarkdown } from "./utils/export";
+import { toLocalISODate } from "./utils/time";
 
 export interface ToastAction {
   label: string;
@@ -325,6 +326,23 @@ function getInitialTab(): GameTrackState["activeTab"] {
   const stored = safeGetItem(TAB_KEY);
   return (VALID_TABS as readonly string[]).includes(stored || "") ? stored as GameTrackState["activeTab"] : "dashboard";
 }
+
+/**
+ * In-flight replay loads, keyed by game id.
+ *
+ * Exists so a *forced* refresh can queue behind a load that is already running
+ * instead of being discarded by the "already loading" guard. That guard was the
+ * right call for the ordinary case — it stops the details modal and a card click
+ * from both firing the same request — but it silently dropped the refresh that
+ * every replay mutation ends with, and that refresh is not optional: the server
+ * owns the `sequence` numbering (deleting a middle replay renumbers everything
+ * after it), so no client can synthesise the correct list locally.
+ *
+ * The race it creates is narrow and entirely user-reachable: the modal prefetches
+ * its replays on open, so logging one while that request is still open used to
+ * land the stale response last. The user saw "Replay logged" and no new row.
+ */
+const playthroughsInFlight = new Map<number, Promise<void>>();
 
 /** Copy a keyed record without one entry — used to evict per-game caches. */
 const omitKey = <V,>(record: Record<number, V>, key: number): Record<number, V> => {
@@ -881,30 +899,49 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
    * on an action the user takes a few times a session.
    */
   fetchPlaythroughs: async (gameId, force) => {
-    const state = get();
-    if (state.loadingPlaythroughs[gameId]) return;
-    if (!force && gameId in state.playthroughs) return;
+    const inFlight = playthroughsInFlight.get(gameId);
+    if (inFlight) {
+      // An unforced caller wants whatever the in-flight request will produce.
+      if (!force) return;
+      // A forced one must NOT be dropped: the in-flight request was issued
+      // before whatever prompted this refresh, so its response is stale by
+      // construction. Wait it out, then read the truth.
+      await inFlight.catch(() => {});
+    }
+    // Re-checked after the await: the load just awaited may itself have
+    // satisfied an unforced caller, and a second one should ride on it.
+    if (!force && gameId in get().playthroughs) return;
 
-    set((s) => (s.loadingPlaythroughs[gameId]
-      ? {}
-      : { loadingPlaythroughs: { ...s.loadingPlaythroughs, [gameId]: true } }));
-    try {
-      const res = await fetch(`/api/games/${gameId}/playthroughs`);
-      if (!res.ok) throw await getApiError(res, "Failed to load replays");
-      const data = await res.json();
-      const runs = (data.playthroughs ?? []) as Playthrough[];
-      set((s) => ({
-        playthroughs: { ...s.playthroughs, [gameId]: runs },
-        loadingPlaythroughs: { ...s.loadingPlaythroughs, [gameId]: false },
-      }));
-    } catch (err: unknown) {
-      set((s) => ({ loadingPlaythroughs: { ...s.loadingPlaythroughs, [gameId]: false } }));
-      // Only report a failure the user is actually waiting on. The details modal
-      // prefetches for games they may never open, and a toast per prefetch would
-      // fire on every card click in the grid.
-      if (get().selectedGame?.id === gameId) {
-        get().showToast(getErrorMessage(err) || "Error loading replays", "error");
+    const request = (async () => {
+      set((s) => ({ loadingPlaythroughs: { ...s.loadingPlaythroughs, [gameId]: true } }));
+      try {
+        const res = await fetch(`/api/games/${gameId}/playthroughs`);
+        if (!res.ok) throw await getApiError(res, "Failed to load replays");
+        const data = await res.json();
+        set((s) => ({
+          playthroughs: { ...s.playthroughs, [gameId]: (data.playthroughs ?? []) as Playthrough[] },
+          loadingPlaythroughs: { ...s.loadingPlaythroughs, [gameId]: false },
+        }));
+      } catch (err: unknown) {
+        set((s) => ({ loadingPlaythroughs: { ...s.loadingPlaythroughs, [gameId]: false } }));
+        // Only report a failure the user is actually waiting on. The details modal
+        // prefetches for games they may never open, and a toast per prefetch would
+        // fire on every card click in the grid.
+        if (get().selectedGame?.id === gameId) {
+          get().showToast(getErrorMessage(err) || "Error loading replays", "error");
+        }
       }
+    })();
+
+    // Registered synchronously by the caller, not inside the task, so the entry
+    // exists before any of the task's own microtasks can run — and cleared only
+    // by the promise that owns it, so a queued refresh cannot be evicted by the
+    // request it was waiting on.
+    playthroughsInFlight.set(gameId, request);
+    try {
+      await request;
+    } finally {
+      if (playthroughsInFlight.get(gameId) === request) playthroughsInFlight.delete(gameId);
     }
   },
 
@@ -1340,7 +1377,11 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   lastWishlistFetch: 0,
 
   fetchWishlist: async (force = false) => {
-    if (!force && get().wishlist.length > 0 && Date.now() - get().lastWishlistFetch < 60_000) return;
+    /* Keyed on `lastWishlistFetch` alone, not on `wishlist.length` — the same
+       correction `fetchGames` already carries, with the same reason. Requiring a
+       non-empty list meant a user with nothing on their wishlist refetched
+       `/api/wishlist` on every WishlistView mount and every App boot, forever. */
+    if (!force && get().lastWishlistFetch > 0 && Date.now() - get().lastWishlistFetch < 60_000) return;
     set({ loadingWishlist: true });
     try {
       const res = await fetch("/api/wishlist");
@@ -1513,7 +1554,15 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       }
     } catch (err: unknown) {
       console.error("Failed to load analytics:", err);
-      get().showToast("Failed to load analytics. Please try again in a moment.", "error");
+      /* No toast here. `fetchAnalytics` is called from ~14 places the user never
+         asked for analytics — after every add/update/delete, every replay
+         mutation, import, wipe and Steam sync, plus the boot effect and two view
+         mounts. If the analytics endpoint is down, raising a toast on each of
+         those produced a stream of error popups for operations that succeeded,
+         which buries the actual failure under noise the user cannot act on. The
+         `finally` below also replays a queued refetch after a failure, doubling
+         the popups. Logged and left to the views, which own their own error
+         state. */
     } finally {
       set({ loadingAnalytics: false });
       if (analyticsRefetchQueued) {
@@ -1637,7 +1686,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `gametrack-library-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `gametrack-library-${toLocalISODate(new Date())}.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1665,7 +1714,7 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       get().showToast("Nothing to export", "error", "Your library is empty");
       return false;
     }
-    const stamp = new Date().toISOString().slice(0, 10);
+    const stamp = toLocalISODate(new Date());
     const csv = format === "csv";
     const contents = csv ? gamesToCsv(games) : gamesToMarkdown(games);
     const blob = new Blob([contents], {

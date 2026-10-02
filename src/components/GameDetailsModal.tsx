@@ -11,6 +11,7 @@ import { useModalA11y } from "../hooks/useModalA11y";
 import { STATUSES, getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms, OWNERSHIP_STATUSES, getOwnershipLabel, platformsSelectable, PLATFORMS_LOCKED_REASON, isOwned, isReplayed, timesPlayed, type OwnershipStatus } from "../constants";
 import { PosterImage } from "./PosterImage";
 import { ReplayHistory } from "./ReplayHistory";
+import { lockBodyScroll } from "../utils/scrollLock";
 
 /**
  * The status radio group's two states, keyed by status.
@@ -71,7 +72,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     selectedGame, setSelectedGame, updateGame, deleteGame,
     syncGameSynopsis, resetGamePoster, resetGameMetadata,
     showToast, customPlatforms, customizations,
-    games, openPlayingConflict,
+    games, openPlayingConflict, playingConflict,
   } = useGameTrackStore(useShallow((s) => ({
     selectedGame: s.selectedGame, setSelectedGame: s.setSelectedGame,
     updateGame: s.updateGame, deleteGame: s.deleteGame,
@@ -79,6 +80,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     resetGameMetadata: s.resetGameMetadata, showToast: s.showToast,
     customPlatforms: s.customPlatforms, customizations: s.customizations,
     games: s.games, openPlayingConflict: s.openPlayingConflict,
+    playingConflict: s.playingConflict,
   })));
 
   const availablePlatforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
@@ -124,6 +126,8 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   // True once the user types in the synopsis textarea; while set, background
   // synopsis refreshes (IGDB auto-sync) must not clobber their in-progress edit.
   const synopsisDirtyRef = useRef(false);
+  // Same guard for the poster mirror below: don't overwrite what the user picked.
+  const posterDirtyRef = useRef(false);
 
   // Only re-initialize the form when the *selected game changes* (new id), or
   // when edit mode is entered. Not when the same game's data is refreshed in the
@@ -224,6 +228,19 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     if (!selectedGame || selectedGame.id !== lastGameIdRef.current) return;
     setSynopsis(selectedGame.synopsis);
   }, [selectedGame?.synopsis, selectedGame?.id]);
+
+  /* Same mirroring for the poster, which the synopsis block above covers but the
+     poster did not. `posterUrl` is form state seeded once by the init effect, so
+     any later refresh of the row's artwork — Settings → Sync Steam, an IGDB
+     poster sync, another tab — left the modal rendering the old image while every
+     neighbouring field (status, critic score, platforms, times played) updated
+     live from the store. Worse, pressing Save then wrote that stale URL back,
+     quietly undoing the refresh. */
+  useEffect(() => {
+    if (posterDirtyRef.current) return;
+    if (!selectedGame || selectedGame.id !== lastGameIdRef.current) return;
+    setPosterUrl(selectedGame.poster_url || "");
+  }, [selectedGame?.poster_url, selectedGame?.id]);
   const handlePlatformToggle = (platformId: string) => {
     setSelectedPlatforms((prev) =>
       prev.includes(platformId)
@@ -426,7 +443,8 @@ export const GameDetailsModal: React.FC = React.memo(() => {
       const url = await uploadPoster(file);
       const ok = await updateGame(selectedGame.id, { poster_url: url });
       if (ok) {
-        setPosterUrl(url);
+        posterDirtyRef.current = true;
+      setPosterUrl(url);
         showToast("Poster updated", "success", selectedGame.title);
         closePosterModal();
       }
@@ -448,7 +466,8 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     try {
       const ok = await updateGame(selectedGame.id, { poster_url: url });
       if (ok) {
-        setPosterUrl(url);
+        posterDirtyRef.current = true;
+      setPosterUrl(url);
         showToast("Poster updated", "success", selectedGame.title);
         closePosterModal();
       }
@@ -463,6 +482,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     if (!selectedGame) return;
     const restored = await resetGamePoster(selectedGame.id);
     if (restored !== null) {
+      posterDirtyRef.current = true;
       setPosterUrl(restored);
       showToast(
         "Poster reset",
@@ -486,6 +506,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
       setGenres(data.genres?.join(", ") || "");
       setSynopsis(data.synopsis);
       synopsisDirtyRef.current = false;
+      posterDirtyRef.current = true;
       setPosterUrl(data.poster_url);
       setCriticScore(data.critic_score?.toString() || "");
     } finally {
@@ -501,7 +522,14 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   // The parent dialog releases its focus trap while any child dialog is up, or
   // two traps would fight over Tab — the parent's would pull focus back out of
   // the confirmation on the very first Tab press.
-  const modalRef = useModalA11y(Boolean(selectedGame) && !posterModalOpen && !statusPickerOpen && !deleteConfirm && !replayModalOpen);
+  /* The playing-conflict dialog is excluded for the same reason as the others:
+     it is raised from *inside* this modal, and both register a window-level Tab
+     handler. Left armed, this trap evaluated "is focus inside my panel?" against
+     the conflict dialog's button — which is not inside this panel — concluded no,
+     and yanked focus back into the background form on the very first Tab press.
+     The effect was that Tab was dead inside the conflict dialog: a user could not
+     reach its second button at all. */
+  const modalRef = useModalA11y(Boolean(selectedGame) && !posterModalOpen && !statusPickerOpen && !deleteConfirm && !replayModalOpen && !playingConflict);
   const posterModalRef = useModalA11y(posterModalOpen);
   const statusPickerRef = useModalA11y(statusPickerOpen);
   const deleteConfirmRef = useModalA11y(deleteConfirm);
@@ -513,7 +541,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
   useEffect(() => {
     if (!selectedGame) return;
-    document.body.style.overflow = "hidden";
+    const releaseScrollLock = lockBodyScroll();
     
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -537,7 +565,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = "";
+      releaseScrollLock();
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [selectedGame, setSelectedGame, isEditing, posterModalOpen, statusPickerOpen, deleteConfirm, replayModalOpen, showToast]);

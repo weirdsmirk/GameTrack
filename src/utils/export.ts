@@ -1,6 +1,6 @@
 import type { Game } from "../types";
 import { getOwnershipLabel, isOwned, timesPlayed, replayPlaytime } from "../constants";
-import { formatPlaytimePrecise } from "./time";
+import { formatPlaytimePrecise, toLocalISODate } from "./time";
 
 export function csvEscape(value: string): string {
   // Neutralize spreadsheet formula execution (CSV injection): cells whose
@@ -12,9 +12,10 @@ export function csvEscape(value: string): string {
 }
 
 function rowFields(game: Game) {
-  const completed = game.date_completed
-    ? new Date(game.date_completed).toISOString().slice(0, 10)
-    : "";
+  // Local-date ISO, NOT toISOString(). date_completed is stored at local midnight,
+// so converting to UTC first shifted every exported completion date a day
+// earlier for anyone west of Greenwich. See toLocalISODate.
+const completed = game.date_completed ? toLocalISODate(game.date_completed) : "";
   const replayHours = replayPlaytime(game);
   return {
     title: game.title || "",

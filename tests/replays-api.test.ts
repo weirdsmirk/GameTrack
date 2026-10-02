@@ -17,7 +17,7 @@ import type { Express } from "express";
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "gametrack-replay-test-"));
 process.env.GAMETRACK_DATA_DIR = TMP;
-process.env.PORT = "3211";
+process.env.PORT = "3213";
 process.env.NODE_ENV = "test";
 
 delete process.env.API_TOKEN;
@@ -25,7 +25,7 @@ delete process.env.IGDB_CLIENT_ID;
 delete process.env.IGDB_CLIENT_SECRET;
 delete process.env.STEAM_WEB_API_KEY;
 
-const ORIGIN = "http://localhost:3211";
+const ORIGIN = "http://localhost:3213";
 const WITH_ORIGIN = { Origin: ORIGIN };
 
 let app: Express;
@@ -327,7 +327,13 @@ describe("replays — data integrity across other operations", () => {
     // All three survive, renumbered contiguously. Before the ordinals were parked
     // before the move, this hit UNIQUE (game_id, sequence) and answered 409.
     expect(playthroughs.map((p: { sequence: number }) => p.sequence)).toEqual([2, 3, 4]);
-    expect(playthroughs.map((p: { notes: string }) => p.notes).sort())
+    /* ORDER MATTERS — this assertion used to `.sort()` the array, which made it
+       blind to exactly the bug it was written for. The merge parks the keeper's
+       ordinals and then parks everything again, which sorts the LOSER's runs
+       ahead of the keeper's own and pushed the keeper's first replay from 2 to 4.
+       The stated contract is that "the loser contributes its replays only", so
+       the keeper's run must come first. Asserted in order, deliberately. */
+    expect(playthroughs.map((p: { notes: string }) => p.notes))
       .toEqual(["keeper-run", "loser-run-a", "loser-run-b"]);
     expect((await getGame(keeper)).replay_playtime).toBe(15);
   });

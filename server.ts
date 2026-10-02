@@ -85,6 +85,27 @@ export async function createApp(production = false) {
   // forged X-Forwarded-For when no proxy is actually in front. Default: trust
   // nothing; operators behind a reverse proxy set TRUST_PROXY ("1", "loopback", ...).
   const TRUST_PROXY = (process.env.TRUST_PROXY || "").trim();
+  if (TRUST_PROXY !== "") {
+    /* "true" and "*" are the values an operator reaches for first, and both are
+       wrong here:
+         - "true" reaches Express as the *string*, which proxy-addr hands to
+           `isip()` and throws on — so the server died at boot with
+           "invalid IP address: true", an opaque message for a perfectly
+           reasonable-looking config.
+         - It is also the value express-rate-limit deliberately rejects
+           (ERR_ERL_PERMISSIVE_TRUST_PROXY), because trusting every hop makes
+           X-Forwarded-For attacker-controlled and voids every per-IP limit.
+
+       Name the hop count, or a named subnet like "loopback". Failing loudly at
+       boot beats booting into a silently broken rate limiter. */
+    if (TRUST_PROXY === "true" || TRUST_PROXY === "*") {
+      throw new Error(
+        `TRUST_PROXY="${TRUST_PROXY}" is not usable. Set it to the number of proxy hops in front of this ` +
+        `server (e.g. TRUST_PROXY=1 for a single reverse proxy), or to a named subnet such as ` +
+        `TRUST_PROXY=loopback. Unset it when nothing proxies this server.`
+      );
+    }
+  }
   app.set("trust proxy", TRUST_PROXY === "" ? false : Number.isNaN(Number(TRUST_PROXY)) ? TRUST_PROXY : Number(TRUST_PROXY));
 
   app.use(
@@ -212,10 +233,22 @@ export async function createApp(production = false) {
 
   // ── Bearer-token auth gate (optional, disabled in local mode) ────
   if (API_TOKEN) {
-    /* Applied to /posters as well as /api. Posters are the only user-generated
-       binary content in the app, and gating only /api meant the "hardened"
-       token configuration still handed every uploaded poster — and the app
-       shell — to anyone who could reach the port, with no credential. */
+    /* Applied to /api. Deliberately NOT to /posters, and the reason is a bug
+       that was live before: gating /posters meant every uploaded poster 401'd
+       the moment a token was configured, because a poster is only ever consumed
+       as `<img src>` and a subresource request cannot carry an Authorization
+       header. The result was not a hardened app but a visibly broken one — every
+       custom poster silently degraded to the built-in cover, with no error
+       anywhere. Poster filenames are server-generated and unguessable (full
+       randomUUID, 122 bits — see routes.ts), so they behave as capability URLs:
+       unlisted and unbrute-forceable. The JSON export does go through `fetch`
+       and is gated.
+
+       Note this gate is a LAN/remote guard, not authentication of the app shell:
+       `/assets` and `/` are served ungated, and `.env.example` suggests baking
+       VITE_API_TOKEN into that bundle — which puts the token in a file every
+       visitor can read. The operator-facing token should be entered once and
+       kept in localStorage; see the note in src/utils/api.ts. */
     const tokenGate = (req: Request, res: Response, next: NextFunction) => {
       const header = req.headers.authorization || "";
       const supplied = header.startsWith("Bearer ") ? header.slice(7) : "";
@@ -224,7 +257,14 @@ export async function createApp(production = false) {
       }
       next();
     };
-    app.use(["/api", "/posters"], tokenGate);
+    /* `/api/health` is skipped so an orchestrator probe does not need a
+       credential. It is a liveness check that reports only whether SQLite
+       answers `SELECT 1`; it exposes no library data, and gating it broke
+       Docker/Kubernetes health checks the moment a token was set. It also stops
+       probes from consuming the shared rate-limit budget. */
+    app.use("/api", (req, res, next) => (
+      req.path === "/health" ? next() : tokenGate(req, res, next)
+    ));
   }
 
   // ── Rate limiting (API only — static assets stay unlimited) ──────
