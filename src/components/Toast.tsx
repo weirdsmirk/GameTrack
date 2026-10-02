@@ -11,6 +11,11 @@ const TYPE_STYLES = {
   success: "bg-brand-accent text-brand-accent-ink hover:bg-brand-accent-hover",
   error: "bg-red-600 text-brand-on-color hover:bg-red-500",
   info: "bg-zinc-800 text-white hover:bg-zinc-700",
+  /* Amber with black ink: ~9.4:1, the highest-contrast fill in the set, which is
+     the point — a warning is the one type that asks the reader to do something
+     about what they just read. Theme-independent like `error`, and deliberately
+     not the accent fill, which means "done". */
+  warning: "bg-amber-500 text-black hover:bg-amber-400",
 } as const;
 
 export const Toast: React.FC = () => {

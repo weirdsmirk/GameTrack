@@ -30,7 +30,14 @@ export interface ToastItem {
   id: number;
   /** The one line of text the popup shows — title and detail already joined. */
   message: string;
-  type: "success" | "error" | "info";
+  /**
+   * `warning` is an advance notice about something that is about to happen — not
+   * a report that it already did. It is a distinct type rather than `info`
+   * because "your library is about to be rewritten" must never be mistakable for
+   * the neutral `info` notes ("Discover is throttled"), and must never wear the
+   * accent fill, which means "done, this worked".
+   */
+  type: "success" | "error" | "info" | "warning";
   duration: number;
   /**
    * Optional row of links under the message. Most toasts only report something;
@@ -296,7 +303,7 @@ interface GameTrackState {
   toasts: ToastItem[];
   showToast: (
     message: string,
-    type?: "success" | "error" | "info",
+    type?: "success" | "error" | "info" | "warning",
     description?: string,
     duration?: number,
     actions?: ToastAction[]
@@ -309,6 +316,12 @@ interface GameTrackState {
   fetchSteamSettings: () => Promise<void>;
   saveSteamSettings: (profile: string) => Promise<boolean>;
   syncSteamLibrary: () => Promise<{ ok: boolean; imported?: number; updated?: number; adopted?: number; total?: number; error?: string } | null>;
+  /**
+   * Queue the automatic Steam sync that runs after page load, warning first.
+   * Silently does nothing unless a Steam account is linked, and does nothing at
+   * all if a sync is already queued.
+   */
+  scheduleAutoSteamSync: (delayMs?: number) => void;
 
   customPlatforms: Platform[];
   fetchCustomPlatforms: () => Promise<void>;
@@ -599,6 +612,28 @@ function safeRemoveItem(key: string): void {
    them, so the last write is genuinely the last choice rather than whichever
    network response happened to resolve first. */
 let customizationWrite: Promise<Response | null> = Promise.resolve(null);
+
+/**
+ * How long after page load the automatic Steam sync runs.
+ */
+const AUTO_STEAM_SYNC_DELAY_MS = 20_000;
+
+/**
+ * The pending auto-sync timer, or null when none is scheduled.
+ *
+ * Module scope rather than component state, deliberately. This is a page-lifetime
+ * concern — "once per reload" — and the store is created exactly once per page
+ * load and never unmounted. Inside a React effect it would be wrong twice over:
+ * StrictMode double-invokes effects, so a boot effect either double-announced and
+ * double-synced, or (with the usual cleanup that clears the timer) lost the timer
+ * entirely on the second invocation and never synced at all.
+ *
+ * The handle doubles as the "already queued" guard, which is safe only because
+ * there is no way to cancel: nothing drops this timer except its own callback,
+ * which is also what clears it. Adding a cancel path means clearing the handle
+ * there too, or the feature goes permanently dead while looking scheduled.
+ */
+let autoSteamSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
 /* In-flight /api/games load and its request generation — see fetchGames.
    `gamesRequestId` is bumped per request; a response whose id is not the
@@ -1778,7 +1813,13 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
   toasts: [],
   showToast: (message, type = "info", description, duration, actions) => {
     const id = ++toastIdCounter;
-    const ms = duration ?? (type === "error" ? 6000 : type === "info" ? 3500 : 4000);
+    const ms = duration ?? (
+      // A warning outlasts an info note: it is asking the reader to hold a piece
+      // of information for later ("this is coming"), whereas info notes are
+      // self-contained. Still well short of an error, which is the only type
+      // allowed to interrupt.
+      type === "error" ? 6000 : type === "warning" ? 5000 : type === "info" ? 3500 : 4000
+    );
     // Toasts render as a single line of text, so the optional detail is folded
     // into the message here — once — instead of being a second line of copy.
     const text = description ? `${message} — ${description}` : message;
@@ -1869,6 +1910,53 @@ export const useGameTrackStore = create<GameTrackState>((set, get) => ({
       get().showToast(msg || "Steam sync failed", "error");
       return { ok: false, error: msg };
     }
+  },
+
+  /**
+   * Queue the automatic Steam sync that runs shortly after every page load, and
+   * warn about it first.
+   *
+   * The warning comes *before* the sync and not after, because a Steam sync
+   * rewrites library rows — it adopts Steam-owned games, updates metadata and
+   * imports anything new. A user watching a load happen for a reason they cannot
+   * see has no way to tell that apart from a bug.
+   *
+   * Gated on Steam actually being linked, which is the difference between a
+   * useful heads-up and a lie. Without this, every reload for anyone who has not
+   * connected a profile announced a sync that could only fail — and then failed,
+   * adding a second toast saying "Steam account is not connected" to a page the
+   * user had just opened. Both requirements mirror the server's own precondition
+   * in `runSteamSyncInternal`, which throws unless there is a key *and* a linked
+   * steamId, so the client never announces a sync the server will refuse.
+   *
+   * A no-op if already scheduled, which is what makes it safe to call from a
+   * StrictMode double-invoked boot effect, and what stops a second caller from
+   * doubling the queue.
+   *
+   * NOT guarded against a second browser tab. The server answers a concurrent
+   * sync with a 409, so the outcome there is one success and one honest error
+   * toast — acceptable, and preferable to a lease here: a stored lease would
+   * also suppress the sync after a tab died mid-run, which is a worse failure
+   * than the one it prevents.
+   */
+  scheduleAutoSteamSync: (delayMs = AUTO_STEAM_SYNC_DELAY_MS) => {
+    if (autoSteamSyncTimer !== null) return;
+
+    const steam = get().steamSettings;
+    if (!steam?.steamId || !steam.keySet) return;
+
+    // Seconds derived from the delay rather than written into the copy, so the
+    // promise cannot drift away from what the timer actually does.
+    const seconds = Math.round(delayMs / 1000);
+    get().showToast(
+      `Steam sync will start in ${seconds} second${seconds === 1 ? "" : "s"}`,
+      "warning"
+    );
+
+    autoSteamSyncTimer = setTimeout(() => {
+      autoSteamSyncTimer = null;
+      void get().syncSteamLibrary();
+    }, delayMs);
   },
 
   // ── Custom Platform Tags ─────────────────────────────────────

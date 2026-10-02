@@ -40,7 +40,7 @@ export default function App() {
   const {
     activeTab, setActiveTab, fetchGames, fetchAnalytics,
     fetchTrending, fetchDiscoverLists,
-    setSettingsOpen, setShortcutsOpen, fetchSteamSettings,
+    setSettingsOpen, setShortcutsOpen, fetchSteamSettings, scheduleAutoSteamSync,
     fetchWishlist, fetchCustomPlatforms,
     loadingGames,
     fetchCustomizations,
@@ -54,6 +54,7 @@ export default function App() {
     fetchAnalytics: s.fetchAnalytics, fetchTrending: s.fetchTrending,
     fetchDiscoverLists: s.fetchDiscoverLists, setSettingsOpen: s.setSettingsOpen,
     setShortcutsOpen: s.setShortcutsOpen, fetchSteamSettings: s.fetchSteamSettings,
+    scheduleAutoSteamSync: s.scheduleAutoSteamSync,
     fetchWishlist: s.fetchWishlist, fetchCustomPlatforms: s.fetchCustomPlatforms,
     loadingGames: s.loadingGames, fetchCustomizations: s.fetchCustomizations,
     showToast: s.showToast, customizations: s.customizations,
@@ -172,7 +173,13 @@ export default function App() {
   useEffect(() => {
     const s = useGameTrackStore.getState();
     fetchGames();
-    fetchSteamSettings();
+    /* The Steam identity is a precondition for the automatic sync, so the
+       scheduler runs off the back of this fetch rather than racing it. Not
+       awaited: the boot sequence should not block on a settings round-trip, and
+       a failed fetch leaves `steamSettings` null, which is precisely the state
+       that makes the scheduler decline — so the failure mode is silence, not a
+       sync that cannot work. */
+    void fetchSteamSettings().then(() => scheduleAutoSteamSync());
     fetchAnalytics();
     fetchWishlist();
     fetchCustomPlatforms();
