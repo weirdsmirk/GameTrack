@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import {
-  X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2, ChevronDown, Check
+  X, Trash2, Edit2, Trophy, EyeOff, ImageUp, RotateCcw, Link2, Loader2, ChevronDown, Check, Plus
 } from "lucide-react";
 import { formatPlaytimePrecise, formatDateShort } from "../utils/time";
 import { motion, AnimatePresence } from "motion/react";
@@ -93,6 +93,13 @@ const METRIC_VALUE_RULE =
  * One metric cell. Renders as a button when there is something to open and as a
  * plain box when there is not, so "looks interactive" and "is interactive" cannot
  * come apart.
+ *
+ * `cornerAction` is rendered as a SIBLING of the cell, not a child. The cell is
+ * itself a <button>, and a <button> may not contain another <button>: the parser
+ * closes the outer one at the inner one's open tag, which throws the cell's own
+ * label, value and click handler out of the DOM and leaves a control with no
+ * accessible name. The wrapper is only added when there is something to put in
+ * it, so the read-only and single-action cells keep their original markup.
  */
 const MetricCell: React.FC<{
   label: string;
@@ -102,12 +109,15 @@ const MetricCell: React.FC<{
   /** Playtime's own cell turns dashed/red while the hours are hidden. */
   hiddenBorder?: boolean;
   valueClassName?: string;
+  /** An extra control pinned to the cell's top-right, for an action that is not
+   *  "open this cell" — log a replay, as distinct from opening the history. */
+  cornerAction?: React.ReactNode;
   value: React.ReactNode;
-}> = ({ label, onOpen, ariaLabel, hiddenBorder = false, valueClassName = "text-white", value }) => {
+}> = ({ label, onOpen, ariaLabel, hiddenBorder = false, valueClassName = "text-white", cornerAction, value }) => {
   const frame = hiddenBorder
     ? "border-dashed border-red-500/25"
     : "border-brand-border/50";
-  return onOpen ? (
+  const cell = onOpen ? (
     <button
       type="button"
       onClick={onOpen}
@@ -127,6 +137,7 @@ const MetricCell: React.FC<{
       </h5>
     </div>
   );
+  return cornerAction ? <div className="relative">{cell}{cornerAction}</div> : cell;
 };
 
 const formatDateInputValue = (d: Date): string => {
@@ -206,6 +217,12 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   // Replay history modal. Opens from the hours metric, so the read view's
   // per-run list stays out of the scroll area until it is asked for.
   const [replayModalOpen, setReplayModalOpen] = useState(false);
+  // Whether the replay dialog should come up with the "log a replay" form already
+  // expanded. The Playtime cell's "+" sets it, the cell itself does not: opening
+  // the history to read it and opening it to add to it are different intents, and
+  // the second should not cost two clicks. Cleared on close so the next plain
+  // open of the history starts on the list.
+  const [replayStartAdding, setReplayStartAdding] = useState(false);
   /**
    * Which edit-form field the "Your Rating" and "Completed" metric cells should
    * land on. Set by `openEditAt` and cleared by the effect below once it has
@@ -543,6 +560,15 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     setPosterSaving(false);
   };
 
+  // Both replay-dialog exits — the backdrop and the X — go through here so the
+  // "open straight into the add form" flag cannot survive a dismissal. Left set,
+  // it would re-arm itself on the next plain open of the history and put the
+  // form in front of a user who only asked to look at their runs.
+  const closeReplayHistory = () => {
+    setReplayModalOpen(false);
+    setReplayStartAdding(false);
+  };
+
   const handleUploadPoster = async (file: File) => {
     if (!selectedGame) return;
     setPosterSaving(true);
@@ -657,7 +683,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
         if (deleteConfirm) {
           setDeleteConfirm(false);
         } else if (replayModalOpen) {
-          setReplayModalOpen(false);
+          closeReplayHistory();
         } else if (statusPickerOpen) {
           setStatusPickerOpen(false);
         } else if (posterModalOpen) {
@@ -1437,6 +1463,21 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     ariaLabel={canReplaySelected
                       ? `Playtime for ${selectedGame.title}: ${playtimeTitle(selectedGame)}. Open replay history.`
                       : undefined}
+                    /* The "+" — log another playthrough, skipping the list.
+                        Withheld outright on an Endless title, matching the cell's
+                        own click target and the panel's add button: a greyed-out
+                        "+" still advertises an action this game does not have. */
+                    cornerAction={canReplaySelected ? (
+                      <button
+                        type="button"
+                        onClick={() => { setReplayStartAdding(true); setReplayModalOpen(true); }}
+                        aria-label={`Log another playthrough of ${selectedGame.title}`}
+                        title="Log another playthrough of this game"
+                        className="absolute top-1.5 right-1.5 w-6 h-6 flex items-center justify-center rounded-none bg-transparent border border-transparent text-zinc-500 hover:text-brand-accent transition-colors cursor-pointer focus:outline-none focus-visible:border-brand-accent/50"
+                      >
+                        <Plus className="w-3 h-3" aria-hidden />
+                      </button>
+                    ) : undefined}
                     hiddenBorder={selectedGame.hide_playtime === 1}
                     /* No line-through. It was here to say "this number is
                        suppressed", but the value being struck out is the word
@@ -1538,7 +1579,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
           className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80"
-          onClick={(e) => { if (e.target === e.currentTarget) setReplayModalOpen(false); }}
+          onClick={(e) => { if (e.target === e.currentTarget) closeReplayHistory(); }}
         >
           <motion.div
             ref={replayModalRef}
@@ -1562,7 +1603,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               </div>
               <button
                 type="button"
-                onClick={() => setReplayModalOpen(false)}
+                onClick={closeReplayHistory}
                 aria-label="Close replay history"
                 className="w-[34px] h-[34px] shrink-0 rounded-none bg-zinc-950 border border-brand-border text-brand-muted hover:text-white transition-colors cursor-pointer flex items-center justify-center"
               >
@@ -1570,7 +1611,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto overscroll-contain p-5">
-              <ReplayHistory game={selectedGame} hideHeading />
+              <ReplayHistory game={selectedGame} hideHeading startAdding={replayStartAdding} />
             </div>
           </motion.div>
         </motion.div>

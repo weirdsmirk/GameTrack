@@ -256,7 +256,15 @@ const RunFacts: React.FC<{ status: Playthrough["status"]; playtime: number; date
  */
 export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host dialog already titles the panel, so the
    *  name is not printed twice within one screen. */
-  hideHeading?: boolean }> = ({ game, hideHeading = false }) => {
+  hideHeading?: boolean;
+  /** Opens with the "log a replay" form already expanded.
+   *
+   *  Set by the caller that owns the entry point, so one click on a control
+   *  labelled "add a replay" does not land the user on a list and then require a
+   *  second click to find the button that does the thing they asked for. Reset to
+   *  false whenever the panel is closed, or reopening it for the history alone
+   *  would put the form back up unasked. */
+  startAdding?: boolean }> = ({ game, hideHeading = false, startAdding = false }) => {
   // `useShallow` is required, not stylistic: zustand v5 has no default shallow
   // equality, so a selector returning a fresh object literal compares unequal on
   // every store write and re-renders forever. Fetching also writes to the store
@@ -273,7 +281,7 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
     deletePlaythrough: s.deletePlaythrough,
   })));
 
-  const [adding, setAdding] = React.useState(false);
+  const [adding, setAdding] = React.useState(startAdding);
   const [draft, setDraft] = React.useState<Draft>(emptyDraft);
   const [editingId, setEditingId] = React.useState<number | null>(null);
   const [editDraft, setEditDraft] = React.useState<Draft>(emptyDraft);
@@ -287,15 +295,25 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
   // Load on open, and again whenever the modal moves to a different game — the
   // cached list is keyed by id, so switching games within one modal session must
   // not leave the previous game's history on screen.
+  //
+  // `lastGameIdRef` is what keeps the reset from eating `startAdding`. This
+  // effect runs on mount as well as on every switch, and the form's open state
+  // is the one piece of transient state that is legitimately non-blank there;
+  // resetting unconditionally would slam the form shut on the same tick the
+  // caller asked for it to be open.
+  const lastGameIdRef = React.useRef<number | null>(null);
   React.useEffect(() => {
     fetchPlaythroughs(gameId);
     // Reset every transient control on a game switch, or an abandoned draft
     // would silently attach itself to the next game opened.
-    setAdding(false);
-    setDraft(emptyDraft());
-    setEditingId(null);
-    setConfirmId(null);
-    setBusy(false);
+    if (lastGameIdRef.current !== null) {
+      setAdding(false);
+      setDraft(emptyDraft());
+      setEditingId(null);
+      setConfirmId(null);
+      setBusy(false);
+    }
+    lastGameIdRef.current = gameId;
   }, [gameId, fetchPlaythroughs]);
 
   const patchDraft = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
