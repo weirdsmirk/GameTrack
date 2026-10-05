@@ -11,7 +11,11 @@ import { useModalA11y } from "../hooks/useModalA11y";
 import { STATUSES, getStatusBadgeColor, getStatusLabel, platformIdMatches, mergeCustomPlatforms, OWNERSHIP_STATUSES, getOwnershipLabel, platformsSelectable, PLATFORMS_LOCKED_REASON, isOwned, isReplayed, timesPlayed, totalPlaytime, replayAllowed, type OwnershipStatus } from "../constants";
 import { PosterImage } from "./PosterImage";
 import { ReplayHistory } from "./ReplayHistory";
-import type { Game } from "../types";
+import {
+  RunFormDialog, type RunDialogMode, type Draft,
+  emptyDraft, draftFrom, payloadFrom,
+} from "./RunFormDialog";
+import type { Game, Playthrough } from "../types";
 import { lockBodyScroll } from "../utils/scrollLock";
 
 /**
@@ -176,6 +180,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     syncGameSynopsis, resetGamePoster, resetGameMetadata,
     showToast, customPlatforms, customizations,
     games, openPlayingConflict, playingConflict,
+    addPlaythrough, updatePlaythrough,
   } = useGameTrackStore(useShallow((s) => ({
     selectedGame: s.selectedGame, setSelectedGame: s.setSelectedGame,
     updateGame: s.updateGame, deleteGame: s.deleteGame,
@@ -184,6 +189,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
     customPlatforms: s.customPlatforms, customizations: s.customizations,
     games: s.games, openPlayingConflict: s.openPlayingConflict,
     playingConflict: s.playingConflict,
+    addPlaythrough: s.addPlaythrough, updatePlaythrough: s.updatePlaythrough,
   })));
 
   const availablePlatforms = React.useMemo(() => mergeCustomPlatforms(customPlatforms), [customPlatforms]);
@@ -217,12 +223,16 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   // Replay history modal. Opens from the hours metric, so the read view's
   // per-run list stays out of the scroll area until it is asked for.
   const [replayModalOpen, setReplayModalOpen] = useState(false);
-  // Whether the replay dialog should come up with the "log a replay" form already
-  // expanded. The Playtime cell's "+" sets it, the cell itself does not: opening
-  // the history to read it and opening it to add to it are different intents, and
-  // the second should not cost two clicks. Cleared on close so the next plain
-  // open of the history starts on the list.
-  const [replayStartAdding, setReplayStartAdding] = useState(false);
+  /* The add/edit run dialog, a THIRD layer above the details modal and the replay
+     history. It lives here rather than inside ReplayHistory because of the trap
+     and Escape notes further down: two dialogs registering window-level Tab
+     handlers is exactly what this file already got wrong once, and the fix is for
+     one component to own every layer so it can stand the parent traps down in the
+     right order. `null` is closed; the kind distinguishes add from edit, and the
+     edit branch carries the run being changed. */
+  const [runDialog, setRunDialog] = useState<RunDialogMode | null>(null);
+  const [runDraft, setRunDraft] = useState<Draft>(emptyDraft);
+  const [runBusy, setRunBusy] = useState(false);
   /**
    * Which edit-form field the "Your Rating" and "Completed" metric cells should
    * land on. Set by `openEditAt` and cleared by the effect below once it has
@@ -561,12 +571,50 @@ export const GameDetailsModal: React.FC = React.memo(() => {
   };
 
   // Both replay-dialog exits — the backdrop and the X — go through here so the
-  // "open straight into the add form" flag cannot survive a dismissal. Left set,
-  // it would re-arm itself on the next plain open of the history and put the
-  // form in front of a user who only asked to look at their runs.
+  // run dialog cannot survive a dismissal of the layer beneath it.
   const closeReplayHistory = () => {
     setReplayModalOpen(false);
-    setReplayStartAdding(false);
+    closeRunDialog();
+  };
+
+  /* ── Add / edit run dialog ──────────────────────────────────────────────
+     Both entry points open the history first if it is not already up, because
+     the dialog is meaningless without the ledger it belongs to and the run
+     number it quotes comes from that game's play count. */
+  const openLogReplay = () => {
+    if (!selectedGame) return;
+    setReplayModalOpen(true);
+    setRunDraft(emptyDraft());
+    setRunDialog({ kind: "add", sequence: timesPlayed(selectedGame) + 1 });
+  };
+
+  const openEditRun = (run: Playthrough) => {
+    setReplayModalOpen(true);
+    setRunDraft(draftFrom(run));
+    setRunDialog({ kind: "edit", run });
+  };
+
+  /* Closing discards the draft. The user may have half-typed a run and changed
+     their mind, and reopening "Log Replay" should offer a blank form rather than
+     the last abandoned attempt — the same reasoning the panel's own game-switch
+     reset used. */
+  const closeRunDialog = () => {
+    setRunDialog(null);
+    setRunDraft(emptyDraft());
+    setRunBusy(false);
+  };
+
+  const submitRun = async () => {
+    if (!runDialog || !selectedGame) return;
+    setRunBusy(true);
+    const payload = payloadFrom(runDraft);
+    const ok = runDialog.kind === "edit"
+      ? await updatePlaythrough(runDialog.run.id, selectedGame.id, payload)
+      : await addPlaythrough(selectedGame.id, payload);
+    setRunBusy(false);
+    /* Left open on failure so the typed values survive and the user can fix the
+       one field that caused it, rather than retyping the run. */
+    if (ok) closeRunDialog();
   };
 
   const handleUploadPoster = async (file: File) => {
@@ -663,10 +711,16 @@ export const GameDetailsModal: React.FC = React.memo(() => {
      The effect was that Tab was dead inside the conflict dialog: a user could not
      reach its second button at all. */
   const modalRef = useModalA11y(Boolean(selectedGame) && !posterModalOpen && !statusPickerOpen && !deleteConfirm && !replayModalOpen && !playingConflict);
+  /* The replay dialog's trap stands down while the run dialog is up, for the same
+     reason the outer one does above it. RunFormDialog registers its own, and two
+     armed traps means the background one decides focus is "not inside my panel"
+     — because it is not, the run dialog is a sibling — and yanks Tab back into
+     the history on the first press. The run form would then have exactly one
+     reachable control. */
+  const replayModalRef = useModalA11y(replayModalOpen && !runDialog);
   const posterModalRef = useModalA11y(posterModalOpen);
   const statusPickerRef = useModalA11y(statusPickerOpen);
   const deleteConfirmRef = useModalA11y(deleteConfirm);
-  const replayModalRef = useModalA11y(replayModalOpen);
 
   // Set when the user presses inside the panel; a subsequent click landing on
   // the backdrop after a drag-select is then ignored (see handleBackdropClick).
@@ -680,7 +734,12 @@ export const GameDetailsModal: React.FC = React.memo(() => {
       if (e.key === "Escape") {
         // Most recently opened layer first, so Escape peels back one step at a
         // time rather than dismissing the whole modal from three levels down.
-        if (deleteConfirm) {
+        // The run dialog is the topmost layer when it is up, so it has to be
+        // tested before the history — checked second, Escape would close the
+        // history out from under the form the user was actually looking at.
+        if (runDialog) {
+          closeRunDialog();
+        } else if (deleteConfirm) {
           setDeleteConfirm(false);
         } else if (replayModalOpen) {
           closeReplayHistory();
@@ -701,7 +760,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
       releaseScrollLock();
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedGame, setSelectedGame, isEditing, posterModalOpen, statusPickerOpen, deleteConfirm, replayModalOpen, showToast]);
+  }, [selectedGame, setSelectedGame, isEditing, posterModalOpen, statusPickerOpen, deleteConfirm, replayModalOpen, runDialog, showToast]);
 
   const handleClose = () => {
     setSelectedGame(null);
@@ -1470,7 +1529,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                     cornerAction={canReplaySelected ? (
                       <button
                         type="button"
-                        onClick={() => { setReplayStartAdding(true); setReplayModalOpen(true); }}
+                        onClick={openLogReplay}
                         aria-label={`Log another playthrough of ${selectedGame.title}`}
                         title="Log another playthrough of this game"
                         className="absolute top-1.5 right-1.5 w-6 h-6 flex items-center justify-center rounded-none bg-transparent border border-transparent text-zinc-500 hover:text-brand-accent transition-colors cursor-pointer focus:outline-none focus-visible:border-brand-accent/50"
@@ -1590,14 +1649,33 @@ export const GameDetailsModal: React.FC = React.memo(() => {
             role="dialog"
             aria-modal="true"
             aria-labelledby="replay-modal-title"
-            className="relative w-full max-w-2xl max-h-[85vh] flex flex-col border border-brand-border bg-brand-bg text-white shadow-2xl"
+            /* Two-stage height: grow to fit short content, then stop and scroll.
+
+               `min(640px, calc(100dvh - 2rem))` — a bare `max-h-[85vh]` was
+               only a ceiling, so the dialog still grew to whatever the content
+               needed and opening the "log a replay" form pushed it to ~846px,
+               most of the screen, with the details modal behind reduced to a
+               sliver. 640px keeps the panel a panel.
+
+               The second term is the viewport minus the backdrop's own `p-4`.
+               85vh left the panel taller than the space it was centred in, so on
+               a short viewport it overflowed the flex line at BOTH ends and the
+               top of the header went off screen — and there was nothing to
+               scroll, because the overflow was on the dialog rather than inside
+               it. `dvh` rather than `vh` so a collapsing mobile address bar
+               cannot shrink the viewport under the panel's feet. */
+            className="relative w-full max-w-2xl max-h-[min(640px,calc(100dvh-2rem))] flex flex-col overflow-hidden border border-brand-border bg-brand-bg text-white shadow-2xl"
           >
-            <div className="px-5 py-4 border-b border-brand-border shrink-0 flex items-center justify-between gap-3">
+            <div className="px-5 pt-4 pb-4 border-b border-brand-border/60 shrink-0 flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <p id="replay-modal-title" className="text-[11px] font-black uppercase tracking-widest text-brand-accent">
                   Replay History
                 </p>
-                <p className="text-[11px] text-brand-muted truncate mt-0.5">
+                {/* The game's name is the subject of the whole panel, so it is set
+                    as a title rather than as a caption under the dialog's own
+                    label. It was `text-[11px] text-brand-muted` — smaller than the
+                    label above it. */}
+                <p className="mt-1 text-sm font-black uppercase tracking-tight text-white truncate">
                   {selectedGame.title}
                 </p>
               </div>
@@ -1605,18 +1683,39 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                 type="button"
                 onClick={closeReplayHistory}
                 aria-label="Close replay history"
-                className="w-[34px] h-[34px] shrink-0 rounded-none bg-zinc-950 border border-brand-border text-brand-muted hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+                className="w-[30px] h-[30px] shrink-0 rounded-none bg-zinc-950 border border-brand-border text-brand-muted hover:text-white hover:border-brand-accent/50 transition-colors cursor-pointer flex items-center justify-center"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto overscroll-contain p-5">
-              <ReplayHistory game={selectedGame} hideHeading startAdding={replayStartAdding} />
+            <div className="flex-1 min-h-0 flex flex-col">
+              <ReplayHistory
+              game={selectedGame}
+              hideHeading
+              onLogReplay={openLogReplay}
+              onEditRun={openEditRun}
+            />
             </div>
           </motion.div>
         </motion.div>
       )}
     </AnimatePresence>
+
+    {/* Add / edit run dialog — the topmost layer, raised from inside the replay
+        history. Rendered last so it paints over it, and owned here rather than by
+        ReplayHistory so this component keeps sole control of which focus traps are
+        armed (see the `useModalA11y` calls) and of the Escape peel order. */}
+    {selectedGame && runDialog && (
+      <RunFormDialog
+        mode={runDialog}
+        gameTitle={selectedGame.title}
+        draft={runDraft}
+        setDraft={(patch) => setRunDraft((d) => ({ ...d, ...patch }))}
+        busy={runBusy}
+        onClose={closeRunDialog}
+        onSubmit={submitRun}
+      />
+    )}
 
     {/* Change Poster modal — set a custom poster via image URL or device upload */}
     <AnimatePresence>

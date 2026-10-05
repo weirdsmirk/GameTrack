@@ -1,251 +1,104 @@
 import React from "react";
 import {
-  History, Loader2, Pencil, Plus, Trash2, X,
+  History, Loader2, Pencil, Plus, Trash2,
 } from "lucide-react";
 import { useGameTrackStore } from "../store";
 import { useShallow } from "zustand/react/shallow";
 import type { Game, Playthrough } from "../types";
-import { STATUSES, getStatusLabel, timesPlayed, replayPlaytime, totalPlaytime, replayAllowed, REPLAY_UNAVAILABLE_REASON } from "../constants";
+import { getStatusLabel, timesPlayed, replayPlaytime, totalPlaytime, replayAllowed, REPLAY_UNAVAILABLE_REASON } from "../constants";
 import { formatPlaytimePrecise, formatDateShort } from "../utils/time";
 
 /**
- * Local-midnight date-string <-> epoch-ms.
+ * One run, as a ledger row: the hours are the figure, the metadata hangs off it.
  *
- * Deliberately built from local getters rather than `Date.toISOString`, and
- * mirrored on the server. `toISOString` converts to UTC first, so entering
- * 02/10/2026 anywhere west of Greenwich stored the 9th — and this app reads that
- * back as a completion date, so the bug is visible rather than theoretical. The
- * same conversion is used for the game's own completion date; see the note on
- * `formatDateInputValue` in GameDetailsModal, which this must not drift from.
+ * The hours lead because that is what this panel is for — it was previously one
+ * flat run of slash-separated words (`BACKLOG / 0H / 12 MAR`) in which the status
+ * outranked the only number a reader came for, and every row had identical
+ * weight so a 40-hour run and an untouched one looked like equals.
+ *
+ * `tabular-nums` on the figure: rows are meant to be compared down the column,
+ * and proportional digits give "11H" and "8H" different widths, so the numbers
+ * do not line up and the eye cannot scan the hours.
  */
-const toDateInputValue = (ms: number): string => {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-};
-
-/** Inverse of `toDateInputValue`: local midnight, not UTC midnight. */
-const fromDateInputValue = (value: string): number | null => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const parts = value.split("-").map(Number);
-  const [y, m, d] = parts as [number, number, number];
-  const date = new Date(y, m - 1, d);
-  return isNaN(date.getTime()) ? null : date.getTime();
-};
-
-/** Hours-and-minutes entry, parsed into the fractional hours the API stores. */
-const parseHoursMinutes = (h: string, m: string): number => {
-  const hours = Math.max(0, parseFloat(h) || 0);
-  const minutes = Math.max(0, Math.min(59, parseInt(m, 10) || 0));
-  return Math.round((hours + minutes / 60) * 100) / 100;
-};
-
-/** Inverse of `parseHoursMinutes`, for seeding the form from a stored value. */
-const splitPlaytime = (hours: number): { h: string; m: string } => {
-  const safe = Math.max(0, hours || 0);
-  const whole = Math.floor(safe);
-  const minutes = Math.round((safe - whole) * 60);
-  return { h: whole ? String(whole) : "", m: minutes ? String(minutes) : "" };
-};
-
-/**
- * Editable state for one run's fields. Shared by the "log a replay" form and the
- * per-row editor so the two cannot drift — the create and update paths submit
- * the same shape, and only the endpoint differs.
- */
-interface Draft {
+const RunRow: React.FC<{
   status: Playthrough["status"];
-  hours: string;
-  minutes: string;
-  rating: string;
-  dateCompleted: string;
-  platform: string;
-  notes: string;
-}
+  playtime: number;
+  date: number | null;
+  platform: string | null;
+  rating?: number | null;
+  notes?: string | null;
+  /** Run #1's number. Replays pass their own sequence so the rows stay
+   *  identifiable once the badge is the only thing distinguishing them. */
+  sequence: number;
+  isOriginal?: boolean;
+}> = ({ status, playtime, date, platform, rating = null, notes = null, sequence, isOriginal = false }) => {
+  // A run with no hours logged yet is a placeholder, not a measurement, so it is
+  // pulled back to muted rather than printed in the same weight as a real total.
+  //
+  // zinc-500, not zinc-600: at this size the figure is large text, so the bar is
+  // 3:1 — and zinc-600 measures 2.6:1 against the panel. zinc-500 clears it at
+  // ~4.1:1 while still reading as "nothing recorded here". The same reasoning is
+  // behind METRIC_VALUE_RULE's dashed rule in the details modal.
+  const logged = playtime > 0;
+  return (
+    <div className="flex items-start gap-4 sm:gap-5">
+      <div className="shrink-0 text-right">
+        <div
+          className={`text-2xl sm:text-3xl font-black tabular-nums leading-none tracking-tight ${
+            logged ? "text-white" : "text-zinc-500"
+          }`}
+        >
+          {formatPlaytimePrecise(playtime)}
+        </div>
+      </div>
 
-const emptyDraft = (): Draft => ({
-  status: "completed",
-  hours: "",
-  minutes: "",
-  rating: "",
-  dateCompleted: "",
-  platform: "",
-  notes: "",
-});
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span
+            className={`px-1.5 py-0.5 border text-[9px] font-black uppercase tracking-widest ${
+              isOriginal
+                ? "border-brand-accent/50 text-brand-accent"
+                : "border-brand-border text-brand-muted"
+            }`}
+          >
+            {isOriginal ? "Original" : `Replay ${sequence}`}
+          </span>
+          <span
+            className={`text-[10px] font-bold uppercase tracking-widest ${
+              status === "completed" ? "text-emerald-400" : "text-brand-muted"
+            }`}
+          >
+            {getStatusLabel(status)}
+          </span>
+        </div>
 
-const draftFrom = (run: Playthrough): Draft => {
-  const { h, m } = splitPlaytime(run.playtime);
-  return {
-    status: run.status,
-    hours: h,
-    minutes: m,
-    rating: run.personal_rating == null ? "" : String(run.personal_rating),
-    dateCompleted: run.date_completed ? toDateInputValue(run.date_completed) : "",
-    platform: run.platform ?? "",
-    notes: run.notes ?? "",
-  };
+        {/* The date is shown only when the run is finished. A date on an unfinished
+            run would be a claim the data does not support, and the server
+            deliberately keeps `date_completed` null for those.
+
+            Rendered only when something lands in it — an always-present empty
+            flex row still claims a line of height, which on an untouched run
+            leaves a conspicuous gap under the badge. */}
+        {(status === "completed" || rating != null || platform) && (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-bold uppercase tracking-widest text-brand-muted">
+            {status === "completed" && <span>{formatDateShort(date)}</span>}
+            {rating != null && <span className="text-brand-accent">Rated {rating}/10</span>}
+            {platform && <span className="normal-case tracking-normal">{platform}</span>}
+          </div>
+        )}
+
+        {notes && (
+          <p className="text-[11px] font-normal text-zinc-300 whitespace-pre-wrap break-words leading-relaxed pt-0.5">
+            {notes}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 };
 
-/** Turn a draft into the API payload, dropping fields the user left blank. */
-const payloadFrom = (draft: Draft) => ({
-  status: draft.status,
-  playtime: parseHoursMinutes(draft.hours, draft.minutes),
-  // Rating and date are genuinely nullable, and "cleared it" has to be
-  // expressible — sending `undefined` would be stripped by the partial schema and
-  // leave the old value in place, so an explicit null is what actually erases it.
-  personal_rating: draft.rating === "" ? null : Math.max(0, Math.min(10, parseInt(draft.rating, 10) || 0)),
-  date_completed: draft.dateCompleted ? fromDateInputValue(draft.dateCompleted) : null,
-  platform: draft.platform.trim() ? draft.platform.trim() : null,
-  notes: draft.notes,
-});
-
-const PlaythroughFields: React.FC<{
-  draft: Draft;
-  setDraft: (patch: Partial<Draft>) => void;
-  locked: boolean;
-  idPrefix: string;
-}> = ({ draft, setDraft, locked, idPrefix }) => (
-  <div className="space-y-3">
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div className="space-y-1">
-        <label htmlFor={`${idPrefix}-status`} className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted">Run Status</label>
-        <select
-          id={`${idPrefix}-status`}
-          value={draft.status}
-          disabled={locked}
-          onChange={(e) => setDraft({ status: e.target.value as Draft["status"] })}
-          className="w-full px-3 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent cursor-pointer disabled:opacity-50"
-        >
-          {STATUSES.map((s) => (
-            <option key={s.value} value={s.value}>{s.label}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="space-y-1">
-        <label htmlFor={`${idPrefix}-date`} className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted">Completed</label>
-        <input
-          id={`${idPrefix}-date`}
-          type="date"
-          value={draft.dateCompleted}
-          disabled={locked}
-          onChange={(e) => setDraft({ dateCompleted: e.target.value })}
-          className="w-full px-3 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold uppercase tracking-wide text-white focus:outline-none focus:border-brand-accent disabled:opacity-50"
-        />
-      </div>
-    </div>
-
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      <div className="space-y-1">
-        <label htmlFor={`${idPrefix}-hours`} className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted">Playtime (H)</label>
-        <input
-          id={`${idPrefix}-hours`}
-          type="number"
-          min={0}
-          step={1}
-          inputMode="numeric"
-          value={draft.hours}
-          disabled={locked}
-          onChange={(e) => setDraft({ hours: e.target.value })}
-          className="w-full px-3 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold text-white focus:outline-none focus:border-brand-accent disabled:opacity-50"
-        />
-      </div>
-      <div className="space-y-1">
-        <label htmlFor={`${idPrefix}-minutes`} className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted">Min</label>
-        <input
-          id={`${idPrefix}-minutes`}
-          type="number"
-          min={0}
-          max={59}
-          step={1}
-          inputMode="numeric"
-          value={draft.minutes}
-          disabled={locked}
-          onChange={(e) => setDraft({ minutes: e.target.value })}
-          className="w-full px-3 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold text-white focus:outline-none focus:border-brand-accent disabled:opacity-50"
-        />
-      </div>
-      <div className="space-y-1">
-        <label htmlFor={`${idPrefix}-rating`} className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted">Rating (0-10)</label>
-        <input
-          id={`${idPrefix}-rating`}
-          type="number"
-          min={0}
-          max={10}
-          step={1}
-          inputMode="numeric"
-          placeholder="—"
-          value={draft.rating}
-          disabled={locked}
-          onChange={(e) => setDraft({ rating: e.target.value })}
-          className="w-full px-3 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-bold text-white focus:outline-none focus:border-brand-accent disabled:opacity-50 placeholder:text-zinc-600"
-        />
-      </div>
-    </div>
-
-    <div className="space-y-1">
-      <label htmlFor={`${idPrefix}-platform`} className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted">Platform Played On</label>
-      <input
-        id={`${idPrefix}-platform`}
-        type="text"
-        maxLength={100}
-        placeholder="Optional — a friend's console, shared PC…"
-        value={draft.platform}
-        disabled={locked}
-        onChange={(e) => setDraft({ platform: e.target.value })}
-        className="w-full px-3 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-normal text-white focus:outline-none focus:border-brand-accent disabled:opacity-50 placeholder:text-zinc-600"
-      />
-      <p className="text-[10px] font-semibold normal-case tracking-normal text-brand-muted/80">
-        Free text, not the collection's platform tags — a replay is often on a
-        copy you do not own.
-      </p>
-    </div>
-
-    <div className="space-y-1">
-      <label htmlFor={`${idPrefix}-notes`} className="block text-[11px] font-bold uppercase tracking-wider text-brand-muted">Run Notes</label>
-      <textarea
-        id={`${idPrefix}-notes`}
-        rows={2}
-        maxLength={2000}
-        placeholder="Optional — how this run went"
-        value={draft.notes}
-        disabled={locked}
-        onChange={(e) => setDraft({ notes: e.target.value })}
-        className="w-full px-3 py-2 bg-brand-bg border border-brand-border rounded-none text-xs font-normal text-white focus:outline-none focus:border-brand-accent resize-y disabled:opacity-50 placeholder:text-zinc-600"
-      />
-    </div>
-  </div>
-);
-
-/** One line of summary facts about a run, shared by the game row and replays. */
-const RunFacts: React.FC<{ status: Playthrough["status"]; playtime: number; date: number | null; platform: string | null }> = ({
-  status, playtime, date, platform,
-}) => (
-  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold uppercase tracking-widest text-brand-muted">
-    <span className={status === "completed" ? "text-emerald-400" : undefined}>{getStatusLabel(status)}</span>
-    <span aria-hidden="true" className="text-zinc-700">/</span>
-    <span>{formatPlaytimePrecise(playtime)}</span>
-    {/* The date is shown only when the run is finished. A date on an unfinished
-        run would be a claim the data does not support, and the server deliberately
-        keeps `date_completed` null for those. */}
-    {status === "completed" && (
-      <>
-        <span aria-hidden="true" className="text-zinc-700">/</span>
-        <span>{formatDateShort(date)}</span>
-      </>
-    )}
-    {platform && (
-      <>
-        <span aria-hidden="true" className="text-zinc-700">/</span>
-        <span className="text-brand-muted normal-case tracking-normal">{platform}</span>
-      </>
-    )}
-  </div>
-);
-
 /**
- * Replay history for one game: the original run plus every replay, and the
- * controls to add, edit or remove a replay.
+ * Replay history for one game: the original run plus every replay.
  *
  * Read mode in the details modal. Editing a replay is deliberately *not* part of
  * the metadata edit form — the modal's Save commits one row of the games table,
@@ -253,38 +106,37 @@ const RunFacts: React.FC<{ status: Playthrough["status"]; playtime: number; date
  * back or reporting a save that did not cover everything on screen. So replays
  * are self-contained here: each control saves immediately and refreshes, so what
  * is on screen always matches what is stored.
+ *
+ * A list, and only a list. The add and edit forms are a dialog owned by the host
+ * (see RunFormDialog), requested through `onLogReplay` / `onEditRun` rather than
+ * rendered here — a third layer of modal from inside a modal is only safe when
+ * one component owns all of them, and that is GameDetailsModal.
  */
 export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host dialog already titles the panel, so the
    *  name is not printed twice within one screen. */
   hideHeading?: boolean;
-  /** Opens with the "log a replay" form already expanded.
-   *
-   *  Set by the caller that owns the entry point, so one click on a control
-   *  labelled "add a replay" does not land the user on a list and then require a
-   *  second click to find the button that does the thing they asked for. Reset to
-   *  false whenever the panel is closed, or reopening it for the history alone
-   *  would put the form back up unasked. */
-  startAdding?: boolean }> = ({ game, hideHeading = false, startAdding = false }) => {
+  /** Open the add-run dialog. */
+  onLogReplay: () => void;
+  /** Open the edit-run dialog for one existing replay. */
+  onEditRun: (run: Playthrough) => void }> = ({ game, hideHeading = false, onLogReplay, onEditRun }) => {
   // `useShallow` is required, not stylistic: zustand v5 has no default shallow
   // equality, so a selector returning a fresh object literal compares unequal on
   // every store write and re-renders forever. Fetching also writes to the store
   // it subscribes to, so an unstable selector turns that one write into a loop.
   const {
     playthroughs, loadingPlaythroughs,
-    fetchPlaythroughs, addPlaythrough, updatePlaythrough, deletePlaythrough,
+    fetchPlaythroughs, deletePlaythrough,
   } = useGameTrackStore(useShallow((s) => ({
     playthroughs: s.playthroughs,
     loadingPlaythroughs: s.loadingPlaythroughs,
     fetchPlaythroughs: s.fetchPlaythroughs,
-    addPlaythrough: s.addPlaythrough,
-    updatePlaythrough: s.updatePlaythrough,
     deletePlaythrough: s.deletePlaythrough,
   })));
 
-  const [adding, setAdding] = React.useState(startAdding);
-  const [draft, setDraft] = React.useState<Draft>(emptyDraft);
-  const [editingId, setEditingId] = React.useState<number | null>(null);
-  const [editDraft, setEditDraft] = React.useState<Draft>(emptyDraft);
+  // Delete confirmation stays inline: it is two buttons and one sentence, so it
+  // belongs on the row it acts on rather than in a third stacked dialog. The
+  // add/edit forms went the other way — they are six fields, and inline they
+  // buried the ledger.
   const [confirmId, setConfirmId] = React.useState<number | null>(null);
   const [busy, setBusy] = React.useState(false);
 
@@ -294,66 +146,70 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
 
   // Load on open, and again whenever the modal moves to a different game — the
   // cached list is keyed by id, so switching games within one modal session must
-  // not leave the previous game's history on screen.
-  //
-  // `lastGameIdRef` is what keeps the reset from eating `startAdding`. This
-  // effect runs on mount as well as on every switch, and the form's open state
-  // is the one piece of transient state that is legitimately non-blank there;
-  // resetting unconditionally would slam the form shut on the same tick the
-  // caller asked for it to be open.
-  const lastGameIdRef = React.useRef<number | null>(null);
+  // not leave the previous game's history on screen. The pending delete
+  // confirmation is dropped with it, so a half-made decision cannot follow the
+  // user onto the next game.
   React.useEffect(() => {
     fetchPlaythroughs(gameId);
-    // Reset every transient control on a game switch, or an abandoned draft
-    // would silently attach itself to the next game opened.
-    if (lastGameIdRef.current !== null) {
-      setAdding(false);
-      setDraft(emptyDraft());
-      setEditingId(null);
-      setConfirmId(null);
-      setBusy(false);
-    }
-    lastGameIdRef.current = gameId;
+    setConfirmId(null);
+    setBusy(false);
   }, [gameId, fetchPlaythroughs]);
-
-  const patchDraft = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
-  const patchEdit = (patch: Partial<Draft>) => setEditDraft((d) => ({ ...d, ...patch }));
-
-  const submitAdd = async () => {
-    setBusy(true);
-    const ok = await addPlaythrough(gameId, payloadFrom(draft));
-    setBusy(false);
-    if (ok) {
-      setDraft(emptyDraft());
-      setAdding(false);
-    }
-  };
-
-  const submitEdit = async (id: number) => {
-    setBusy(true);
-    const ok = await updatePlaythrough(id, gameId, payloadFrom(editDraft));
-    setBusy(false);
-    if (ok) setEditingId(null);
-  };
 
   const totalRuns = timesPlayed(game);
   const replayHours = replayPlaytime(game);
   const allHours = totalPlaytime(game);
+  // The game row is run #1 and is not in `runs`, so it has to be part of the
+  // max. Derived rather than stored — there is no per-game "longest run" column.
+  const longestRun = Math.max(game.playtime || 0, ...runs.map((r) => r.playtime || 0));
   // Recomputed whenever the game changes, not captured once: the user can flip a
   // title's status from the edit form while this panel is mounted behind the
   // dialog, and the control has to follow.
   const canReplay = replayAllowed(game.status);
 
   return (
-    <section aria-labelledby="replay-history-heading" className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <h3
-          id="replay-history-heading"
-          className={`flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-brand-muted ${hideHeading ? "sr-only" : ""}`}
-        >
-          <History className="w-3.5 h-3.5 shrink-0" />
-          Replay History
-        </h3>
+    /* Owns its own padding and its own scroll container. The dialog that hosts
+       it no longer scrolls (`overflow-hidden`), because the header and totals
+       above need to stay pinned while a long list moves.
+
+       `flex-1 min-h-0`, not `h-full`. A percentage height cannot resolve against
+       a parent whose own height comes from flex layout rather than a `height`
+       declaration, so it silently fell back to `auto`: the inner scroller kept
+       its full content height, never overflowed, and therefore never scrolled —
+       the list just ran past the bottom of the dialog and got clipped. Flex
+       sizing resolves inside the flex line instead. */
+    <section
+      aria-labelledby="replay-history-heading"
+      className="flex flex-col flex-1 min-h-0 px-5 pb-5"
+    >
+      {/* ── Ledger header ──────────────────────────────────────────────────
+          The run count is the hero because it is the one number this panel
+          exists to answer — "how many times have I finished this?" — and it was
+          previously a `PLAYED 1×` fragment competing with a button for the same
+          line. Hours sit beside it as the supporting figure, because that is
+          what the reader is reconciling the rows against.
+
+          The replay subtotal is shown only once it can mean something: with no
+          replays it would read "0H across 0 replays", which is a true statement
+          about nothing. */}
+      <div className="flex items-end justify-between gap-4 pt-5 pb-4 border-b border-brand-border/60 shrink-0">
+        <div className="min-w-0">
+          <h3
+            id="replay-history-heading"
+            className={`flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-brand-muted ${hideHeading ? "sr-only" : ""}`}
+          >
+            <History className="w-3.5 h-3.5 shrink-0" />
+            Runs
+          </h3>
+          <p className="mt-2 flex items-baseline gap-1.5">
+            <span className="text-4xl sm:text-5xl font-black leading-none tracking-tight tabular-nums text-white">
+              {totalRuns}
+            </span>
+            <span className="text-xl sm:text-2xl font-black leading-none text-brand-accent">
+              &times;
+            </span>
+          </p>
+        </div>
+
         {/* The add control is withheld outright until the game is Completed, not
             disabled. A greyed-out button still advertises the action and still
             costs the user a click to discover it is unavailable; not rendering it
@@ -362,134 +218,122 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
         {canReplay ? (
           <button
             type="button"
-            onClick={() => { setAdding((v) => !v); setEditingId(null); setConfirmId(null); }}
+            onClick={() => { setConfirmId(null); onLogReplay(); }}
             disabled={busy}
             title="Log another playthrough of this game"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-none bg-transparent border border-brand-border text-brand-muted text-[10px] font-black uppercase tracking-widest hover:bg-brand-accent/10 hover:text-brand-accent hover:border-brand-accent/50 transition-colors cursor-pointer disabled:opacity-40"
+            className="flex items-center gap-1.5 shrink-0 px-3 py-2 rounded-none bg-transparent border border-brand-border text-brand-muted text-[10px] font-black uppercase tracking-widest hover:bg-brand-accent/10 hover:text-brand-accent hover:border-brand-accent/50 active:bg-brand-accent/20 transition-colors cursor-pointer disabled:opacity-40"
           >
-            {adding ? <X className="w-3 h-3 shrink-0" /> : <Plus className="w-3 h-3 shrink-0" />}
-            {adding ? "Cancel" : "Log Replay"}
+            <Plus className="w-3 h-3 shrink-0" />
+            Log Replay
           </button>
         ) : (
           /* Names the status actually in force rather than a hardcoded "Endless".
              Replays now open up only once a game is Completed, so this stands in
              for every earlier status too, and labelling them all "Endless" would
              be a straightforward lie. */
-          <span className="text-[10px] font-bold uppercase tracking-widest text-brand-muted/70 text-right">
+          <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-brand-muted/70 text-right">
             {getStatusLabel(game.status)}
           </span>
         )}
       </div>
 
-      {/* The totals line reconciles the rows beneath it: run #1's hours come from
-          the game row, replay hours from the replay rows, and the count from
-          1 + the number of rows. Stating all three together is what stops a
-          reader assuming the list is the whole history when run #1 is not in it. */}
-      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-muted">
-        Played{" "}
-        <span className="text-brand-accent">{totalRuns}×</span>
-        {allHours > 0 && (
-          <>
-            {" · "}
-            <span className="text-white">{formatPlaytimePrecise(allHours)}</span> total
-          </>
-        )}
-        {runs.length > 0 && (
-          <>
-            {" · "}
-            {formatPlaytimePrecise(replayHours)} across {runs.length} replay{runs.length === 1 ? "" : "s"}
-          </>
-        )}
-      </p>
+      {/* ── Totals strip ───────────────────────────────────────────────────
+          Reconciles the rows beneath it: run #1's hours come from the game row,
+          the replay subtotal from the replay rows, and the count from 1 + the
+          number of rows. Stating all three together is what stops a reader
+          assuming the list is the whole history when run #1 is not in it.
 
-      {adding && (
-        <div className="border border-brand-border bg-zinc-950/60 p-4 space-y-3">
-          <PlaythroughFields draft={draft} setDraft={patchDraft} locked={busy} idPrefix="replay-new" />
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => { setAdding(false); setDraft(emptyDraft()); }}
-              disabled={busy}
-              className="px-3 py-2 rounded-none bg-transparent border border-brand-border text-brand-muted text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors cursor-pointer disabled:opacity-40"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={submitAdd}
-              disabled={busy}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-none bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer disabled:opacity-50"
-            >
-              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5 shrink-0" />}
-              {busy ? "Saving…" : "Log Replay"}
-            </button>
-          </div>
+          A hairline-divided strip rather than the old run of `·`-separated
+          fragments, so each figure is a discrete cell rather than a clause in a
+          sentence, and the row of three holds its shape as values change width. */}
+      <dl className="grid grid-cols-2 sm:grid-cols-3 divide-x divide-brand-border/60 border-b border-brand-border/60 shrink-0">
+        <div className="py-3 pr-4">
+          <dt className="text-[9px] font-bold uppercase tracking-widest text-brand-muted">All runs</dt>
+          <dd className="mt-1 text-sm font-black text-white tabular-nums">
+            {allHours > 0 ? formatPlaytimePrecise(allHours) : "—"}
+          </dd>
         </div>
-      )}
+        <div className="py-3 pr-4">
+          <dt className="text-[9px] font-bold uppercase tracking-widest text-brand-muted">Replays</dt>
+          <dd className="mt-1 text-sm font-black text-white tabular-nums">
+            {runs.length > 0 ? formatPlaytimePrecise(replayHours) : "—"}
+          </dd>
+        </div>
+        <div className="py-3 pl-4 hidden sm:block">
+          <dt className="text-[9px] font-bold uppercase tracking-widest text-brand-muted">Longest</dt>
+          <dd className="mt-1 text-sm font-black text-white tabular-nums">
+            {/* Max across the game row and every replay. Recomputed from the
+                rows rather than stored: there is no per-game "longest run"
+                column, and deriving it here keeps the server's denormalised
+                replay totals out of a display concern. */}
+            {longestRun > 0 ? formatPlaytimePrecise(longestRun) : "—"}
+          </dd>
+        </div>
+      </dl>
 
-      <ol className="space-y-2">
+      {/* The one scrolling region. Everything above it is the fixed reference
+          frame; everything inside it is the growing list. `overscroll-contain`
+          so scrolling the tail of a long list does not hand the gesture to the
+          details modal behind. */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+      {/* `divide-y` rather than separately bordered boxes. Every row carried its
+          own 1px frame before, which made a run with notes look heavier than one
+          without and turned the list into a stack of cards instead of a ledger.
+          Dividers let the hours column run uninterrupted down the panel. */}
+      <ol className="mt-1 divide-y divide-brand-border/50">
         {/* Run #1 is the game row itself, rendered here so the history reads as
             one list. It is not editable from here: its fields are the game's own,
             edited in the metadata form, and offering a second editor for the same
             values would just be two paths to one row. */}
-        <li className="border border-brand-border/60 bg-zinc-950/40 px-3 py-2.5 flex items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase tracking-widest text-white">Playthrough 1</span>
-              <span className="px-1.5 py-0.5 border border-brand-border text-[9px] font-black uppercase tracking-widest text-brand-muted">
-                Original
-              </span>
-            </div>
-            <RunFacts
-              status={game.status}
-              playtime={game.playtime}
-              date={game.date_completed}
-              platform={null}
-            />
-          </div>
+        <li className="py-4 flex items-start justify-between gap-3">
+          <RunRow
+            status={game.status}
+            playtime={game.playtime}
+            date={game.date_completed}
+            platform={null}
+            sequence={1}
+            isOriginal
+          />
         </li>
 
         {loading && runs.length === 0 && (
-          <li className="flex items-center gap-2 px-3 py-2.5 text-[10px] font-bold uppercase tracking-widest text-brand-muted">
+          <li className="flex items-center gap-2 py-4 text-[10px] font-bold uppercase tracking-widest text-brand-muted">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             Loading replays…
           </li>
         )}
 
         {!loading && runs.length === 0 && (
-          <li className="px-3 py-2.5 text-[10px] font-semibold normal-case tracking-normal text-brand-muted/80">
-            {canReplay
-              ? "No replays logged. The original run above is the only playthrough recorded for this game."
-              : REPLAY_UNAVAILABLE_REASON}
+          /* Composed rather than one sentence: the state is "one run so far", so
+             it says that in the panel's own terms instead of explaining the
+             absence of a list that never had much in it. */
+          <li className="py-6 flex items-start gap-3">
+            <span className="mt-0.5 shrink-0 w-7 h-7 flex items-center justify-center border border-dashed border-zinc-600 text-zinc-500">
+              {canReplay ? <Plus className="w-3 h-3" aria-hidden /> : <History className="w-3 h-3" aria-hidden />}
+            </span>
+            <div className="min-w-0 space-y-1">
+              <p className="text-[11px] font-black uppercase tracking-widest text-brand-muted">
+                One run so far
+              </p>
+              <p className="text-[11px] font-normal normal-case tracking-normal text-brand-muted/80 leading-relaxed">
+                {canReplay
+                  ? "No replays logged yet. The original run above is the only playthrough recorded for this game."
+                  : REPLAY_UNAVAILABLE_REASON}
+              </p>
+            </div>
           </li>
         )}
 
         {runs.map((run) => (
-          <li key={run.id} className="border border-brand-border/60 bg-zinc-950/40 px-3 py-2.5">
-            {editingId === run.id ? (
-              <div className="space-y-3">
-                <PlaythroughFields draft={editDraft} setDraft={patchEdit} locked={busy} idPrefix={`replay-${run.id}`} />
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditingId(null)}
-                    disabled={busy}
-                    className="px-3 py-2 rounded-none bg-transparent border border-brand-border text-brand-muted text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors cursor-pointer disabled:opacity-40"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => submitEdit(run.id)}
-                    disabled={busy}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-none bg-brand-accent hover:bg-brand-accent-hover text-brand-accent-ink text-[10px] font-black uppercase tracking-widest transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pencil className="w-3.5 h-3.5 shrink-0" />}
-                    {busy ? "Saving…" : "Save Run"}
-                  </button>
-                </div>
-              </div>
-            ) : confirmId === run.id ? (
+          /* Only the delete confirmation expands in place now. The edit form used
+             to sit here too, and it was the reason rows needed a framed
+             expanded state at all — a six-field form wedged into a ledger row
+             broke the divider rhythm and buried the hours column. */
+          <li
+            key={run.id}
+            className={confirmId === run.id ? "my-3 border border-brand-border bg-zinc-950/60 p-4" : "py-4"}
+          >
+            {confirmId === run.id ? (
               <div className="space-y-2">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-red-400">
                   Remove playthrough {run.sequence}?
@@ -525,39 +369,19 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
               </div>
             ) : (
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white">
-                      Playthrough {run.sequence}
-                    </span>
-                    <span className="px-1.5 py-0.5 border border-brand-border text-[9px] font-black uppercase tracking-widest text-brand-muted">
-                      Replay
-                    </span>
-                  </div>
-                  <RunFacts
-                    status={run.status}
-                    playtime={run.playtime}
-                    date={run.date_completed}
-                    platform={run.platform}
-                  />
-                  {run.personal_rating != null && (
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-accent">
-                      Rated {run.personal_rating}/10
-                    </p>
-                  )}
-                  {run.notes && (
-                    <p className="text-[11px] font-normal text-zinc-300 whitespace-pre-wrap break-words">{run.notes}</p>
-                  )}
-                </div>
+                <RunRow
+                  status={run.status}
+                  playtime={run.playtime}
+                  date={run.date_completed}
+                  platform={run.platform}
+                  rating={run.personal_rating}
+                  notes={run.notes}
+                  sequence={run.sequence}
+                />
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
-                    onClick={() => {
-                      setEditingId(run.id);
-                      setEditDraft(draftFrom(run));
-                      setConfirmId(null);
-                      setAdding(false);
-                    }}
+                    onClick={() => { setConfirmId(null); onEditRun(run); }}
                     disabled={busy}
                     title={`Edit playthrough ${run.sequence}`}
                     aria-label={`Edit playthrough ${run.sequence}`}
@@ -567,7 +391,7 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setConfirmId(run.id); setEditingId(null); }}
+                    onClick={() => setConfirmId(run.id)}
                     disabled={busy}
                     title={`Delete playthrough ${run.sequence}`}
                     aria-label={`Delete playthrough ${run.sequence}`}
@@ -581,6 +405,7 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
           </li>
         ))}
       </ol>
+      </div>
     </section>
   );
 };
