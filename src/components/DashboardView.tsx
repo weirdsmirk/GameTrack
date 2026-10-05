@@ -371,10 +371,10 @@ export const DashboardView: React.FC = React.memo(() => {
                   container the button's `items-end` puts both children on the
                   same baseline at the bottom of the content box. */}
               <div className="relative shrink-0">
-                <p className="text-[11px] tracking-widest text-session-subtext uppercase font-bold">
+                <p className="text-[13px] tracking-widest text-session-subtext uppercase font-bold">
                   Playtime
                 </p>
-                <div className="text-4xl sm:text-5xl font-black text-session-text tracking-tight mt-1">
+                <div className="text-6xl sm:text-7xl font-black text-session-text tracking-tight mt-2">
                   {game.hide_playtime === 1 ? "—" : formatPlaytimePrecise(game.playtime)}
                 </div>
               </div>
