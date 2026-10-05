@@ -1009,7 +1009,22 @@ apiRouter.post("/games/:id/playthroughs", (req: Request, res: Response) => {
     if (!paramParsed.success) return res.status(400).json({ error: "Invalid game ID" });
     const gameId = paramParsed.data.id;
 
-    if (!stmts.getGameById.get(gameId)) return res.status(404).json({ error: "Game not found" });
+    const game = stmts.getGameById.get(gameId) as { status: string } | undefined;
+    if (!game) return res.status(404).json({ error: "Game not found" });
+
+    /* Replays require a finished first run, matching `replayAllowed` on the
+       client. Enforced here as well as in the UI because the UI is only a
+       rendering of the rule — a replay logged against a backlog or playing row
+       inflates the ×N badge, the analytics run count and the per-run breakdown,
+       and none of those can tell the reader the game was never finished once.
+       Status is read inside the same transaction as the insert below would be,
+       but this check is deliberately outside it: nothing to roll back if it
+       fails, and a rejected write is cheap to retry. */
+    if (game.status !== "completed") {
+      return res.status(400).json({
+        error: "A game must be Completed before it can be replayed.",
+      });
+    }
 
     const runCount = stmts.getPlaythroughsByGame.all(gameId).length;
     if (runCount >= MAX_REPLAYS_PER_GAME) {

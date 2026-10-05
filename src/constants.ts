@@ -350,23 +350,28 @@ export const PLATFORMS_LOCKED_REASON =
 /**
  * Whether a game may be replayed at all.
  *
- * `endless` is excluded, and not as a style preference. An endless title is one
- * the user marked as having no end — Minecraft, Tetris, a roguelike they still
- * boot up. Its playtime is one unbroken stretch rather than a set of discrete
- * runs, so "which playthrough was that?" has no answer: there is no first run to
- * be distinct from a second. Offering a replay on such a row invites splitting
- * one continuous total into runs that never happened, which then feeds the
- * replay badge, the analytics "total runs" figure and the per-run breakdown.
+ * Only `completed`. A replay is by definition a repeat of a run that finished, so
+ * there is nothing to replay until the first one has — and asking for it earlier
+ * produces rows that quietly break the counts they feed. A `backlog` game logged
+ * three times reads as "beaten three times" in the replay badge, the analytics
+ * "total runs" figure and the per-run breakdown, none of which have any way to
+ * say the user never finished it even once.
  *
- * Every other status may be replayed. A title in `backlog` or `playing` is
- * unusual to replay but not incoherent — people log a second attempt at a game
- * they bounced off, and the app's job is to record what the user says they did.
+ * `playing` is excluded for the same reason: the first run is still in progress,
+ * so a second run either overlaps it or replaces it, and neither is what the user
+ * meant.
+ *
+ * `endless` remains excluded for the reason it always was — an endless title's
+ * playtime is one unbroken stretch, so "which playthrough was that?" has no
+ * answer, and there is no first run to be distinct from a second. That exclusion
+ * is now redundant in practice, since endless is not completed either, but it is
+ * spelled out here because the reasoning is not subsumed by the completed rule.
  */
-export const replayAllowed = (status: string | null | undefined): boolean => status !== "endless";
+export const replayAllowed = (status: string | null | undefined): boolean => status === "completed";
 
 /** Shown in place of the "Log Replay" control while replays are unavailable. */
 export const REPLAY_UNAVAILABLE_REASON =
-  "Endless games are one continuous run, so there is no separate playthrough to log.";
+  "Replays are logged once a game is finished — mark this one Completed and the option opens up.";
 
 /**
  * How many times a game has been played in total — its own run plus every

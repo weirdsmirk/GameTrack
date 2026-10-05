@@ -340,7 +340,7 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
   const replayHours = replayPlaytime(game);
   const allHours = totalPlaytime(game);
   // Recomputed whenever the game changes, not captured once: the user can flip a
-  // title to Endless from the edit form while this panel is mounted behind the
+  // title's status from the edit form while this panel is mounted behind the
   // dialog, and the control has to follow.
   const canReplay = replayAllowed(game.status);
 
@@ -354,7 +354,7 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
           <History className="w-3.5 h-3.5 shrink-0" />
           Replay History
         </h3>
-        {/* The add control is withheld outright for an endless title, not
+        {/* The add control is withheld outright until the game is Completed, not
             disabled. A greyed-out button still advertises the action and still
             costs the user a click to discover it is unavailable; not rendering it
             says the thing does not exist here, which is the truth. The reason is
@@ -371,8 +371,12 @@ export const ReplayHistory: React.FC<{ game: Game; /** Suppressed when a host di
             {adding ? "Cancel" : "Log Replay"}
           </button>
         ) : (
+          /* Names the status actually in force rather than a hardcoded "Endless".
+             Replays now open up only once a game is Completed, so this stands in
+             for every earlier status too, and labelling them all "Endless" would
+             be a straightforward lie. */
           <span className="text-[10px] font-bold uppercase tracking-widest text-brand-muted/70 text-right">
-            Endless
+            {getStatusLabel(game.status)}
           </span>
         )}
       </div>

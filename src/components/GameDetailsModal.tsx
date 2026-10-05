@@ -58,8 +58,8 @@ const playtimeTitle = (game: Game): string => {
  * These three sit in a row and read as one group, so they have to stay identical
  * in everything except their label and value — which is exactly what breaks when
  * each cell is written inline. The Playtime cell is a button that opens a dialog;
- * Your Rating and Completed open the edit form on the matching field; and for an
- * Endless title the Playtime cell drops back to a plain box. Written three times,
+ * Your Rating and Completed open the edit form on the matching field; and until
+ * the game is Completed the Playtime cell drops back to a plain box. Written three times,
  * those variants drift — the affordance ends up on two cells and not the third,
  * or survives on one after the action behind it was removed.
  */
@@ -1446,9 +1446,9 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                       not a chevron: that would make one cell in a row of three
                       look like a different *kind* of thing rather than the same
                       thing that opens something. */}
-                  {/* Playtime — the entry point to replay history. On an Endless
-                      title there is nothing to open, so `onOpen` is omitted and
-                      MetricCell renders a plain box: no cursor, no hover, no
+                  {/* Playtime — the entry point to replay history. Until the game is
+                      Completed there is nothing to open, so `onOpen` is omitted
+                      and MetricCell renders a plain box: no cursor, no hover, no
                       dashed rule. Keeping the affordance while removing the action
                       would be worse than either — a clickable-looking cell that
                       opens nothing.
@@ -1464,7 +1464,7 @@ export const GameDetailsModal: React.FC = React.memo(() => {
                       ? `Playtime for ${selectedGame.title}: ${playtimeTitle(selectedGame)}. Open replay history.`
                       : undefined}
                     /* The "+" — log another playthrough, skipping the list.
-                        Withheld outright on an Endless title, matching the cell's
+                        Withheld until the game is Completed, matching the cell's
                         own click target and the panel's add button: a greyed-out
                         "+" still advertises an action this game does not have. */
                     cornerAction={canReplaySelected ? (
